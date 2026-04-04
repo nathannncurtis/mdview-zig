@@ -184,24 +184,27 @@ const IDWriteFactory_VTable = extern struct {
     CreateTextLayout: *const fn (*anyopaque, [*]const u16, u32, *anyopaque, f32, f32, *?*anyopaque) callconv(.C) HRESULT,
 };
 
-// IDWriteTextLayout vtable — inherits IDWriteTextFormat. We need GetMetrics (index 60) and SetFontWeight/Style/Size
+// IDWriteTextLayout vtable — inherits IDWriteTextFormat (3-27), layout methods start at 28
 const IDWriteTextLayout_VTable = extern struct {
     // IUnknown (0-2)
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.C) u32,
-    // IDWriteTextFormat (3-24) — skip most
-    _pad3_24: [22]*const anyopaque,
-    // IDWriteTextLayout (25+)
-    SetMaxWidth: *const fn (*anyopaque, f32) callconv(.C) HRESULT, // 25
-    SetMaxHeight: *const fn (*anyopaque, f32) callconv(.C) HRESULT, // 26
-    _pad27: *const anyopaque, // 27 SetFontCollection
-    _pad28: *const anyopaque, // 28 SetFontFamilyName
-    SetFontWeight: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 29
-    SetFontStyle: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 30
-    _pad31: *const anyopaque, // 31 SetFontStretch
-    SetFontSize: *const fn (*anyopaque, f32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 32
-    _pad33_59: [27]*const anyopaque, // 33-59
+    QueryInterface: *const anyopaque, // 0
+    AddRef: *const anyopaque, // 1
+    Release: *const fn (*anyopaque) callconv(.C) u32, // 2
+    // IDWriteTextFormat (3-27)
+    _pad3_27: [25]*const anyopaque,
+    // IDWriteTextLayout (28+)
+    SetMaxWidth: *const fn (*anyopaque, f32) callconv(.C) HRESULT, // 28
+    SetMaxHeight: *const fn (*anyopaque, f32) callconv(.C) HRESULT, // 29
+    _pad30: *const anyopaque, // 30 SetFontCollection
+    _pad31: *const anyopaque, // 31 SetFontFamilyName
+    SetFontWeight: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 32
+    SetFontStyle: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 33
+    _pad34: *const anyopaque, // 34 SetFontStretch
+    SetFontSize: *const fn (*anyopaque, f32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 35
+    SetUnderline: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 36
+    SetStrikethrough: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 37
+    SetDrawingEffect: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 38
+    _pad39_59: [21]*const anyopaque, // 39-59
     GetMetrics: *const fn (*anyopaque, *DWRITE_TEXT_METRICS) callconv(.C) HRESULT, // 60
 };
 
@@ -703,7 +706,17 @@ fn renderTextBlock(
     const lay = layout orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
 
-    // TODO: bold/italic formatting via SetFontWeight/SetFontStyle
+    // Apply bold ranges
+    const vt_layout = vtable(IDWriteTextLayout_VTable, lay);
+    var bi: u32 = 0;
+    while (bi < block.bold_count) : (bi += 1) {
+        _ = vt_layout.SetFontWeight(lay, 700, .{ .startPosition = block.bold_ranges[bi][0], .length = block.bold_ranges[bi][1] });
+    }
+    // Apply italic ranges
+    var ii: u32 = 0;
+    while (ii < block.italic_count) : (ii += 1) {
+        _ = vt_layout.SetFontStyle(lay, 2, .{ .startPosition = block.italic_ranges[ii][0], .length = block.italic_ranges[ii][1] });
+    }
 
     // Get height
     var metrics: DWRITE_TEXT_METRICS = undefined;
