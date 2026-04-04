@@ -83,6 +83,22 @@ extern "user32" fn ScreenToClient(hWnd: HWND, lpPoint: *POINT) callconv(.C) BOOL
 extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.C) ?*anyopaque;
 extern "user32" fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.C) BOOL;
 extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: u32) callconv(.C) HRESULT;
+extern "user32" fn SetTimer(hWnd: ?HWND, nIDEvent: usize, uElapse: u32, lpTimerFunc: ?*anyopaque) callconv(.C) usize;
+extern "user32" fn DragAcceptFiles(hWnd: HWND, fAccept: BOOL) callconv(.C) void;
+extern "shell32" fn DragQueryFileW(hDrop: *anyopaque, iFile: u32, lpszFile: ?[*]u16, cch: u32) callconv(.C) u32;
+extern "shell32" fn DragFinish(hDrop: *anyopaque) callconv(.C) void;
+extern "advapi32" fn RegCreateKeyExW(hKey: usize, lpSubKey: [*:0]const u16, Reserved: u32, lpClass: ?*anyopaque, dwOptions: u32, samDesired: u32, lpSecurityAttributes: ?*anyopaque, phkResult: *usize, lpdwDisposition: ?*u32) callconv(.C) i32;
+extern "advapi32" fn RegSetValueExW(hKey: usize, lpValueName: ?[*:0]const u16, Reserved: u32, dwType: u32, lpData: [*]const u8, cbData: u32) callconv(.C) i32;
+extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.C) i32;
+extern "kernel32" fn GetModuleFileNameW(hModule: ?*anyopaque, lpFilename: [*]u16, nSize: u32) callconv(.C) u32;
+
+const WM_TIMER: u32 = 0x0113;
+const WM_DROPFILES: u32 = 0x0233;
+const WS_EX_ACCEPTFILES: u32 = 0x00000010;
+const HKEY_CURRENT_USER: usize = 0x80000001;
+const KEY_WRITE: u32 = 0x20006;
+const REG_SZ: u32 = 1;
+const TIMER_FILE_WATCH: usize = 1;
 
 // ============================================================
 // Direct2D / DirectWrite COM interop
@@ -278,6 +294,11 @@ var g_block_count: usize = 0;
 var g_block_text_buf: [256 * 1024]u8 = undefined;
 var g_block_text_len: usize = 0;
 
+var g_file_path: []const u8 = "";
+var g_file_mtime: i128 = 0;
+var g_hwnd: ?HWND = null;
+var g_allocator: std.mem.Allocator = undefined;
+
 // ============================================================
 // Entry points
 // ============================================================
@@ -297,16 +318,22 @@ fn main_impl(hInstance: ?HINSTANCE) !i32 {
     defer arena.deinit();
     const allocator = arena.allocator();
 
+    g_allocator = allocator;
     const args = try std.process.argsAlloc(allocator);
+
+    if (args.len >= 2 and std.mem.eql(u8, args[1], "--register")) {
+        registerFileAssociation();
+        return 0;
+    }
+
     if (args.len < 2) {
         log("no file argument");
         return 1;
     }
-    logFmt("opening: {s}", .{args[1]});
+    g_file_path = args[1];
+    logFmt("opening: {s}", .{g_file_path});
 
-    const file = try std.fs.cwd().openFile(args[1], .{});
-    defer file.close();
-    g_markdown = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    loadFile();
     logFmt("read {d} bytes", .{g_markdown.len});
 
     parseMarkdown();
@@ -326,14 +353,19 @@ fn main_impl(hInstance: ?HINSTANCE) !i32 {
     });
 
     const hwnd = CreateWindowExW(
-        0, class_name, L("mdview"),
+        WS_EX_ACCEPTFILES, class_name, L("mdview"),
         WS_POPUP | WS_VISIBLE | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 900, 700,
         null, null, hInstance, null,
     ) orelse return 1;
+    g_hwnd = hwnd;
 
     createRenderTarget(hwnd);
     if (g_render_target != null) log("render target created") else log("FAILED to create render target");
+
+    // File watch timer — check every 500ms
+    _ = SetTimer(hwnd, TIMER_FILE_WATCH, 500, null);
+
     _ = ShowWindow(hwnd, SW_SHOW);
     _ = UpdateWindow(hwnd);
 
@@ -803,8 +835,17 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.C) LR
             if ((@as(u16, @bitCast(GetKeyState(VK_MENU))) & 0x8000) != 0) return HTCAPTION;
             return HTCLIENT;
         },
+        WM_TIMER => {
+            if (@as(usize, @bitCast(wParam)) == TIMER_FILE_WATCH) {
+                checkFileChanged();
+            }
+            return 0;
+        },
+        WM_DROPFILES => {
+            handleDrop(@ptrFromInt(@as(usize, @bitCast(wParam))));
+            return 0;
+        },
         WM_NCCALCSIZE => {
-            // Return 0 to remove the non-client area (white titlebar)
             if (wParam != 0) return 0;
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
@@ -814,4 +855,90 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.C) LR
         },
         else => return DefWindowProcW(hwnd, msg, wParam, lParam),
     }
+}
+
+// ============================================================
+// File loading & watching
+// ============================================================
+fn loadFile() void {
+    const file = std.fs.cwd().openFile(g_file_path, .{}) catch return;
+    defer file.close();
+    const stat = file.stat() catch return;
+    g_file_mtime = stat.mtime;
+    g_markdown = file.readToEndAlloc(g_allocator, 10 * 1024 * 1024) catch return;
+    parseMarkdown();
+}
+
+fn checkFileChanged() void {
+    const file = std.fs.cwd().openFile(g_file_path, .{}) catch return;
+    defer file.close();
+    const stat = file.stat() catch return;
+    if (stat.mtime != g_file_mtime) {
+        log("file changed, reloading");
+        g_file_mtime = stat.mtime;
+        g_markdown = file.readToEndAlloc(g_allocator, 10 * 1024 * 1024) catch return;
+        parseMarkdown();
+        if (g_hwnd) |h| _ = InvalidateRect(h, null, 0);
+    }
+}
+
+fn handleDrop(hDrop: *anyopaque) void {
+    var path_buf: [512]u16 = undefined;
+    const len = DragQueryFileW(hDrop, 0, &path_buf, 512);
+    DragFinish(hDrop);
+    if (len == 0) return;
+
+    // Convert UTF-16 to UTF-8
+    var utf8_buf: [1024]u8 = undefined;
+    const utf8_len = std.unicode.utf16LeToUtf8(&utf8_buf, path_buf[0..len]) catch return;
+    const path = utf8_buf[0..utf8_len];
+
+    // Check .md or .markdown extension
+    if (!std.mem.endsWith(u8, path, ".md") and !std.mem.endsWith(u8, path, ".markdown")) return;
+
+    g_file_path = g_allocator.dupe(u8, path) catch return;
+    logFmt("dropped: {s}", .{g_file_path});
+    loadFile();
+    if (g_hwnd) |h| _ = InvalidateRect(h, null, 0);
+}
+
+// ============================================================
+// --register: file association
+// ============================================================
+fn registerFileAssociation() void {
+    var exe_buf: [512]u16 = undefined;
+    const exe_len = GetModuleFileNameW(null, &exe_buf, 512);
+    if (exe_len == 0) return;
+
+    // Build command string: "path\to\mdview.exe" "%1"
+    var cmd_buf: [600]u16 = undefined;
+    var cmd_pos: usize = 0;
+    cmd_buf[cmd_pos] = '"';
+    cmd_pos += 1;
+    @memcpy(cmd_buf[cmd_pos..][0..exe_len], exe_buf[0..exe_len]);
+    cmd_pos += exe_len;
+    const suffix = L("\" \"%1\"");
+    @memcpy(cmd_buf[cmd_pos..][0..suffix.len], suffix);
+    cmd_pos += suffix.len;
+    cmd_buf[cmd_pos] = 0;
+
+    setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\mdview"), null, L("Markdown File"));
+    setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\mdview\\shell\\open\\command"), null, @ptrCast(&cmd_buf));
+    setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\.md"), null, L("mdview"));
+    setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\.markdown"), null, L("mdview"));
+
+    // Print to stdout if possible
+    const stdout = std.io.getStdOut().writer();
+    stdout.writeAll("mdview registered as default viewer for .md and .markdown files.\n") catch {};
+}
+
+fn setRegString(root: usize, subkey: [*:0]const u16, value_name: ?[*:0]const u16, data: [*:0]const u16) void {
+    var hkey: usize = 0;
+    if (RegCreateKeyExW(root, subkey, 0, null, 0, KEY_WRITE, null, &hkey, null) != 0) return;
+    defer _ = RegCloseKey(hkey);
+    // Calculate byte length of the string including null terminator
+    var len: u32 = 0;
+    while (data[len] != 0) len += 1;
+    len += 1; // include null
+    _ = RegSetValueExW(hkey, value_name, 0, REG_SZ, @ptrCast(data), len * 2);
 }

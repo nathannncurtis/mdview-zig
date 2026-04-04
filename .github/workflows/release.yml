@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Zig
+        run: |
+          curl -L -o zig.zip https://ziglang.org/download/0.14.1/zig-windows-x86_64-0.14.1.zip
+          Expand-Archive zig.zip -DestinationPath .
+          echo "$PWD\zig-windows-x86_64-0.14.1" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSmall
+
+      - name: Build installer
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMDVIEW_VERSION=$version installer.iss
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            zig-out/bin/mdview.exe
+            Output/mdview-setup.exe
