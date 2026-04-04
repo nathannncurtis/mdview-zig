@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,9 +28,85 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart("v")
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMDVIEW_VERSION=$version installer.iss
 
-      - name: Release
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            zig-out/bin/mdview.exe
+            Output/mdview-setup.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev
+
+      - name: Download Zig
+        run: |
+          curl -L -o zig.tar.xz https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-0.14.1" >> $GITHUB_PATH
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSmall
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp zig-out/bin/mdview dist/mdview-linux-x86_64
+          chmod +x dist/mdview-linux-x86_64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/mdview-linux-x86_64
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Zig
+        run: |
+          curl -L -o zig.tar.xz https://ziglang.org/download/0.14.1/zig-aarch64-macos-0.14.1.tar.xz
+          tar -xf zig.tar.xz
+          echo "$PWD/zig-aarch64-macos-0.14.1" >> $GITHUB_PATH
+
+      - name: Build
+        run: zig build -Doptimize=ReleaseSmall
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp zig-out/bin/mdview dist/mdview-macos-arm64
+          chmod +x dist/mdview-macos-arm64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/mdview-macos-arm64
+
+  release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            zig-out/bin/mdview.exe
-            Output/mdview-setup.exe
+            artifacts/windows/mdview.exe
+            artifacts/windows/mdview-setup.exe
+            artifacts/linux/mdview-linux-x86_64
+            artifacts/macos/mdview-macos-arm64
