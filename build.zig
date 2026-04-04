@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
     exe.subsystem = .Windows;
+    exe.addWin32ResourceFile(.{ .file = b.path("icon.rc") });
 
     b.installArtifact(exe);
 

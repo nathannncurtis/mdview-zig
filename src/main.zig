@@ -567,18 +567,20 @@ fn addInlineBlock(kind: BlockKind, raw: []const u8) void {
                 continue;
             }
         }
+        // ![alt](url) — images: show alt text
+        if (raw[i] == '!' and i + 1 < raw.len and raw[i + 1] == '[') {
+            if (parseLinkOrImage(raw, i + 1)) |result| {
+                if (result.text.len > 0) appendText(result.text);
+                i = result.end;
+                continue;
+            }
+        }
+        // [text](url) — links: show text
         if (raw[i] == '[') {
-            // [text](url) — just extract text
-            const bracket_end = std.mem.indexOfScalarPos(u8, raw, i + 1, ']');
-            if (bracket_end) |be| {
-                if (be + 1 < raw.len and raw[be + 1] == '(') {
-                    const paren_end = std.mem.indexOfScalarPos(u8, raw, be + 2, ')');
-                    if (paren_end) |pe| {
-                        appendText(raw[i + 1 .. be]);
-                        i = pe + 1;
-                        continue;
-                    }
-                }
+            if (parseLinkOrImage(raw, i)) |result| {
+                if (result.text.len > 0) appendText(result.text);
+                i = result.end;
+                continue;
             }
         }
         // Regular char
@@ -589,6 +591,39 @@ fn addInlineBlock(kind: BlockKind, raw: []const u8) void {
     block.text = g_block_text_buf[start..g_block_text_len];
     g_blocks[g_block_count] = block;
     g_block_count += 1;
+}
+
+const LinkResult = struct { text: []const u8, end: usize };
+
+fn parseLinkOrImage(raw: []const u8, start: usize) ?LinkResult {
+    // start points at '[', find matching ']'
+    if (start >= raw.len or raw[start] != '[') return null;
+    // Find ']' — handle nested brackets
+    var depth: i32 = 0;
+    var j = start;
+    while (j < raw.len) : (j += 1) {
+        if (raw[j] == '[') depth += 1;
+        if (raw[j] == ']') {
+            depth -= 1;
+            if (depth == 0) break;
+        }
+    }
+    if (j >= raw.len) return null;
+    const bracket_end = j;
+    // Expect '(' right after ']'
+    if (bracket_end + 1 >= raw.len or raw[bracket_end + 1] != '(') return null;
+    // Find matching ')' — handle nested parens in URLs
+    var paren_depth: i32 = 0;
+    var k = bracket_end + 1;
+    while (k < raw.len) : (k += 1) {
+        if (raw[k] == '(') paren_depth += 1;
+        if (raw[k] == ')') {
+            paren_depth -= 1;
+            if (paren_depth == 0) break;
+        }
+    }
+    if (k >= raw.len) return null;
+    return .{ .text = raw[start + 1 .. bracket_end], .end = k + 1 };
 }
 
 fn appendByte(b: u8) void {
