@@ -22,9 +22,9 @@ const CGFloat = f64;
 const NSUInteger = u64;
 const NSInteger = i64;
 
-const CGPoint = extern struct { x: CGFloat, y: CGFloat };
-const CGSize = extern struct { width: CGFloat, height: CGFloat };
-const CGRect = extern struct { origin: CGPoint, size: CGSize };
+const CGPoint = c.CGPoint;
+const CGSize = c.CGSize;
+const CGRect = c.CGRect;
 
 fn cgRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) CGRect {
     return .{ .origin = .{ .x = x, .y = y }, .size = .{ .width = w, .height = h } };
