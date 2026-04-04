@@ -23,6 +23,7 @@ const WM_KEYDOWN: u32 = 0x0100;
 const WM_MOUSEWHEEL: u32 = 0x020A;
 const WM_NCHITTEST: u32 = 0x0084;
 const WM_CREATE: u32 = 0x0001;
+const WM_NCCALCSIZE: u32 = 0x0083;
 const VK_Q: usize = 0x51;
 const VK_MENU: i32 = 0x12;
 const VK_CONTROL: i32 = 0x11;
@@ -217,6 +218,34 @@ const BlockKind = enum { h1, h2, h3, paragraph, code_block, blockquote, hr, list
 const Block = struct { kind: BlockKind, text: []const u8, bold_ranges: [16][2]u32 = undefined, bold_count: u32 = 0, italic_ranges: [16][2]u32 = undefined, italic_count: u32 = 0, code_ranges: [16][2]u32 = undefined, code_count: u32 = 0 };
 
 // ============================================================
+// Logging
+// ============================================================
+var g_log_file: ?std.fs.File = null;
+
+fn initLog() void {
+    const appdata = std.process.getEnvVarOwned(std.heap.page_allocator, "LOCALAPPDATA") catch return;
+    var buf: [512]u8 = undefined;
+    const dir_path = std.fmt.bufPrint(&buf, "{s}\\mdview", .{appdata}) catch return;
+    std.fs.cwd().makePath(dir_path) catch {};
+    var buf2: [512]u8 = undefined;
+    const log_path = std.fmt.bufPrint(&buf2, "{s}\\mdview\\mdview-zig.log", .{appdata}) catch return;
+    g_log_file = std.fs.cwd().createFile(log_path, .{ .truncate = true }) catch null;
+}
+
+fn log(msg: []const u8) void {
+    if (g_log_file) |f| {
+        f.writer().writeAll(msg) catch {};
+        f.writer().writeAll("\n") catch {};
+    }
+}
+
+fn logFmt(comptime fmt: []const u8, args: anytype) void {
+    if (g_log_file) |f| {
+        f.writer().print(fmt ++ "\n", args) catch {};
+    }
+}
+
+// ============================================================
 // Globals
 // ============================================================
 var g_scroll_y: f32 = 0;
@@ -261,21 +290,31 @@ pub fn main() !void {
 }
 
 fn main_impl(hInstance: ?HINSTANCE) !i32 {
+    initLog();
+    log("starting mdview-zig");
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     const args = try std.process.argsAlloc(allocator);
-    if (args.len < 2) return 1;
+    if (args.len < 2) {
+        log("no file argument");
+        return 1;
+    }
+    logFmt("opening: {s}", .{args[1]});
 
     const file = try std.fs.cwd().openFile(args[1], .{});
     defer file.close();
     g_markdown = try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+    logFmt("read {d} bytes", .{g_markdown.len});
 
     parseMarkdown();
+    logFmt("parsed {d} blocks", .{g_block_count});
 
     _ = CoInitializeEx(null, 0x2);
     initD2D();
+    log("d2d initialized");
 
     const class_name = L("mdview");
     _ = RegisterClassExW(&.{
@@ -294,6 +333,7 @@ fn main_impl(hInstance: ?HINSTANCE) !i32 {
     ) orelse return 1;
 
     createRenderTarget(hwnd);
+    if (g_render_target != null) log("render target created") else log("FAILED to create render target");
     _ = ShowWindow(hwnd, SW_SHOW);
     _ = UpdateWindow(hwnd);
 
@@ -762,6 +802,11 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.C) LR
             if (pt.x > w - border) return HTRIGHT;
             if ((@as(u16, @bitCast(GetKeyState(VK_MENU))) & 0x8000) != 0) return HTCAPTION;
             return HTCLIENT;
+        },
+        WM_NCCALCSIZE => {
+            // Return 0 to remove the non-client area (white titlebar)
+            if (wParam != 0) return 0;
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
         WM_DESTROY => {
             PostQuitMessage(0);
