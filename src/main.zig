@@ -292,6 +292,12 @@ var g_brush_quote: ?*anyopaque = null;
 var g_brush_hr: ?*anyopaque = null;
 var g_brush_close: ?*anyopaque = null;
 var g_brush_close_hover: ?*anyopaque = null;
+var g_brush_hl_keyword: ?*anyopaque = null;
+var g_brush_hl_string: ?*anyopaque = null;
+var g_brush_hl_comment: ?*anyopaque = null;
+var g_brush_hl_number: ?*anyopaque = null;
+var g_brush_hl_type: ?*anyopaque = null;
+var g_brush_hl_func: ?*anyopaque = null;
 
 var g_blocks: [1024]Block = undefined;
 var g_block_count: usize = 0;
@@ -432,6 +438,12 @@ fn createBrushes(rt: *anyopaque) void {
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.129, .g = 0.149, .b = 0.176, .a = 1 }, null, &g_brush_hr); // #21262d
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.855, .g = 0.212, .b = 0.200, .a = 1 }, null, &g_brush_close_hover); // #da3633
+    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 1.0, .g = 0.482, .b = 0.447, .a = 1 }, null, &g_brush_hl_keyword); // #ff7b72
+    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.647, .g = 0.839, .b = 1.0, .a = 1 }, null, &g_brush_hl_string); // #a5d6ff
+    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_hl_comment); // #8b949e
+    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.475, .g = 0.753, .b = 1.0, .a = 1 }, null, &g_brush_hl_number); // #79c0ff
+    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 1.0, .g = 0.651, .b = 0.341, .a = 1 }, null, &g_brush_hl_type); // #ffa657
+    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.824, .g = 0.659, .b = 1.0, .a = 1 }, null, &g_brush_hl_func); // #d2a8ff
 }
 
 // ============================================================
@@ -729,6 +741,123 @@ fn renderTextBlock(
     return metrics.height;
 }
 
+// ============================================================
+// Syntax highlighting (basic, regex-free)
+// ============================================================
+const keywords = [_][]const u8{
+    "fn",       "const",    "var",      "return",   "if",       "else",
+    "while",    "for",      "break",    "continue", "switch",   "pub",
+    "struct",   "enum",     "union",    "defer",    "try",      "catch",
+    "import",   "export",   "default",  "async",    "await",    "class",
+    "function", "let",      "def",      "self",     "true",     "false",
+    "null",     "undefined","None",     "True",     "False",    "nil",
+    "use",      "mod",      "impl",     "trait",    "type",     "match",
+    "mut",      "ref",      "unsafe",   "move",     "static",   "extern",
+    "crate",    "super",    "where",    "yield",    "from",     "with",
+    "as",       "in",       "not",      "and",      "or",       "pass",
+    "raise",    "except",   "finally",  "lambda",   "elif",     "del",
+    "global",   "nonlocal", "assert",   "package",  "chan",     "go",
+    "select",   "fallthrough", "range", "interface","map",      "func",
+    "void",     "int",      "float",    "double",   "char",     "bool",
+    "string",   "println",  "printf",   "print",
+};
+
+fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    var i: u32 = 0;
+    const len: u32 = @intCast(text.len);
+
+    while (i < len) {
+        const c = text[i];
+
+        // Line comments: // or #
+        if (c == '/' and i + 1 < len and text[i + 1] == '/') {
+            const start = i;
+            while (i < len and text[i] != '\n') i += 1;
+            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            continue;
+        }
+        if (c == '#') {
+            const start = i;
+            while (i < len and text[i] != '\n') i += 1;
+            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            continue;
+        }
+        // Block comments: /* */
+        if (c == '/' and i + 1 < len and text[i + 1] == '*') {
+            const start = i;
+            i += 2;
+            while (i + 1 < len and !(text[i] == '*' and text[i + 1] == '/')) i += 1;
+            if (i + 1 < len) i += 2;
+            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            continue;
+        }
+
+        // Strings: "..." or '...'
+        if (c == '"' or c == '\'') {
+            const start = i;
+            const quote = c;
+            i += 1;
+            while (i < len and text[i] != quote and text[i] != '\n') {
+                if (text[i] == '\\' and i + 1 < len) i += 1;
+                i += 1;
+            }
+            if (i < len) i += 1;
+            if (g_brush_hl_string) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            continue;
+        }
+
+        // Numbers
+        if (c >= '0' and c <= '9') {
+            const start = i;
+            while (i < len and ((text[i] >= '0' and text[i] <= '9') or text[i] == '.' or text[i] == 'x' or text[i] == 'b' or
+                (text[i] >= 'a' and text[i] <= 'f') or (text[i] >= 'A' and text[i] <= 'F') or text[i] == '_'))
+                i += 1;
+            if (g_brush_hl_number) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            continue;
+        }
+
+        // Identifiers / keywords
+        if (isIdentStart(c)) {
+            const start = i;
+            while (i < len and isIdentChar(text[i])) i += 1;
+            const word = text[start..i];
+
+            // Check if it's followed by ( — function call
+            var j = i;
+            while (j < len and text[j] == ' ') j += 1;
+            if (j < len and text[j] == '(') {
+                if (g_brush_hl_func) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+                continue;
+            }
+
+            // Check keywords
+            for (keywords) |kw| {
+                if (std.mem.eql(u8, word, kw)) {
+                    if (g_brush_hl_keyword) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+                    break;
+                }
+            }
+
+            // Check if starts with uppercase (type-like)
+            if (c >= 'A' and c <= 'Z' and word.len > 1) {
+                if (g_brush_hl_type) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            }
+            continue;
+        }
+
+        i += 1;
+    }
+}
+
+fn isIdentStart(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_' or c == '@';
+}
+
+fn isIdentChar(c: u8) bool {
+    return isIdentStart(c) or (c >= '0' and c <= '9');
+}
+
 fn renderCodeBlock(
     vt_rt: *const ID2D1RT_VTable,
     vt_dw: *const IDWriteFactory_VTable,
@@ -750,6 +879,9 @@ fn renderCodeBlock(
     _ = vt_dw.CreateTextLayout(dwf, &wide_buf, @intCast(wide_len), fmt, max_width - 32, 10000, &layout);
     const lay = layout orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+
+    // Apply syntax highlighting
+    applySyntaxHighlighting(lay, block.text);
 
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
