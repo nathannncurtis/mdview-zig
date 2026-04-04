@@ -12,12 +12,7 @@ const c = @cImport({
     @cInclude("pango/pangocairo.h");
 });
 
-// POSIX for select()
-const posix = @cImport({
-    @cInclude("sys/select.h");
-    @cInclude("sys/time.h");
-    @cInclude("unistd.h");
-});
+const posix = std.posix;
 
 // ============================================================
 // State
@@ -195,13 +190,10 @@ pub fn run() void {
             last_save_time = now;
         }
 
-        // Use select() with 500ms timeout for file watching
-        var fds: posix.fd_set = std.mem.zeroes(posix.fd_set);
-        posix.__FD_SET(x11_fd, &fds);
-        var tv: posix.struct_timeval = .{ .tv_sec = 0, .tv_usec = 500_000 };
-        const sel = posix.select(x11_fd + 1, &fds, null, null, &tv);
-        if (sel == 0) {
-            // Timeout — check for file changes
+        // Use poll() with 500ms timeout for file watching
+        var pollfds = [_]posix.pollfd{.{ .fd = x11_fd, .events = posix.POLL.IN, .revents = 0 }};
+        const poll_result = posix.poll(&pollfds, 500) catch 0;
+        if (poll_result == 0) {
             app.checkFileChanged();
         }
     }

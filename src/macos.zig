@@ -12,100 +12,70 @@ const c = @cImport({
 });
 
 // ============================================================
-// ObjC runtime helpers
+// ObjC runtime helpers — cast objc_msgSend per call-site
 // ============================================================
-
-// objc_msgSend cast helpers — each call site needs the right signature
-fn msgSend(comptime RetT: type, target: anytype, selector: c.SEL, args: anytype) RetT {
-    const Target = @TypeOf(target);
-    const FnArgs = .{Target} ++ .{c.SEL} ++ ArgTypes(args);
-    const FnType = @Type(.{ .@"fn" = .{
-        .calling_convention = .c,
-        .params = blk: {
-            var params: [FnArgs.len]std.builtin.Type.Fn.Param = undefined;
-            inline for (0..FnArgs.len) |i| {
-                params[i] = .{ .is_generic = false, .is_noalias = false, .type = FnArgs[i] };
-            }
-            break :blk &params;
-        },
-        .return_type = RetT,
-        .is_generic = false,
-        .is_var_args = false,
-    } });
-    const func: *const FnType = @ptrCast(&c.objc_msgSend);
-    return @call(.auto, func, .{target} ++ .{selector} ++ args);
-}
-
-// For methods that return structs (uses objc_msgSend_stret on x86_64, regular on arm64)
-fn msgSendStret(comptime RetT: type, target: anytype, selector: c.SEL, args: anytype) RetT {
-    const Target = @TypeOf(target);
-    const native = comptime @import("builtin").cpu.arch;
-    if (native == .x86_64 and @sizeOf(RetT) > 16) {
-        // On x86_64, large structs use objc_msgSend_stret
-        const FnArgs = .{ *RetT, Target } ++ .{c.SEL} ++ ArgTypes(args);
-        const FnType = @Type(.{ .@"fn" = .{
-            .calling_convention = .c,
-            .params = blk: {
-                var params: [FnArgs.len]std.builtin.Type.Fn.Param = undefined;
-                inline for (0..FnArgs.len) |i| {
-                    params[i] = .{ .is_generic = false, .is_noalias = false, .type = FnArgs[i] };
-                }
-                break :blk &params;
-            },
-            .return_type = void,
-            .is_generic = false,
-            .is_var_args = false,
-        } });
-        const func: *const FnType = @ptrCast(@extern(*const anyopaque, .{ .name = "objc_msgSend_stret" }));
-        var result: RetT = undefined;
-        @call(.auto, func, .{&result} ++ .{target} ++ .{selector} ++ args);
-        return result;
-    } else {
-        // On arm64, all structs use regular objc_msgSend
-        return msgSend(RetT, target, selector, args);
-    }
-}
-
-fn ArgTypes(args: anytype) type {
-    const ArgsT = @TypeOf(args);
-    const info = @typeInfo(ArgsT).@"struct";
-    var types: [info.fields.len]type = undefined;
-    inline for (info.fields, 0..) |f, i| {
-        types[i] = f.type;
-    }
-    return types;
-}
-
-fn cls(name: [*:0]const u8) c.id {
-    return @ptrCast(c.objc_getClass(name));
-}
-
-fn sel(name: [*:0]const u8) c.SEL {
-    return c.sel_registerName(name);
-}
-
-fn alloc(class: c.id) c.id {
-    return msgSend(c.id, class, sel("alloc"), .{});
-}
-
-fn autorelease(obj: c.id) c.id {
-    return msgSend(c.id, obj, sel("autorelease"), .{});
-}
-
-// ============================================================
-// CoreGraphics / CoreText type aliases
-// ============================================================
+const id = ?*anyopaque;
+const SEL = ?*anyopaque;
+const Class = ?*anyopaque;
+const BOOL = i8;
 const CGFloat = f64;
-const CGPoint = c.CGPoint;
-const CGSize = c.CGSize;
-const CGRect = c.CGRect;
+const NSUInteger = u64;
+const NSInteger = i64;
+
+const CGPoint = extern struct { x: CGFloat, y: CGFloat };
+const CGSize = extern struct { width: CGFloat, height: CGFloat };
+const CGRect = extern struct { origin: CGPoint, size: CGSize };
 
 fn cgRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) CGRect {
     return .{ .origin = .{ .x = x, .y = y }, .size = .{ .width = w, .height = h } };
 }
 
-fn cgSize(w: CGFloat, h: CGFloat) CGSize {
-    return .{ .width = w, .height = h };
+// Typed objc_msgSend wrappers
+const MsgSendFn = *const fn (id, SEL) callconv(.C) id;
+const msgSend_id = @as(MsgSendFn, @ptrCast(&c.objc_msgSend));
+
+const msgSend_void_id = @as(*const fn (id, SEL, id) callconv(.C) void, @ptrCast(&c.objc_msgSend));
+const msgSend_void_bool = @as(*const fn (id, SEL, BOOL) callconv(.C) void, @ptrCast(&c.objc_msgSend));
+const msgSend_void_i64 = @as(*const fn (id, SEL, i64) callconv(.C) void, @ptrCast(&c.objc_msgSend));
+const msgSend_void = @as(*const fn (id, SEL) callconv(.C) void, @ptrCast(&c.objc_msgSend));
+const msgSend_bool = @as(*const fn (id, SEL) callconv(.C) BOOL, @ptrCast(&c.objc_msgSend));
+const msgSend_u16 = @as(*const fn (id, SEL) callconv(.C) u16, @ptrCast(&c.objc_msgSend));
+const msgSend_u64 = @as(*const fn (id, SEL) callconv(.C) u64, @ptrCast(&c.objc_msgSend));
+const msgSend_cgfloat = @as(*const fn (id, SEL) callconv(.C) CGFloat, @ptrCast(&c.objc_msgSend));
+const msgSend_id_id = @as(*const fn (id, SEL, id) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+
+// initWithContentRect:styleMask:backing:defer:
+const msgSend_initWindow = @as(*const fn (id, SEL, CGRect, NSUInteger, NSUInteger, BOOL) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+// initWithFrame:
+const msgSend_initFrame = @as(*const fn (id, SEL, CGRect) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+// colorWithRed:green:blue:alpha:
+const msgSend_color4 = @as(*const fn (id, SEL, CGFloat, CGFloat, CGFloat, CGFloat) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+// scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
+const msgSend_timer = @as(*const fn (id, SEL, f64, id, SEL, id, BOOL) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+// convertPoint:fromView:
+const msgSend_convertPoint = @as(*const fn (id, SEL, CGPoint, id) callconv(.C) CGPoint, @ptrCast(&c.objc_msgSend));
+// CGContext (returned as pointer)
+const msgSend_ctx = @as(*const fn (id, SEL) callconv(.C) c.CGContextRef, @ptrCast(&c.objc_msgSend));
+
+// For struct returns: on arm64 all go through objc_msgSend, on x86_64 large structs need objc_msgSend_stret
+const builtin_info = @import("builtin");
+const msgSend_rect = if (builtin_info.cpu.arch == .x86_64)
+    @as(*const fn (id, SEL) callconv(.C) CGRect, @ptrCast(@extern(*const anyopaque, .{ .name = "objc_msgSend_stret" })))
+else
+    @as(*const fn (id, SEL) callconv(.C) CGRect, @ptrCast(&c.objc_msgSend));
+
+const msgSend_point = @as(*const fn (id, SEL) callconv(.C) CGPoint, @ptrCast(&c.objc_msgSend));
+
+fn objcClass(name: [*:0]const u8) id {
+    return c.objc_getClass(name);
+}
+
+fn sel(name: [*:0]const u8) SEL {
+    return c.sel_registerName(name);
+}
+
+fn alloc(class_id: id) id {
+    return msgSend_id(class_id, sel("alloc"));
 }
 
 // ============================================================
@@ -125,11 +95,11 @@ const bg_color = hexColor(0x0d1117);
 const text_color = hexColor(0xc9d1d9);
 const h1_color = hexColor(0xf0f6fc);
 const h2_color = hexColor(0xe6edf3);
+const h3_color = hexColor(0xd2d8de);
 const code_bg_color = hexColor(0x161b22);
 const border_color = hexColor(0x30363d);
 const blockquote_color = hexColor(0x8b949e);
 const close_btn_color = hexColor(0x8b949e);
-const close_btn_hover = hexColor(0xf85149);
 
 // Syntax highlighting colors
 const syn_keyword = hexColor(0xff7b72);
@@ -140,7 +110,7 @@ const syn_type = hexColor(0xffa657);
 const syn_func = hexColor(0xd2a8ff);
 
 // ============================================================
-// Font sizes
+// Layout constants
 // ============================================================
 const font_size_body: CGFloat = 15.0;
 const font_size_code: CGFloat = 13.0;
@@ -148,19 +118,19 @@ const font_size_h1: CGFloat = 28.0;
 const font_size_h2: CGFloat = 22.0;
 const font_size_h3: CGFloat = 18.0;
 
-const padding_x: f32 = 40.0;
-const padding_top: f32 = 50.0;
-const line_spacing: f32 = 6.0;
-const para_spacing: f32 = 14.0;
-const code_padding: f32 = 12.0;
-const close_btn_size: f32 = 28.0;
+const padding_x: CGFloat = 40.0;
+const padding_top: CGFloat = 50.0;
+const line_spacing: CGFloat = 6.0;
+const para_spacing: CGFloat = 14.0;
+const code_padding: CGFloat = 12.0;
+const close_btn_size: CGFloat = 28.0;
 
 // ============================================================
 // Global state
 // ============================================================
-var g_nsapp: c.id = null;
-var g_view: c.id = null;
-var g_window: c.id = null;
+var g_nsapp: id = null;
+var g_view: id = null;
+var g_window: id = null;
 
 // ============================================================
 // CoreFoundation / CoreText helpers
@@ -172,12 +142,8 @@ fn cfString(bytes: []const u8) c.CFStringRef {
         bytes.ptr,
         @intCast(bytes.len),
         c.kCFStringEncodingUTF8,
-        0, // false = not external representation
+        0,
     );
-}
-
-fn cfNumber(val: CGFloat) c.CFNumberRef {
-    return c.CFNumberCreate(null, c.kCFNumberFloat64Type, &val);
 }
 
 fn createFont(name: []const u8, size: CGFloat, bold: bool, italic: bool) c.CTFontRef {
@@ -188,12 +154,7 @@ fn createFont(name: []const u8, size: CGFloat, bold: bool, italic: bool) c.CTFon
     if (bold) traits |= @as(u32, @bitCast(@as(i32, c.kCTFontBoldTrait)));
     if (italic) traits |= @as(u32, @bitCast(@as(i32, c.kCTFontItalicTrait)));
 
-    const attrs_keys = [_]c.CFStringRef{
-        c.kCTFontFamilyNameAttribute,
-        c.kCTFontTraitsAttribute,
-    };
-
-    // Create traits dictionary
+    // Create traits dict
     const trait_keys = [_]c.CFStringRef{c.kCTFontSymbolicTrait};
     const trait_num = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &traits);
     defer c.CFRelease(trait_num);
@@ -208,6 +169,11 @@ fn createFont(name: []const u8, size: CGFloat, bold: bool, italic: bool) c.CTFon
     );
     defer c.CFRelease(traits_dict);
 
+    // Create font descriptor attributes
+    const attrs_keys = [_]c.CFStringRef{
+        c.kCTFontFamilyNameAttribute,
+        c.kCTFontTraitsAttribute,
+    };
     const attrs_vals = [_]c.CFTypeRef{ @ptrCast(cf_name), @ptrCast(traits_dict) };
     const attrs = c.CFDictionaryCreate(
         null,
@@ -233,7 +199,7 @@ fn createMonoFont(size: CGFloat) c.CTFontRef {
 // Attributed string helpers
 // ============================================================
 
-fn setColor(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, length: c.CFIndex, col: Color) void {
+fn setAttrColor(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, length: c.CFIndex, col: Color) void {
     const cg_color = c.CGColorCreateGenericRGB(col.r, col.g, col.b, 1.0);
     defer c.CGColorRelease(cg_color);
     c.CFAttributedStringSetAttribute(
@@ -244,7 +210,7 @@ fn setColor(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, length: 
     );
 }
 
-fn setFont(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, length: c.CFIndex, font: c.CTFontRef) void {
+fn setAttrFont(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, length: c.CFIndex, font: c.CTFontRef) void {
     c.CFAttributedStringSetAttribute(
         attr_str,
         c.CFRange{ .location = start, .length = length },
@@ -254,10 +220,48 @@ fn setFont(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, length: c
 }
 
 // ============================================================
-// Drawing
+// Text drawing
 // ============================================================
 
-fn drawText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y: CGFloat, max_width: CGFloat, font: c.CTFontRef, col: Color) CGFloat {
+/// Measure attributed string and draw it. y_cg is the CG y-coordinate for the
+/// top edge of the text (in bottom-up CG coordinates, i.e. height - screen_y).
+/// Returns the height consumed.
+fn measureAndDrawAttrStr(ctx: c.CGContextRef, attr_str: c.CFAttributedStringRef, x: CGFloat, y_cg: CGFloat, max_width: CGFloat) CGFloat {
+    const framesetter = c.CTFramesetterCreateWithAttributedString(attr_str);
+    defer c.CFRelease(framesetter);
+
+    const constraints = CGSize{ .width = max_width, .height = 100000.0 };
+    var fit_range = c.CFRange{ .location = 0, .length = 0 };
+    const suggested = c.CTFramesetterSuggestFrameSizeWithConstraints(
+        framesetter,
+        c.CFRange{ .location = 0, .length = 0 },
+        null,
+        constraints,
+        &fit_range,
+    );
+
+    // CTFrame path rect: origin at bottom-left of the text frame in CG coords.
+    // y_cg is top of text in CG coords, so bottom = y_cg - suggested.height
+    const path = c.CGPathCreateMutable();
+    defer c.CGPathRelease(path);
+    c.CGPathAddRect(path, null, cgRect(x, y_cg - suggested.height, max_width, suggested.height));
+
+    const frame = c.CTFramesetterCreateFrame(
+        framesetter,
+        c.CFRange{ .location = 0, .length = 0 },
+        path,
+        null,
+    );
+    defer c.CFRelease(frame);
+
+    c.CGContextSaveGState(ctx);
+    c.CTFrameDraw(frame, ctx);
+    c.CGContextRestoreGState(ctx);
+
+    return suggested.height;
+}
+
+fn drawPlainText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, font: c.CTFontRef, col: Color) CGFloat {
     if (text.len == 0) return 0;
 
     const cf_str = cfString(text);
@@ -268,42 +272,13 @@ fn drawText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y: CGFloat, max_w
     c.CFAttributedStringReplaceString(attr_str, c.CFRange{ .location = 0, .length = 0 }, cf_str);
 
     const len: c.CFIndex = @intCast(text.len);
-    setFont(attr_str, 0, len, font);
-    setColor(attr_str, 0, len, col);
+    setAttrFont(attr_str, 0, len, font);
+    setAttrColor(attr_str, 0, len, col);
 
-    // Paragraph style for word wrapping
-    const para_style = c.CTParagraphStyleCreate(null, 0);
-    defer c.CFRelease(para_style);
-    c.CFAttributedStringSetAttribute(
-        attr_str,
-        c.CFRange{ .location = 0, .length = len },
-        c.kCTParagraphStyleAttributeName,
-        @ptrCast(para_style),
-    );
-
-    const framesetter = c.CTFramesetterCreateWithAttributedString(@ptrCast(attr_str));
-    defer c.CFRelease(framesetter);
-
-    const constraints = cgSize(max_width, 100000.0);
-    var fit_range = c.CFRange{ .location = 0, .length = 0 };
-    const suggested = c.CTFramesetterSuggestFrameSizeWithConstraints(framesetter, c.CFRange{ .location = 0, .length = 0 }, null, constraints, &fit_range);
-
-    // Create path and frame for drawing
-    const path = c.CGPathCreateMutable();
-    defer c.CGPathRelease(path);
-    c.CGPathAddRect(path, null, cgRect(x, y - suggested.height, max_width, suggested.height));
-
-    const frame = c.CTFramesetterCreateFrame(framesetter, c.CFRange{ .location = 0, .length = 0 }, path, null);
-    defer c.CFRelease(frame);
-
-    c.CGContextSaveGState(ctx);
-    c.CTFrameDraw(frame, ctx);
-    c.CGContextRestoreGState(ctx);
-
-    return suggested.height;
+    return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
 }
 
-fn drawRichText(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, y: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color) CGFloat {
+fn drawRichText(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color) CGFloat {
     const text = block.text;
     if (text.len == 0) return 0;
 
@@ -315,8 +290,8 @@ fn drawRichText(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, y: CGFl
     c.CFAttributedStringReplaceString(attr_str, c.CFRange{ .location = 0, .length = 0 }, cf_str);
 
     const len: c.CFIndex = @intCast(text.len);
-    setFont(attr_str, 0, len, base_font);
-    setColor(attr_str, 0, len, base_color);
+    setAttrFont(attr_str, 0, len, base_font);
+    setAttrColor(attr_str, 0, len, base_color);
 
     // Bold ranges
     if (block.bold_count > 0) {
@@ -325,7 +300,7 @@ fn drawRichText(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, y: CGFl
         for (0..block.bold_count) |i| {
             const start: c.CFIndex = @intCast(block.bold_ranges[i][0]);
             const blen: c.CFIndex = @intCast(block.bold_ranges[i][1]);
-            setFont(attr_str, start, blen, bold_font);
+            setAttrFont(attr_str, start, blen, bold_font);
         }
     }
 
@@ -336,7 +311,7 @@ fn drawRichText(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, y: CGFl
         for (0..block.italic_count) |i| {
             const start: c.CFIndex = @intCast(block.italic_ranges[i][0]);
             const ilen: c.CFIndex = @intCast(block.italic_ranges[i][1]);
-            setFont(attr_str, start, ilen, italic_font);
+            setAttrFont(attr_str, start, ilen, italic_font);
         }
     }
 
@@ -347,33 +322,15 @@ fn drawRichText(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, y: CGFl
         for (0..block.code_count) |i| {
             const start: c.CFIndex = @intCast(block.code_ranges[i][0]);
             const clen: c.CFIndex = @intCast(block.code_ranges[i][1]);
-            setFont(attr_str, start, clen, code_font);
-            setColor(attr_str, start, clen, hexColor(0xe6edf3));
+            setAttrFont(attr_str, start, clen, code_font);
+            setAttrColor(attr_str, start, clen, hexColor(0xe6edf3));
         }
     }
 
-    const framesetter = c.CTFramesetterCreateWithAttributedString(@ptrCast(attr_str));
-    defer c.CFRelease(framesetter);
-
-    const constraints = cgSize(max_width, 100000.0);
-    var fit_range = c.CFRange{ .location = 0, .length = 0 };
-    const suggested = c.CTFramesetterSuggestFrameSizeWithConstraints(framesetter, c.CFRange{ .location = 0, .length = 0 }, null, constraints, &fit_range);
-
-    const path = c.CGPathCreateMutable();
-    defer c.CGPathRelease(path);
-    c.CGPathAddRect(path, null, cgRect(x, y - suggested.height, max_width, suggested.height));
-
-    const frame = c.CTFramesetterCreateFrame(framesetter, c.CFRange{ .location = 0, .length = 0 }, path, null);
-    defer c.CFRelease(frame);
-
-    c.CGContextSaveGState(ctx);
-    c.CTFrameDraw(frame, ctx);
-    c.CGContextRestoreGState(ctx);
-
-    return suggested.height;
+    return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
 }
 
-fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y: CGFloat, max_width: CGFloat) CGFloat {
+fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloat, max_width: CGFloat) CGFloat {
     if (text.len == 0) return code_padding * 2;
 
     const cf_str = cfString(text);
@@ -386,24 +343,31 @@ fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y: CGFloat, 
     const len: c.CFIndex = @intCast(text.len);
     const mono = createMonoFont(font_size_code);
     defer c.CFRelease(mono);
-    setFont(attr_str, 0, len, mono);
-    setColor(attr_str, 0, len, text_color);
+    setAttrFont(attr_str, 0, len, mono);
+    setAttrColor(attr_str, 0, len, text_color);
 
     // Syntax highlighting
-    applySyntaxHighlighting(attr_str, text, mono);
+    applySyntaxHighlighting(attr_str, text);
 
+    // Measure text
     const inner_width = max_width - code_padding * 2;
     const framesetter = c.CTFramesetterCreateWithAttributedString(@ptrCast(attr_str));
     defer c.CFRelease(framesetter);
 
-    const constraints = cgSize(inner_width, 100000.0);
+    const constraints = CGSize{ .width = inner_width, .height = 100000.0 };
     var fit_range = c.CFRange{ .location = 0, .length = 0 };
-    const suggested = c.CTFramesetterSuggestFrameSizeWithConstraints(framesetter, c.CFRange{ .location = 0, .length = 0 }, null, constraints, &fit_range);
+    const suggested = c.CTFramesetterSuggestFrameSizeWithConstraints(
+        framesetter,
+        c.CFRange{ .location = 0, .length = 0 },
+        null,
+        constraints,
+        &fit_range,
+    );
 
     const total_height = suggested.height + code_padding * 2;
 
-    // Draw code block background with rounded rect
-    const bg_rect = cgRect(x, y - total_height, max_width, total_height);
+    // Draw background rounded rect
+    const bg_rect = cgRect(x, y_cg - total_height, max_width, total_height);
     c.CGContextSetRGBFillColor(ctx, code_bg_color.r, code_bg_color.g, code_bg_color.b, 1.0);
     drawRoundedRect(ctx, bg_rect, 6.0);
     c.CGContextFillPath(ctx);
@@ -414,15 +378,20 @@ fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y: CGFloat, 
     drawRoundedRect(ctx, bg_rect, 6.0);
     c.CGContextStrokePath(ctx);
 
-    // Draw text inside
+    // Draw code text
     const text_x = x + code_padding;
-    const text_y = y - code_padding;
+    const text_y_cg = y_cg - code_padding;
 
     const path = c.CGPathCreateMutable();
     defer c.CGPathRelease(path);
-    c.CGPathAddRect(path, null, cgRect(text_x, text_y - suggested.height, inner_width, suggested.height));
+    c.CGPathAddRect(path, null, cgRect(text_x, text_y_cg - suggested.height, inner_width, suggested.height));
 
-    const frame = c.CTFramesetterCreateFrame(framesetter, c.CFRange{ .location = 0, .length = 0 }, path, null);
+    const frame = c.CTFramesetterCreateFrame(
+        framesetter,
+        c.CFRange{ .location = 0, .length = 0 },
+        path,
+        null,
+    );
     defer c.CFRelease(frame);
 
     c.CGContextSaveGState(ctx);
@@ -449,22 +418,21 @@ fn drawRoundedRect(ctx: c.CGContextRef, rect: CGRect, radius: CGFloat) void {
     c.CGContextClosePath(ctx);
 }
 
-fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []const u8, mono: c.CTFontRef) void {
-    _ = mono;
+fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []const u8) void {
     var i: usize = 0;
     while (i < text.len) {
-        // Comments
+        // Line comments: //
         if (i + 1 < text.len and text[i] == '/' and text[i + 1] == '/') {
             const start = i;
             while (i < text.len and text[i] != '\n') i += 1;
-            setColor(attr_str, @intCast(start), @intCast(i - start), syn_comment);
+            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_comment);
             continue;
         }
-        // Hash comments
+        // Hash comments at line start
         if (text[i] == '#' and (i == 0 or text[i - 1] == '\n')) {
             const start = i;
             while (i < text.len and text[i] != '\n') i += 1;
-            setColor(attr_str, @intCast(start), @intCast(i - start), syn_comment);
+            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_comment);
             continue;
         }
         // Strings
@@ -477,23 +445,25 @@ fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []con
                 i += 1;
             }
             if (i < text.len and text[i] == quote) i += 1;
-            setColor(attr_str, @intCast(start), @intCast(i - start), syn_string);
+            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_string);
             continue;
         }
         // Numbers
         if (text[i] >= '0' and text[i] <= '9') {
             const start = i;
-            while (i < text.len and ((text[i] >= '0' and text[i] <= '9') or text[i] == '.' or text[i] == 'x' or text[i] == 'X' or (text[i] >= 'a' and text[i] <= 'f') or (text[i] >= 'A' and text[i] <= 'F'))) i += 1;
-            setColor(attr_str, @intCast(start), @intCast(i - start), syn_number);
+            while (i < text.len and ((text[i] >= '0' and text[i] <= '9') or text[i] == '.' or
+                text[i] == 'x' or text[i] == 'X' or
+                (text[i] >= 'a' and text[i] <= 'f') or
+                (text[i] >= 'A' and text[i] <= 'F'))) i += 1;
+            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_number);
             continue;
         }
-        // Identifiers / keywords
+        // Identifiers and keywords
         if (md.isIdentStart(text[i])) {
             const start = i;
             while (i < text.len and md.isIdentChar(text[i])) i += 1;
             const word = text[start..i];
 
-            // Check if it's a keyword
             var is_kw = false;
             for (md.hl_keywords) |kw| {
                 if (std.mem.eql(u8, word, kw)) {
@@ -502,13 +472,11 @@ fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []con
                 }
             }
             if (is_kw) {
-                setColor(attr_str, @intCast(start), @intCast(i - start), syn_keyword);
+                setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_keyword);
             } else if (word.len > 0 and word[0] >= 'A' and word[0] <= 'Z') {
-                // Type names (PascalCase)
-                setColor(attr_str, @intCast(start), @intCast(i - start), syn_type);
+                setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_type);
             } else if (i < text.len and text[i] == '(') {
-                // Function calls
-                setColor(attr_str, @intCast(start), @intCast(i - start), syn_func);
+                setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_func);
             }
             continue;
         }
@@ -517,7 +485,7 @@ fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []con
 }
 
 // ============================================================
-// Main draw routine
+// Main draw routine (called from drawRect:)
 // ============================================================
 
 fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
@@ -525,9 +493,9 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     c.CGContextSetRGBFillColor(ctx, bg_color.r, bg_color.g, bg_color.b, 1.0);
     c.CGContextFillRect(ctx, cgRect(0, 0, width, height));
 
-    // CoreText uses a bottom-up coordinate system. We flip it.
-    c.CGContextTranslateCTM(ctx, 0, height);
-    c.CGContextScaleCTM(ctx, 1.0, -1.0);
+    // CoreText uses bottom-up CG coordinates (y=0 at bottom).
+    // We work in native CG coords: "screen_y" = distance from visual top.
+    // CG y = height - screen_y.
 
     const scroll: CGFloat = @floatCast(app.scroll_y);
     const max_text_width = width - padding_x * 2;
@@ -542,71 +510,63 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     const h3_font = createFont("Helvetica Neue", font_size_h3, true, false);
     defer c.CFRelease(h3_font);
 
-    // In our flipped coords: y goes down from 0 at top.
-    // But CTFrame draws in original CG coords (bottom-up within the path rect).
-    // After the flip, to place text at screen-y, we draw at screen-y.
-    // CTFrame with path at (x, height - screen_y - text_h, w, text_h) in original coords
-    // becomes (x, screen_y, w, text_h) in flipped coords.
-    // Our drawText helper places path at (x, y - text_h, w, text_h) in the current coords.
-    // After flip, y should be height - screen_y. So screen_y mapped = height - y_screen.
-
-    var y_pos: CGFloat = padding_top - scroll;
+    var screen_y: CGFloat = padding_top - scroll;
 
     for (0..md.block_count) |i| {
         const block = &md.blocks[i];
 
-        // Skip blocks entirely above or below visible area
-        if (y_pos > height + 200) break;
+        // Cull blocks far below the visible area
+        if (screen_y > height + 200) break;
+
+        // CG y for the top of this block
+        const cg_y = height - screen_y;
 
         var block_height: CGFloat = 0;
 
         switch (block.kind) {
             .h1 => {
-                // In flipped coords, drawText needs y = height - y_pos (the CG y for top of text)
-                block_height = drawRichText(ctx, block, padding_x, height - y_pos, max_text_width, h1_font, h1_color);
+                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, h1_font, h1_color);
                 block_height += para_spacing;
             },
             .h2 => {
-                block_height = drawRichText(ctx, block, padding_x, height - y_pos, max_text_width, h2_font, h2_color);
+                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, h2_font, h2_color);
                 block_height += para_spacing;
             },
             .h3 => {
-                block_height = drawRichText(ctx, block, padding_x, height - y_pos, max_text_width, h3_font, h3_color);
+                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, h3_font, h3_color);
                 block_height += para_spacing;
             },
             .paragraph => {
-                block_height = drawRichText(ctx, block, padding_x, height - y_pos, max_text_width, body_font, text_color);
+                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, body_font, text_color);
                 block_height += para_spacing;
             },
             .code_block => {
-                block_height = drawCodeBlock(ctx, block.text, padding_x, height - y_pos, max_text_width);
+                block_height = drawCodeBlock(ctx, block.text, padding_x, cg_y, max_text_width);
                 block_height += para_spacing;
             },
             .blockquote => {
-                // Draw left border
-                const bar_x = padding_x;
-                const bar_y = y_pos;
-                const text_h = drawRichText(ctx, block, padding_x + 16, height - y_pos, max_text_width - 16, body_font, blockquote_color);
-                // Draw the bar in flipped coords
+                // Draw text indented
+                const text_h = drawRichText(ctx, block, padding_x + 16, cg_y, max_text_width - 16, body_font, blockquote_color);
+                // Draw left border bar
                 c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
-                c.CGContextFillRect(ctx, cgRect(bar_x, height - bar_y - text_h, 3.0, text_h));
+                c.CGContextFillRect(ctx, cgRect(padding_x, cg_y - text_h, 3.0, text_h));
                 block_height = text_h + para_spacing;
             },
             .hr => {
                 c.CGContextSetRGBStrokeColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
                 c.CGContextSetLineWidth(ctx, 1.0);
-                const hr_y = height - y_pos - 8;
-                c.CGContextMoveToPoint(ctx, padding_x, hr_y);
-                c.CGContextAddLineToPoint(ctx, width - padding_x, hr_y);
+                const hr_cg_y = cg_y - 8;
+                c.CGContextMoveToPoint(ctx, padding_x, hr_cg_y);
+                c.CGContextAddLineToPoint(ctx, width - padding_x, hr_cg_y);
                 c.CGContextStrokePath(ctx);
                 block_height = 16.0 + para_spacing;
             },
             .list_item => {
                 // Draw bullet
-                const bullet_y = height - y_pos - font_size_body * 0.7;
+                const bullet_cg_y = cg_y - font_size_body * 0.7;
                 c.CGContextSetRGBFillColor(ctx, text_color.r, text_color.g, text_color.b, 1.0);
-                c.CGContextFillEllipseInRect(ctx, cgRect(padding_x + 4, bullet_y, 5, 5));
-                block_height = drawRichText(ctx, block, padding_x + 20, height - y_pos, max_text_width - 20, body_font, text_color);
+                c.CGContextFillEllipseInRect(ctx, cgRect(padding_x + 4, bullet_cg_y, 5, 5));
+                block_height = drawRichText(ctx, block, padding_x + 20, cg_y, max_text_width - 20, body_font, text_color);
                 block_height += line_spacing;
             },
             .blank => {
@@ -614,23 +574,25 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
             },
         }
 
-        y_pos += block_height;
+        screen_y += block_height;
     }
 
-    // Update content height
-    app.content_height = @floatCast(y_pos + scroll);
+    // Update content height for scroll bounds
+    app.content_height = @floatCast(screen_y + scroll);
 
-    // Draw close button (top-right) — draw in flipped coords
+    // Draw close button (top-right corner) — in CG coords, top = near height
     const btn_x = width - close_btn_size - 8;
-    const btn_y: CGFloat = 8;
+    const btn_cg_y = height - 8 - close_btn_size;
+
+    // Button background circle
     c.CGContextSetRGBFillColor(ctx, 0.2, 0.2, 0.2, 0.8);
-    c.CGContextFillEllipseInRect(ctx, cgRect(btn_x, btn_y, close_btn_size, close_btn_size));
+    c.CGContextFillEllipseInRect(ctx, cgRect(btn_x, btn_cg_y, close_btn_size, close_btn_size));
 
     // Draw X
     c.CGContextSetRGBStrokeColor(ctx, close_btn_color.r, close_btn_color.g, close_btn_color.b, 1.0);
     c.CGContextSetLineWidth(ctx, 2.0);
     const cx = btn_x + close_btn_size / 2.0;
-    const cy = btn_y + close_btn_size / 2.0;
+    const cy = btn_cg_y + close_btn_size / 2.0;
     const off: CGFloat = 6.0;
     c.CGContextMoveToPoint(ctx, cx - off, cy - off);
     c.CGContextAddLineToPoint(ctx, cx + off, cy + off);
@@ -640,38 +602,36 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     c.CGContextStrokePath(ctx);
 }
 
-const h3_color = hexColor(0xd2d8de);
-
 // ============================================================
-// ObjC callback trampolines
+// ObjC callback trampolines (called by the runtime)
 // ============================================================
 
-fn drawRectCallback(self: c.id, _sel: c.SEL, dirty_rect: CGRect) callconv(.C) void {
+fn drawRectCallback(self: id, _sel: SEL, dirty_rect: CGRect) callconv(.C) void {
     _ = _sel;
     _ = dirty_rect;
 
-    // Get current NSGraphicsContext
-    const nsgfx_cls = cls("NSGraphicsContext");
-    const current_ctx = msgSend(c.id, nsgfx_cls, sel("currentContext"), .{});
+    // NSGraphicsContext.currentContext
+    const nsgfx_cls = objcClass("NSGraphicsContext");
+    const current_ctx = msgSend_id(nsgfx_cls, sel("currentContext"));
     if (current_ctx == null) return;
 
-    // Get CGContext
-    const cg_ctx: c.CGContextRef = msgSend(c.CGContextRef, current_ctx, sel("CGContext"), .{});
+    // .CGContext
+    const cg_ctx = msgSend_ctx(current_ctx, sel("CGContext"));
     if (cg_ctx == null) return;
 
-    // Get view bounds
-    const bounds = msgSendStret(CGRect, self, sel("bounds"), .{});
+    // View bounds
+    const bounds = msgSend_rect(self, sel("bounds"));
     app.window_width = @floatCast(bounds.size.width);
     app.window_height = @floatCast(bounds.size.height);
 
     drawContent(cg_ctx, bounds.size.width, bounds.size.height);
 }
 
-fn scrollWheelCallback(self: c.id, _sel: c.SEL, event: c.id) callconv(.C) void {
+fn scrollWheelCallback(self: id, _sel: SEL, event: id) callconv(.C) void {
     _ = _sel;
 
-    // Get scroll delta — deltaY returns CGFloat
-    const dy: CGFloat = msgSend(CGFloat, event, sel("deltaY"), .{});
+    // deltaY
+    const dy = msgSend_cgfloat(event, sel("deltaY"));
 
     app.scroll_y -= @as(f32, @floatCast(dy * 10.0));
     if (app.scroll_y < 0) app.scroll_y = 0;
@@ -680,100 +640,149 @@ fn scrollWheelCallback(self: c.id, _sel: c.SEL, event: c.id) callconv(.C) void {
         app.scroll_y = max_scroll;
     }
 
-    // Request redraw
-    msgSend(void, self, sel("setNeedsDisplay:"), .{@as(c.BOOL, 1)});
+    // Redraw
+    msgSend_void_bool(self, sel("setNeedsDisplay:"), 1);
 }
 
-fn keyDownCallback(_self: c.id, _sel: c.SEL, event: c.id) callconv(.C) void {
+fn keyDownCallback(_self: id, _sel: SEL, event: id) callconv(.C) void {
     _ = _self;
     _ = _sel;
 
-    // Get keyCode
-    const key_code: u16 = msgSend(u16, event, sel("keyCode"), .{});
-    // Get modifier flags
-    const mod_flags: u64 = msgSend(u64, event, sel("modifierFlags"), .{});
+    const key_code = msgSend_u16(event, sel("keyCode"));
+    const mod_flags = msgSend_u64(event, sel("modifierFlags"));
 
     const cmd_mask: u64 = 1 << 20; // NSEventModifierFlagCommand
     const ctrl_mask: u64 = 1 << 18; // NSEventModifierFlagControl
 
-    // Q key = keyCode 12
+    // Q = keyCode 12
     if (key_code == 12 and ((mod_flags & cmd_mask) != 0 or (mod_flags & ctrl_mask) != 0)) {
         app.saveScrollPosition();
-        // Terminate app
-        const nsapp_cls = cls("NSApplication");
-        const nsapp_inst = msgSend(c.id, nsapp_cls, sel("sharedApplication"), .{});
-        msgSend(void, nsapp_inst, sel("terminate:"), .{@as(c.id, null)});
+        const nsapp_inst = msgSend_id(objcClass("NSApplication"), sel("sharedApplication"));
+        msgSend_void_id(nsapp_inst, sel("terminate:"), null);
     }
 }
 
-fn mouseDownCallback(self: c.id, _sel: c.SEL, event: c.id) callconv(.C) void {
+fn mouseDownCallback(self: id, _sel: SEL, event: id) callconv(.C) void {
     _ = _sel;
 
-    // Get click location in view coordinates
-    const loc_in_window = msgSendStret(CGPoint, event, sel("locationInWindow"), .{});
-    const loc = msgSendStret(CGPoint, self, sel("convertPoint:fromView:"), .{ loc_in_window, @as(c.id, null) });
+    // Get click location in view coords
+    const loc_in_window = msgSend_point(event, sel("locationInWindow"));
+    const loc = msgSend_convertPoint(self, sel("convertPoint:fromView:"), loc_in_window, null);
 
-    // Get bounds for close button detection
-    const bounds = msgSendStret(CGRect, self, sel("bounds"), .{});
+    // Get bounds
+    const bounds = msgSend_rect(self, sel("bounds"));
+
+    // Close button hit test — in AppKit coords (y=0 at bottom, same as CG for non-flipped view)
     const btn_x = bounds.size.width - close_btn_size - 8;
-    // In flipped coords, close button is at top (y near bounds.height - close area)
-    // The view is NOT flipped in AppKit coords, so y=0 is bottom.
-    // Close button in draw is at y_flipped=8, which means AppKit y = height - 8 - close_btn_size
     const btn_y = bounds.size.height - 8 - close_btn_size;
 
     if (loc.x >= btn_x and loc.x <= btn_x + close_btn_size and
         loc.y >= btn_y and loc.y <= btn_y + close_btn_size)
     {
         app.saveScrollPosition();
-        const nsapp_cls = cls("NSApplication");
-        const nsapp_inst = msgSend(c.id, nsapp_cls, sel("sharedApplication"), .{});
-        msgSend(void, nsapp_inst, sel("terminate:"), .{@as(c.id, null)});
+        const nsapp_inst = msgSend_id(objcClass("NSApplication"), sel("sharedApplication"));
+        msgSend_void_id(nsapp_inst, sel("terminate:"), null);
         return;
     }
 
-    // Allow window dragging from anywhere else
+    // Allow window dragging from anywhere else (borderless window)
     if (g_window != null) {
-        msgSend(void, g_window, sel("performWindowDragWithEvent:"), .{event});
+        msgSend_void_id(g_window, sel("performWindowDragWithEvent:"), event);
     }
 }
 
-fn acceptsFirstResponderCallback(_self: c.id, _sel: c.SEL) callconv(.C) c.BOOL {
+fn acceptsFirstResponderCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
     _ = _self;
     _ = _sel;
     return 1; // YES
 }
 
-fn isFlippedCallback(_self: c.id, _sel: c.SEL) callconv(.C) c.BOOL {
+fn isFlippedCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
     _ = _self;
     _ = _sel;
-    return 0; // NO — we handle flipping manually in drawContent
+    return 0; // NO — we work in native CG coordinates
 }
 
-fn canBecomeKeyWindowCallback(_self: c.id, _sel: c.SEL) callconv(.C) c.BOOL {
-    _ = _self;
-    _ = _sel;
-    return 1;
-}
-
-fn canBecomeMainWindowCallback(_self: c.id, _sel: c.SEL) callconv(.C) c.BOOL {
+fn canBecomeKeyWindowCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
     _ = _self;
     _ = _sel;
     return 1;
 }
 
-fn timerFireCallback(_self: c.id, _sel: c.SEL, _timer: c.id) callconv(.C) void {
+fn canBecomeMainWindowCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
+    _ = _self;
+    _ = _sel;
+    return 1;
+}
+
+fn timerFireCallback(_self: id, _sel: SEL, _timer: id) callconv(.C) void {
     _ = _self;
     _ = _sel;
     _ = _timer;
     app.checkFileChanged();
 }
 
-fn applicationShouldTerminateCallback(_self: c.id, _sel: c.SEL, _sender: c.id) callconv(.C) u64 {
+fn applicationShouldTerminateCallback(_self: id, _sel: SEL, _sender: id) callconv(.C) NSUInteger {
     _ = _self;
     _ = _sel;
     _ = _sender;
     app.saveScrollPosition();
     return 0; // NSTerminateNow
+}
+
+// ============================================================
+// Class registration
+// ============================================================
+
+fn registerViewClass() c.Class {
+    const superclass = c.objc_getClass("NSView");
+    const new_cls = c.objc_allocateClassPair(superclass, "MdviewContentView", 0) orelse {
+        app.log("failed to allocate view class");
+        return superclass;
+    };
+
+    _ = c.class_addMethod(new_cls, sel("drawRect:"), @as(c.IMP, @ptrCast(&drawRectCallback)), "v@:{CGRect={CGPoint=dd}{CGSize=dd}}");
+    _ = c.class_addMethod(new_cls, sel("scrollWheel:"), @as(c.IMP, @ptrCast(&scrollWheelCallback)), "v@:@");
+    _ = c.class_addMethod(new_cls, sel("keyDown:"), @as(c.IMP, @ptrCast(&keyDownCallback)), "v@:@");
+    _ = c.class_addMethod(new_cls, sel("mouseDown:"), @as(c.IMP, @ptrCast(&mouseDownCallback)), "v@:@");
+    _ = c.class_addMethod(new_cls, sel("acceptsFirstResponder"), @as(c.IMP, @ptrCast(&acceptsFirstResponderCallback)), "B@:");
+    _ = c.class_addMethod(new_cls, sel("isFlipped"), @as(c.IMP, @ptrCast(&isFlippedCallback)), "B@:");
+
+    c.objc_registerClassPair(new_cls);
+    return new_cls;
+}
+
+fn registerWindowClass() c.Class {
+    const superclass = c.objc_getClass("NSWindow");
+    const new_cls = c.objc_allocateClassPair(superclass, "MdviewWindow", 0) orelse {
+        app.log("failed to allocate window class");
+        return superclass;
+    };
+
+    _ = c.class_addMethod(new_cls, sel("canBecomeKeyWindow"), @as(c.IMP, @ptrCast(&canBecomeKeyWindowCallback)), "B@:");
+    _ = c.class_addMethod(new_cls, sel("canBecomeMainWindow"), @as(c.IMP, @ptrCast(&canBecomeMainWindowCallback)), "B@:");
+
+    c.objc_registerClassPair(new_cls);
+    return new_cls;
+}
+
+fn registerDelegateClass() c.Class {
+    const superclass = c.objc_getClass("NSObject");
+    const new_cls = c.objc_allocateClassPair(superclass, "MdviewAppDelegate", 0) orelse {
+        app.log("failed to allocate delegate class");
+        return superclass;
+    };
+
+    _ = c.class_addMethod(new_cls, sel("applicationShouldTerminate:"), @as(c.IMP, @ptrCast(&applicationShouldTerminateCallback)), "Q@:@");
+    _ = c.class_addMethod(new_cls, sel("timerFire:"), @as(c.IMP, @ptrCast(&timerFireCallback)), "v@:@");
+
+    const protocol = c.objc_getProtocol("NSApplicationDelegate");
+    if (protocol != null) {
+        _ = c.class_addProtocol(new_cls, protocol);
+    }
+
+    c.objc_registerClassPair(new_cls);
+    return new_cls;
 }
 
 // ============================================================
@@ -784,83 +793,86 @@ pub fn run() void {
     app.log("macOS backend starting");
 
     // Create autorelease pool
-    const pool = msgSend(c.id, alloc(cls("NSAutoreleasePool")), sel("init"), .{});
-    defer msgSend(void, pool, sel("drain"), .{});
+    const pool = msgSend_id(alloc(objcClass("NSAutoreleasePool")), sel("init"));
 
     // Get shared NSApplication
-    const nsapp_cls = cls("NSApplication");
-    g_nsapp = msgSend(c.id, nsapp_cls, sel("sharedApplication"), .{});
+    g_nsapp = msgSend_id(objcClass("NSApplication"), sel("sharedApplication"));
 
-    // Set activation policy to regular (shows in dock)
-    msgSend(void, g_nsapp, sel("setActivationPolicy:"), .{@as(i64, 0)}); // NSApplicationActivationPolicyRegular
+    // Set activation policy: NSApplicationActivationPolicyRegular = 0
+    msgSend_void_i64(g_nsapp, sel("setActivationPolicy:"), 0);
 
-    // Register custom NSView subclass
+    // Register custom classes
     const view_cls = registerViewClass();
-
-    // Register custom NSWindow subclass (for canBecomeKeyWindow)
     const win_cls = registerWindowClass();
+    const delegate_cls = registerDelegateClass();
 
-    // Create window
-    const style_mask: u64 = 0 | 8; // NSWindowStyleMaskBorderless | NSWindowStyleMaskResizable
-    const content_rect = cgRect(100, 100, @floatCast(app.window_width), @floatCast(app.window_height));
+    // Create window: borderless (0) | resizable (8) = 8
+    const style_mask: NSUInteger = 0 | 8;
+    const content_rect = cgRect(100, 100, @as(CGFloat, @floatCast(app.window_width)), @as(CGFloat, @floatCast(app.window_height)));
 
-    g_window = msgSend(c.id, alloc(@ptrCast(win_cls)), sel("initWithContentRect:styleMask:backing:defer:"), .{
+    g_window = msgSend_initWindow(
+        alloc(@ptrCast(win_cls)),
+        sel("initWithContentRect:styleMask:backing:defer:"),
         content_rect,
         style_mask,
-        @as(u64, 2), // NSBackingStoreBuffered
-        @as(c.BOOL, 0), // NO
-    });
+        @as(NSUInteger, 2), // NSBackingStoreBuffered
+        @as(BOOL, 0), // NO defer
+    );
 
     // Set window background color
-    const ns_color_cls = cls("NSColor");
-    const bg = msgSend(c.id, ns_color_cls, sel("colorWithRed:green:blue:alpha:"), .{
-        @as(CGFloat, bg_color.r),
-        @as(CGFloat, bg_color.g),
-        @as(CGFloat, bg_color.b),
+    const bg = msgSend_color4(
+        objcClass("NSColor"),
+        sel("colorWithRed:green:blue:alpha:"),
+        bg_color.r,
+        bg_color.g,
+        bg_color.b,
         @as(CGFloat, 1.0),
-    });
-    msgSend(void, g_window, sel("setBackgroundColor:"), .{bg});
+    );
+    msgSend_void_id(g_window, sel("setBackgroundColor:"), bg);
 
     // Set window title
     const title = cfString("mdview");
     defer c.CFRelease(title);
-    msgSend(void, g_window, sel("setTitle:"), .{@as(c.id, @ptrCast(title))});
+    msgSend_void_id(g_window, sel("setTitle:"), @ptrCast(title));
 
-    // Create and set content view
-    g_view = msgSend(c.id, alloc(@ptrCast(view_cls)), sel("initWithFrame:"), .{content_rect});
-    msgSend(void, g_window, sel("setContentView:"), .{g_view});
+    // Create content view
+    g_view = msgSend_initFrame(alloc(@ptrCast(view_cls)), sel("initWithFrame:"), content_rect);
+    msgSend_void_id(g_window, sel("setContentView:"), g_view);
 
-    // Center and show window
-    msgSend(void, g_window, sel("center"), .{});
-    msgSend(void, g_window, sel("makeKeyAndOrderFront:"), .{@as(c.id, null)});
+    // Center and show
+    msgSend_void(g_window, sel("center"));
+    msgSend_void_id(g_window, sel("makeKeyAndOrderFront:"), null);
 
-    // Activate app
-    msgSend(void, g_nsapp, sel("activateIgnoringOtherApps:"), .{@as(c.BOOL, 1)});
+    // Activate
+    msgSend_void_bool(g_nsapp, sel("activateIgnoringOtherApps:"), 1);
 
-    // Set up app delegate for termination handling
-    const delegate_cls = registerDelegateClass();
-    const delegate = msgSend(c.id, alloc(@ptrCast(delegate_cls)), sel("init"), .{});
-    msgSend(void, g_nsapp, sel("setDelegate:"), .{delegate});
+    // App delegate
+    const delegate = msgSend_id(alloc(@ptrCast(delegate_cls)), sel("init"));
+    msgSend_void_id(g_nsapp, sel("setDelegate:"), delegate);
 
-    // Set up file watch timer (every 0.5s)
-    const timer_cls = cls("NSTimer");
-    _ = msgSend(c.id, timer_cls, sel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"), .{
+    // File watch timer — fires every 0.5s
+    _ = msgSend_timer(
+        objcClass("NSTimer"),
+        sel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
         @as(f64, 0.5),
         delegate,
         sel("timerFire:"),
-        @as(c.id, null),
-        @as(c.BOOL, 1), // YES
-    });
+        @as(id, null),
+        @as(BOOL, 1),
+    );
 
     app.log("entering run loop");
 
-    // Run the application
-    msgSend(void, g_nsapp, sel("run"), .{});
+    // Run the application event loop (does not return until terminated)
+    msgSend_void(g_nsapp, sel("run"));
+
+    // Drain pool (unreachable in practice, but correct)
+    msgSend_void(pool, sel("drain"));
 }
 
 pub fn invalidate() void {
     if (g_view != null) {
-        msgSend(void, g_view, sel("setNeedsDisplay:"), .{@as(c.BOOL, 1)});
+        msgSend_void_bool(g_view, sel("setNeedsDisplay:"), 1);
     }
 }
 
@@ -881,123 +893,4 @@ pub fn registerFileAssociation() void {
         \\2. Rebuild and re-register the app bundle.
         \\
     ) catch {};
-}
-
-// ============================================================
-// Class registration
-// ============================================================
-
-fn registerViewClass() c.Class {
-    const superclass = c.objc_getClass("NSView");
-    const new_cls = c.objc_allocateClassPair(superclass, "MdviewContentView", 0) orelse {
-        app.log("failed to allocate view class");
-        return @ptrCast(superclass);
-    };
-
-    // drawRect:
-    _ = c.class_addMethod(
-        new_cls,
-        sel("drawRect:"),
-        @as(c.IMP, @ptrCast(&drawRectCallback)),
-        "v@:{CGRect={CGPoint=dd}{CGSize=dd}}",
-    );
-
-    // scrollWheel:
-    _ = c.class_addMethod(
-        new_cls,
-        sel("scrollWheel:"),
-        @as(c.IMP, @ptrCast(&scrollWheelCallback)),
-        "v@:@",
-    );
-
-    // keyDown:
-    _ = c.class_addMethod(
-        new_cls,
-        sel("keyDown:"),
-        @as(c.IMP, @ptrCast(&keyDownCallback)),
-        "v@:@",
-    );
-
-    // mouseDown:
-    _ = c.class_addMethod(
-        new_cls,
-        sel("mouseDown:"),
-        @as(c.IMP, @ptrCast(&mouseDownCallback)),
-        "v@:@",
-    );
-
-    // acceptsFirstResponder
-    _ = c.class_addMethod(
-        new_cls,
-        sel("acceptsFirstResponder"),
-        @as(c.IMP, @ptrCast(&acceptsFirstResponderCallback)),
-        "B@:",
-    );
-
-    // isFlipped
-    _ = c.class_addMethod(
-        new_cls,
-        sel("isFlipped"),
-        @as(c.IMP, @ptrCast(&isFlippedCallback)),
-        "B@:",
-    );
-
-    c.objc_registerClassPair(new_cls);
-    return new_cls;
-}
-
-fn registerWindowClass() c.Class {
-    const superclass = c.objc_getClass("NSWindow");
-    const new_cls = c.objc_allocateClassPair(superclass, "MdviewWindow", 0) orelse {
-        app.log("failed to allocate window class");
-        return @ptrCast(superclass);
-    };
-
-    _ = c.class_addMethod(
-        new_cls,
-        sel("canBecomeKeyWindow"),
-        @as(c.IMP, @ptrCast(&canBecomeKeyWindowCallback)),
-        "B@:",
-    );
-
-    _ = c.class_addMethod(
-        new_cls,
-        sel("canBecomeMainWindow"),
-        @as(c.IMP, @ptrCast(&canBecomeMainWindowCallback)),
-        "B@:",
-    );
-
-    c.objc_registerClassPair(new_cls);
-    return new_cls;
-}
-
-fn registerDelegateClass() c.Class {
-    const superclass = c.objc_getClass("NSObject");
-    const new_cls = c.objc_allocateClassPair(superclass, "MdviewAppDelegate", 0) orelse {
-        app.log("failed to allocate delegate class");
-        return @ptrCast(superclass);
-    };
-
-    _ = c.class_addMethod(
-        new_cls,
-        sel("applicationShouldTerminate:"),
-        @as(c.IMP, @ptrCast(&applicationShouldTerminateCallback)),
-        "Q@:@",
-    );
-
-    _ = c.class_addMethod(
-        new_cls,
-        sel("timerFire:"),
-        @as(c.IMP, @ptrCast(&timerFireCallback)),
-        "v@:@",
-    );
-
-    // Conform to NSApplicationDelegate protocol
-    const protocol = c.objc_getProtocol("NSApplicationDelegate");
-    if (protocol != null) {
-        _ = c.class_addProtocol(new_cls, protocol);
-    }
-
-    c.objc_registerClassPair(new_cls);
-    return new_cls;
 }
