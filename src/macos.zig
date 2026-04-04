@@ -177,8 +177,8 @@ fn createFont(name: []const u8, size: CGFloat, bold: bool, italic: bool) c.CTFon
     const attrs_vals = [_]c.CFTypeRef{ @ptrCast(cf_name), @ptrCast(traits_dict) };
     const attrs = c.CFDictionaryCreate(
         null,
-        @ptrCast(&attrs_keys),
-        @ptrCast(&attrs_vals),
+        @constCast(@ptrCast(&attrs_keys)),
+        @constCast(@ptrCast(&attrs_vals)),
         2,
         &c.kCFTypeDictionaryKeyCallBacks,
         &c.kCFTypeDictionaryValueCallBacks,
