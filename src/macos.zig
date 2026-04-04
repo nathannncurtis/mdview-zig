@@ -15,7 +15,7 @@ const c = @cImport({
 // ObjC runtime helpers — cast objc_msgSend per call-site
 // ============================================================
 const id = ?*anyopaque;
-const SEL = ?*anyopaque;
+const SEL = c.SEL;
 const Class = ?*anyopaque;
 const BOOL = i8;
 const CGFloat = f64;
@@ -833,7 +833,7 @@ pub fn run() void {
     // Set window title
     const title = cfString("mdview");
     defer c.CFRelease(title);
-    msgSend_void_id(g_window, sel("setTitle:"), @ptrCast(title));
+    msgSend_void_id(g_window, sel("setTitle:"), @constCast(@ptrCast(title)));
 
     // Create content view
     g_view = msgSend_initFrame(alloc(@ptrCast(view_cls)), sel("initWithFrame:"), content_rect);
