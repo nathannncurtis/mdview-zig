@@ -16,9 +16,9 @@ jobs:
 
       - name: Download Zig
         run: |
-          curl -L -o zig.zip https://ziglang.org/download/0.14.1/zig-windows-x86_64-0.14.1.zip
+          curl -L -o zig.zip https://ziglang.org/download/0.14.1/zig-x86_64-windows-0.14.1.zip
           Expand-Archive zig.zip -DestinationPath .
-          echo "$PWD\zig-windows-x86_64-0.14.1" | Out-File -Append $env:GITHUB_PATH
+          echo "$PWD\zig-x86_64-windows-0.14.1" | Out-File -Append $env:GITHUB_PATH
 
       - name: Build
         run: zig build -Doptimize=ReleaseSmall
