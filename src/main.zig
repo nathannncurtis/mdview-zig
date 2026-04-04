@@ -99,6 +99,7 @@ const HKEY_CURRENT_USER: usize = 0x80000001;
 const KEY_WRITE: u32 = 0x20006;
 const REG_SZ: u32 = 1;
 const TIMER_FILE_WATCH: usize = 1;
+const TIMER_SCROLL_SAVE: usize = 2;
 
 // ============================================================
 // Direct2D / DirectWrite COM interop
@@ -338,6 +339,7 @@ fn main_impl(hInstance: ?HINSTANCE) !i32 {
 
     loadFile();
     logFmt("read {d} bytes", .{g_markdown.len});
+    g_scroll_y = loadScrollPosition();
 
     parseMarkdown();
     logFmt("parsed {d} blocks", .{g_block_count});
@@ -366,8 +368,8 @@ fn main_impl(hInstance: ?HINSTANCE) !i32 {
     createRenderTarget(hwnd);
     if (g_render_target != null) log("render target created") else log("FAILED to create render target");
 
-    // File watch timer — check every 500ms
     _ = SetTimer(hwnd, TIMER_FILE_WATCH, 500, null);
+    _ = SetTimer(hwnd, TIMER_SCROLL_SAVE, 3000, null);
 
     _ = ShowWindow(hwnd, SW_SHOW);
     _ = UpdateWindow(hwnd);
@@ -849,9 +851,9 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.C) LR
             return HTCLIENT;
         },
         WM_TIMER => {
-            if (@as(usize, @bitCast(wParam)) == TIMER_FILE_WATCH) {
-                checkFileChanged();
-            }
+            const timer_id = @as(usize, @bitCast(wParam));
+            if (timer_id == TIMER_FILE_WATCH) checkFileChanged();
+            if (timer_id == TIMER_SCROLL_SAVE) saveScrollPosition();
             return 0;
         },
         WM_DROPFILES => {
@@ -863,6 +865,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.C) LR
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
         WM_DESTROY => {
+            saveScrollPosition();
             PostQuitMessage(0);
             return 0;
         },
@@ -943,6 +946,57 @@ fn registerFileAssociation() void {
     // Print to stdout if possible
     const stdout = std.io.getStdOut().writer();
     stdout.writeAll("mdview registered as default viewer for .md and .markdown files.\n") catch {};
+}
+
+// ============================================================
+// Scroll position persistence
+// ============================================================
+fn scrollDataPath() ?[]const u8 {
+    const appdata = std.process.getEnvVarOwned(g_allocator, "LOCALAPPDATA") catch return null;
+    return std.fmt.allocPrint(g_allocator, "{s}\\mdview\\scroll.dat", .{appdata}) catch null;
+}
+
+fn loadScrollPosition() f32 {
+    const path = scrollDataPath() orelse return 0;
+    const data = std.fs.cwd().readFileAlloc(g_allocator, path, 1024 * 1024) catch return 0;
+    var lines = std.mem.splitScalar(u8, data, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trimRight(u8, line, "\r");
+        if (std.mem.indexOf(u8, trimmed, "=")) |eq| {
+            const key = trimmed[0..eq];
+            if (std.mem.eql(u8, key, g_file_path)) {
+                return std.fmt.parseFloat(f32, trimmed[eq + 1 ..]) catch 0;
+            }
+        }
+    }
+    return 0;
+}
+
+fn saveScrollPosition() void {
+    const path = scrollDataPath() orelse return;
+    // Read existing, update our entry, write back
+    var entries = std.ArrayList(u8).init(g_allocator);
+    if (std.fs.cwd().readFileAlloc(g_allocator, path, 1024 * 1024)) |data| {
+        var lines = std.mem.splitScalar(u8, data, '\n');
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trimRight(u8, line, "\r");
+            if (trimmed.len == 0) continue;
+            if (std.mem.indexOf(u8, trimmed, "=")) |eq| {
+                const key = trimmed[0..eq];
+                if (std.mem.eql(u8, key, g_file_path)) continue; // skip old entry
+            }
+            entries.appendSlice(trimmed) catch continue;
+            entries.append('\n') catch continue;
+        }
+    } else |_| {}
+    // Add current
+    if (g_scroll_y > 1) {
+        entries.writer().print("{s}={d:.0}\n", .{ g_file_path, g_scroll_y }) catch {};
+    }
+    const file = std.fs.cwd().createFile(path, .{ .truncate = true }) catch return;
+    defer file.close();
+    file.writeAll(entries.items) catch {};
+    logFmt("saved scroll {d:.0} for {s}", .{ g_scroll_y, g_file_path });
 }
 
 fn setRegString(root: usize, subkey: [*:0]const u16, value_name: ?[*:0]const u16, data: [*:0]const u16) void {
