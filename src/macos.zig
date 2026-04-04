@@ -16,7 +16,7 @@ const c = @cImport({
 // ============================================================
 
 // objc_msgSend cast helpers — each call site needs the right signature
-fn msgSend(comptime RetT: type, target: anytype, sel: c.SEL, args: anytype) RetT {
+fn msgSend(comptime RetT: type, target: anytype, selector: c.SEL, args: anytype) RetT {
     const Target = @TypeOf(target);
     const FnArgs = .{Target} ++ .{c.SEL} ++ ArgTypes(args);
     const FnType = @Type(.{ .@"fn" = .{
@@ -33,11 +33,11 @@ fn msgSend(comptime RetT: type, target: anytype, sel: c.SEL, args: anytype) RetT
         .is_var_args = false,
     } });
     const func: *const FnType = @ptrCast(&c.objc_msgSend);
-    return @call(.auto, func, .{target} ++ .{sel} ++ args);
+    return @call(.auto, func, .{target} ++ .{selector} ++ args);
 }
 
 // For methods that return structs (uses objc_msgSend_stret on x86_64, regular on arm64)
-fn msgSendStret(comptime RetT: type, target: anytype, sel: c.SEL, args: anytype) RetT {
+fn msgSendStret(comptime RetT: type, target: anytype, selector: c.SEL, args: anytype) RetT {
     const Target = @TypeOf(target);
     const native = comptime @import("builtin").cpu.arch;
     if (native == .x86_64 and @sizeOf(RetT) > 16) {
@@ -58,11 +58,11 @@ fn msgSendStret(comptime RetT: type, target: anytype, sel: c.SEL, args: anytype)
         } });
         const func: *const FnType = @ptrCast(@extern(*const anyopaque, .{ .name = "objc_msgSend_stret" }));
         var result: RetT = undefined;
-        @call(.auto, func, .{&result} ++ .{target} ++ .{sel} ++ args);
+        @call(.auto, func, .{&result} ++ .{target} ++ .{selector} ++ args);
         return result;
     } else {
         // On arm64, all structs use regular objc_msgSend
-        return msgSend(RetT, target, sel, args);
+        return msgSend(RetT, target, selector, args);
     }
 }
 

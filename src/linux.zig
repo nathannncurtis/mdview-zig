@@ -532,7 +532,7 @@ fn renderCodeBlock(
     // Apply syntax highlighting as Pango attributes
     const attr_list = buildSyntaxAttributes(block.text);
     c.pango_layout_set_attributes(pango_layout, attr_list);
-    if (attr_list) |al| defer c.pango_attr_list_unref(al);
+    defer if (attr_list) |al| c.pango_attr_list_unref(al);
 
     // Measure
     var pw: c_int = 0;
