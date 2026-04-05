@@ -22,11 +22,13 @@ Download from the [latest release](https://github.com/nathannncurtis/mdview-zig/
 
 | Platform | Files |
 |---|---|
-| Windows | `mdview.exe` (portable) or `mdview-setup.exe` (installer) |
-| Linux | `mdview-linux-x86_64` |
-| macOS | `mdview-macos-arm64` |
+| Windows | `mdview-setup.exe` (installer) or `mdview.exe` (portable) |
+| Linux | `mdview-linux-x86_64.deb` (Debian/Ubuntu) or `mdview` (standalone binary) |
+| macOS | `mdview-macos-arm64.dmg` (Apple Silicon) |
 
-The Windows installer can run per-user or system-wide and optionally associates `.md` / `.markdown` files with mdview.
+- **Windows installer** — per-user or system-wide install, optionally associates `.md` / `.markdown` files
+- **Linux .deb** — `sudo dpkg -i mdview-linux-x86_64.deb`, registers `.desktop` entry and `text/markdown` MIME type
+- **macOS .dmg** — drag `mdview.app` to `/Applications`
 
 ## Usage
 
