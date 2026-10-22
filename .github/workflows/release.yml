@@ -38,7 +38,7 @@ jobs:
           path: dist
       - name: Every asset is present
         run: |
-          for f in mdview.exe mdview-setup.exe mdview mdview-linux-x86_64.deb mdview-macos-arm64.dmg; do
+          for f in mdview.exe mdview-setup.exe mdview-x64.msix mdview mdview-linux-x86_64.deb mdview-macos-arm64.dmg; do
             test -s "dist/$f" || { echo "::error::missing $f"; exit 1; }
           done
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

@@ -44,28 +44,51 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      - name: Signing client
+        if: inputs.sign
+        run: |
+          $pkg = "$env:RUNNER_TEMP\asc.zip"
+          Invoke-WebRequest https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.128/microsoft.artifactsigning.client.1.0.128.nupkg -OutFile $pkg
+          if ((Get-FileHash $pkg -Algorithm SHA256).Hash -ne '74BD7D27E6CE1051409C38D9B46BC8DF0400ECD643D51FFBF2AC00869061E40B') { throw 'signing client hash mismatch' }
+          Expand-Archive $pkg "$env:RUNNER_TEMP\asc"
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.*\x64\signtool.exe" | Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1).FullName
+          $meta = "$env:RUNNER_TEMP\metadata.json"
+          '{"Endpoint":"https://wus2.codesigning.azure.net/","CodeSigningAccountName":"nathancurtis-signing","CertificateProfileName":"nathancurtis-signing"}' | Set-Content $meta
+          "SIGNTOOL=$signtool" >> $env:GITHUB_ENV
+          "SIGN_ARGS=sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib $env:RUNNER_TEMP\asc\bin\x64\Azure.CodeSigning.Dlib.dll /dmdf $meta" >> $env:GITHUB_ENV
       - name: Installer
         env:
           VERSION: ${{ inputs.version }}
-        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMDVIEW_VERSION=$($env:VERSION.TrimStart(''v''))" installer.iss'
-      - name: Sign mdview-setup.exe
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          $opts = @("/DMDVIEW_VERSION=$($env:VERSION.TrimStart('v'))")
+          if ('${{ inputs.sign }}' -eq 'true') { $opts += '/DSIGN=1', "/Sazsign=`$q$env:SIGNTOOL`$q $env:SIGN_ARGS `$f" }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" @opts installer.iss
+          if ($LASTEXITCODE) { throw 'ISCC failed' }
+      - name: MSIX
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          pwsh msix/make_assets.ps1
+          pwsh msix/pack.ps1 -Exe zig-out/bin/mdview.exe -Version $env:VERSION -Output "$PWD\Output\mdview-x64.msix" -Work "$env:RUNNER_TEMP\msix"
+          if ($LASTEXITCODE) { throw 'msix failed' }
+      - name: Sign mdview-x64.msix
         if: inputs.sign
-        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: https://wus2.codesigning.azure.net/
-          signing-account-name: nathancurtis-signing
-          certificate-profile-name: nathancurtis-signing
-          files: ${{ github.workspace }}\Output\mdview-setup.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          & $env:SIGNTOOL $env:SIGN_ARGS.Split(' ') "$PWD\Output\mdview-x64.msix"
+          if ($LASTEXITCODE) { throw 'signtool failed' }
       - name: Signatures are valid
         if: inputs.sign
         run: |
-          foreach ($f in 'zig-out/bin/mdview.exe', 'Output/mdview-setup.exe') {
+          $dir = "$env:RUNNER_TEMP\installed"
+          Start-Process Output/mdview-setup.exe "/VERYSILENT /CURRENTUSER /DIR=`"$dir`" /MERGETASKS=`"!associate`"" -Wait
+          foreach ($f in 'zig-out/bin/mdview.exe', 'Output/mdview-setup.exe', 'Output/mdview-x64.msix', "$dir\unins000.exe") {
             $sig = Get-AuthenticodeSignature $f
             if ($sig.Status -ne 'Valid') { throw "$f signature: $($sig.Status)" }
             "$f signed by $($sig.SignerCertificate.Subject)"
@@ -73,7 +96,7 @@ jobs:
       - name: Stage
         run: |
           New-Item -ItemType Directory dist | Out-Null
-          Copy-Item zig-out/bin/mdview.exe, Output/mdview-setup.exe dist/
+          Copy-Item zig-out/bin/mdview.exe, Output/mdview-setup.exe, Output/mdview-x64.msix dist/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mdview-windows
