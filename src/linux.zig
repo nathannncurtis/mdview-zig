@@ -3,6 +3,7 @@ const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
 const hl = @import("highlight.zig");
+const alerts = @import("alerts.zig");
 
 const c = @import("c");
 
@@ -339,68 +340,92 @@ fn render(dpy: *c.Display, win: c.Window) void {
     var y: f32 = padding - app.scroll_y;
 
     for (app.blocks) |*block| {
+        const inset = block.inset();
+        const x = padding + inset;
+        const cw = @max(max_width - inset, 60);
+        const top = y;
+        var gap: f32 = 0;
+        const text_col = if (block.muted()) col_quote else col_text;
+        for (block.marks) |l| drawMarker(cr, pango_layout, l.mark, padding + l.inset, y);
+
         switch (block.kind) {
             .h1 => {
                 y += 24;
-                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 24");
+                y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, col_text, "Sans Bold 24");
                 y += 8;
-                // Underline
                 setColor(cr, col_hr);
-                c.cairo_rectangle(cr, padding, y, max_width, 1);
+                c.cairo_rectangle(cr, x, y, cw, 1);
                 c.cairo_fill(cr);
-                y += 16;
+                y += 1;
+                gap = 16;
             },
             .h2 => {
                 y += 20;
-                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 18");
+                y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, col_text, "Sans Bold 18");
                 y += 6;
                 setColor(cr, col_hr);
-                c.cairo_rectangle(cr, padding, y, max_width, 1);
+                c.cairo_rectangle(cr, x, y, cw, 1);
                 c.cairo_fill(cr);
-                y += 16;
+                y += 1;
+                gap = 16;
             },
             .h3 => {
                 y += 16;
-                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 15");
-                y += 12;
+                y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, col_text, "Sans Bold 15");
+                gap = 12;
+            },
+            .h4, .h5, .h6 => {
+                y += 24;
+                const font: [*:0]const u8 = switch (block.kind) {
+                    .h4 => "Sans Bold 12",
+                    .h5 => "Sans Bold 10.5",
+                    else => "Sans Bold 10.2",
+                };
+                y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, if (block.kind == .h6) col_quote else col_text, font);
+                gap = 16;
             },
             .paragraph => {
-                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans 12");
-                y += 16;
+                y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, text_col, "Sans 12");
+                gap = block.paragraphGap();
             },
-            .list_item => {
-                // Bullet
-                setColor(cr, col_text);
-                c.cairo_arc(cr, padding + 10, y + 9, 2.5, 0, 2.0 * std.math.pi);
-                c.cairo_fill(cr);
-                y += renderTextBlock(cr, pango_layout, block.content, padding + 24, y, max_width - 24, col_text, "Sans 12");
+            .alert_title => {
+                const alert = block.frames[block.frames.len - 1].alert;
                 y += 8;
-            },
-            .blockquote => {
-                // Left bar
-                setColor(cr, col_hr);
-                c.cairo_rectangle(cr, padding, y, 3, 24);
-                c.cairo_fill(cr);
-                y += renderTextBlock(cr, pango_layout, block.content, padding + 16, y, max_width - 16, col_quote, "Sans Italic 12");
+                drawAlertIcon(cr, alert, x, y);
+                _ = renderTextBlock(cr, pango_layout, block.content, x + 24, y - 2, cw - 24, hexColor(alerts.style(alert).fg), "Sans Bold 12");
                 y += 16;
+                gap = 16;
+            },
+            .error_box => {
+                y += renderErrorBox(cr, pango_layout, block.content, x, y, cw);
+                gap = 16;
             },
             .code_block => {
-                y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, padding, y, max_width);
-                y += 16;
+                y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, x, y, cw);
+                gap = 16;
             },
             .table => {
-                y += renderTable(cr, pango_layout, block.table, padding, y, max_width);
-                y += 16;
+                y += renderTable(cr, pango_layout, block.table, x, y, cw, true, null);
+                gap = 16;
             },
             .hr => {
                 y += 12;
                 setColor(cr, col_hr);
-                c.cairo_rectangle(cr, padding, y, max_width, 2);
+                c.cairo_rectangle(cr, x, y, cw, 2);
                 c.cairo_fill(cr);
-                y += 14;
+                y += 2;
+                gap = 14;
             },
-            .blank => {},
         }
+
+        for (block.frames, 0..) |f, i| {
+            if (f.kind != .quote) continue;
+            if (f.alert != .none and !f.open) y += 8;
+            setColor(cr, if (f.alert == .none) col_bar else hexColor(alerts.style(f.alert).border));
+            c.cairo_rectangle(cr, padding + block.insetBefore(i), top, md.quote_bar, y + (if (f.open) gap else 0) - top);
+            c.cairo_fill(cr);
+        }
+        y += gap;
     }
 
     app.content_height = y + app.scroll_y + padding;
@@ -514,7 +539,8 @@ const cell_pad_x: f32 = 13;
 const cell_pad_y: f32 = 6;
 
 fn setCell(pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: ?f32) void {
-    setInline(pango_layout, t.cell(row, col), width, if (row == 0) "Sans Bold 12" else "Sans 12");
+    const bold = (row == 0 and t.header_row) or (col == 0 and t.header_col);
+    setInline(pango_layout, t.cell(row, col), width, if (bold) "Sans Bold 12" else "Sans 12");
     c.pango_layout_set_alignment(pango_layout, @intCast(switch (t.aligns[col]) {
         .none, .left => c.PANGO_ALIGN_LEFT,
         .center => c.PANGO_ALIGN_CENTER,
@@ -529,13 +555,19 @@ fn layoutPixelSize(pango_layout: *c.PangoLayout) [2]f32 {
     return .{ @floatFromInt(pw), @floatFromInt(ph) };
 }
 
-fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32) f32 {
+fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
     const widths = app.gpa.alloc(f32, t.columns) catch return 0;
     defer app.gpa.free(widths);
 
     @memset(widths, 0);
     for (0..t.rows()) |row| {
         for (widths, 0..) |*w, col| {
+            if (t.nestedAt(row, col)) |nt| {
+                var nw: f32 = 0;
+                _ = renderTable(cr, pango_layout, nt, 0, 0, 100000, false, &nw);
+                w.* = @max(w.*, nw);
+                continue;
+            }
             setCell(pango_layout, t, row, col, null);
             w.* = @max(w.*, layoutPixelSize(pango_layout)[0]);
         }
@@ -544,45 +576,62 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
     md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
     var table_w: f32 = 0;
     for (widths) |w| table_w += w;
+    if (out_width) |o| o.* = table_w;
 
     var row_y = y;
     for (0..t.rows()) |row| {
         var text_h: f32 = 0;
         for (widths, 0..) |w, col| {
+            if (t.nestedAt(row, col)) |nt| {
+                text_h = @max(text_h, renderTable(cr, pango_layout, nt, 0, 0, w - cell_pad_x * 2, false, null));
+                continue;
+            }
             setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
             text_h = @max(text_h, layoutPixelSize(pango_layout)[1]);
         }
         const row_h = text_h + cell_pad_y * 2;
-        if (row == 0) {
-            setColor(cr, col_code_bg);
-            c.cairo_rectangle(cr, x, row_y, table_w, row_h);
+        if (draw) {
+            if (row == 0 and t.header_row) {
+                setColor(cr, col_code_bg);
+                c.cairo_rectangle(cr, x, row_y, table_w, row_h);
+                c.cairo_fill(cr);
+            } else if (t.header_col) {
+                setColor(cr, col_code_bg);
+                c.cairo_rectangle(cr, x, row_y, widths[0], row_h);
+                c.cairo_fill(cr);
+            }
+            var cx = x;
+            for (widths, 0..) |w, col| {
+                if (t.nestedAt(row, col)) |nt| {
+                    _ = renderTable(cr, pango_layout, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
+                } else {
+                    setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
+                    setColor(cr, col_text);
+                    c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
+                    c.pango_cairo_show_layout(cr, pango_layout);
+                }
+                cx += w;
+            }
+            setColor(cr, col_border);
+            c.cairo_rectangle(cr, x, row_y, table_w, 1);
             c.cairo_fill(cr);
         }
-        var cx = x;
-        for (widths, 0..) |w, col| {
-            setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
-            setColor(cr, col_text);
-            c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
-            c.pango_cairo_show_layout(cr, pango_layout);
-            cx += w;
-        }
-        setColor(cr, col_border);
-        c.cairo_rectangle(cr, x, row_y, table_w, 1);
-        c.cairo_fill(cr);
         row_y += row_h;
     }
     c.pango_layout_set_attributes(pango_layout, null);
     c.pango_layout_set_alignment(pango_layout, c.PANGO_ALIGN_LEFT);
 
-    setColor(cr, col_border);
-    c.cairo_rectangle(cr, x, row_y, table_w, 1);
-    c.cairo_rectangle(cr, x, y, 1, row_y + 1 - y);
-    var cx = x;
-    for (widths) |w| {
-        cx += w;
-        c.cairo_rectangle(cr, cx - 1, y, 1, row_y + 1 - y);
+    if (draw) {
+        setColor(cr, col_border);
+        c.cairo_rectangle(cr, x, row_y, table_w, 1);
+        c.cairo_rectangle(cr, x, y, 1, row_y + 1 - y);
+        var cx = x;
+        for (widths) |w| {
+            cx += w;
+            c.cairo_rectangle(cr, cx - 1, y, 1, row_y + 1 - y);
+        }
+        c.cairo_fill(cr);
     }
-    c.cairo_fill(cr);
     return row_y + 1 - y;
 }
 
@@ -632,6 +681,104 @@ fn renderCodeBlock(
     c.pango_layout_set_attributes(pango_layout, null);
 
     return block_height;
+}
+
+fn hexColor(hex: u24) Color {
+    return .{
+        .r = @as(f64, @floatFromInt((hex >> 16) & 0xFF)) / 255.0,
+        .g = @as(f64, @floatFromInt((hex >> 8) & 0xFF)) / 255.0,
+        .b = @as(f64, @floatFromInt(hex & 0xFF)) / 255.0,
+    };
+}
+
+const col_bar = hexColor(0x3d444d);
+const col_check = hexColor(0x1f6feb);
+const col_err_bg = hexColor(0x25171c);
+const col_err_border = hexColor(0x6b2b2b);
+
+fn drawAlertIcon(cr: *c.cairo_t, alert: md.Alert, x: f32, y: f32) void {
+    setColor(cr, hexColor(alerts.style(alert).fg));
+    c.cairo_new_path(cr);
+    for (alerts.icon(alert)) |op| switch (op) {
+        .move => |p| c.cairo_move_to(cr, x + p[0], y + p[1]),
+        .line => |p| c.cairo_line_to(cr, x + p[0], y + p[1]),
+        .cubic => |q| c.cairo_curve_to(cr, x + q[0], y + q[1], x + q[2], y + q[3], x + q[4], y + q[5]),
+        .close => c.cairo_close_path(cr),
+    };
+    c.cairo_set_fill_rule(cr, c.CAIRO_FILL_RULE_WINDING);
+    c.cairo_fill(cr);
+}
+
+fn renderErrorBox(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32, w: f32) f32 {
+    setInline(pango_layout, content, @max(w - 34, 20), "Sans 12");
+    const h = layoutPixelSize(pango_layout)[1] + 32;
+    drawRoundedRect(cr, x, y, w, h, 6);
+    setColor(cr, col_err_border);
+    c.cairo_fill(cr);
+    drawRoundedRect(cr, x + 1, y + 1, w - 2, h - 2, 5);
+    setColor(cr, col_err_bg);
+    c.cairo_fill(cr);
+    setColor(cr, col_text);
+    c.cairo_move_to(cr, x + 17, y + 16);
+    c.pango_cairo_show_layout(cr, pango_layout);
+    c.pango_layout_set_attributes(pango_layout, null);
+    return h;
+}
+
+fn drawMarker(cr: *c.cairo_t, pango_layout: *c.PangoLayout, m: md.Mark, x: f32, y: f32) void {
+    switch (m.kind) {
+        .none => {},
+        .bullet => {
+            const cx = x - 13;
+            const cy = y + 12;
+            setColor(cr, col_text);
+            switch (m.depth % 3) {
+                0 => {
+                    c.cairo_arc(cr, cx, cy, 2.8, 0, 2.0 * std.math.pi);
+                    c.cairo_fill(cr);
+                },
+                1 => {
+                    c.cairo_set_line_width(cr, 1);
+                    c.cairo_arc(cr, cx, cy, 2.4, 0, 2.0 * std.math.pi);
+                    c.cairo_stroke(cr);
+                },
+                else => {
+                    c.cairo_rectangle(cr, cx - 2.5, cy - 2.5, 5, 5);
+                    c.cairo_fill(cr);
+                },
+            }
+        },
+        .number => {
+            var buf: [16]u8 = undefined;
+            setInline(pango_layout, .{ .text = md.markerLabel(&buf, m) }, null, "Sans 12");
+            const size = layoutPixelSize(pango_layout);
+            setColor(cr, col_text);
+            c.cairo_move_to(cr, x - 6 - size[0], y);
+            c.pango_cairo_show_layout(cr, pango_layout);
+            c.pango_layout_set_attributes(pango_layout, null);
+        },
+        .task_open, .task_done => {
+            const bx = x - 23;
+            const by = y + 5;
+            c.cairo_set_line_cap(cr, c.CAIRO_LINE_CAP_ROUND);
+            if (m.kind == .task_done) {
+                drawRoundedRect(cr, bx, by, 14, 14, 3);
+                setColor(cr, col_check);
+                c.cairo_fill(cr);
+                c.cairo_set_source_rgb(cr, 1, 1, 1);
+                c.cairo_set_line_width(cr, 1.8);
+                c.cairo_move_to(cr, bx + 3.5, by + 7.5);
+                c.cairo_line_to(cr, bx + 6, by + 10);
+                c.cairo_line_to(cr, bx + 10.5, by + 4.5);
+                c.cairo_stroke(cr);
+            } else {
+                drawRoundedRect(cr, bx + 0.5, by + 0.5, 13, 13, 2.5);
+                setColor(cr, col_quote);
+                c.cairo_set_line_width(cr, 1);
+                c.cairo_stroke(cr);
+            }
+        },
+    }
 }
 
 fn drawRoundedRect(cr: *c.cairo_t, x: f32, y: f32, w: f32, h: f32, r: f32) void {
