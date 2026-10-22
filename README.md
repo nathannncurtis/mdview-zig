@@ -11,6 +11,7 @@ Dark-themed, borderless floating window that renders Markdown with GitHub-dark s
 - **Borderless floating window** — clean, minimal chrome
 - **Syntax highlighting** in code blocks
 - **Bold/italic** inline formatting
+- **Tables** with column alignment
 - **File watching** — auto-reloads when the file changes on disk
 - **Drag & drop** — drop any `.md` file onto the window to open it
 - **Scroll position memory** — remembers where you left off across sessions
@@ -49,7 +50,7 @@ Or drag and drop a `.md` file onto the window.
 
 ## Build from source
 
-Requires [Zig 0.14+](https://ziglang.org/download/).
+Requires [Zig 0.17.0](https://ziglang.org/download/).
 
 ```
 zig build -Doptimize=ReleaseSmall
@@ -70,4 +71,4 @@ Logs are written to:
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
