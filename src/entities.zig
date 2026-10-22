@@ -114,6 +114,7 @@ const restarts = [_]u16{
 
 const off_bits = 13;
 const ref_bits = 16;
+const Raw = u32;
 const refs = "\x96MI0\x8cM\x0eN\x8eM\xa6O\xfd\x81\x8aM\x14O\x0aN\xe3k\x12N\xb9\x82\xeec\x94MY\x81@f\x90M\x92M\xb6e\x15m\xc9g\xa8O\x01fQd\x16O\x01\x82\xbd\x82\x06OQd\xc6`\xd4O\\M\x16N`grdTd\"N\x98M\x1aN\xf2e\x1eNzMxMTd>O\xc7f\xbef\xbbf\xc1f" ++
     "\xf8e\xacc\xa3c\x07f\x19l$`\xefe\xece\x00d\xa7e\xfbe\x8fk]\x81cg\x1e`rd\xa0i\x8cO\x92O\xa4O\xb5c\xcfd\x0fm&N\xaeO\x95e\x1aO\x05\x82rM\x08O\x10O[0\x0eO6gud\xc1\x82ZM\xfdc\xd0`\xefeZMVeMeYe\x0fmvi|iyiSe\xeef" ++
     "Pe\\e\xd7e\xabd\xa6ize\x12O\x06j0j\x14e\x18j3j e\x1bj\xe5f\xe1dVea\x81*N\x94N\xaaM\x9cM:N\x9eM\xe0O2N\x09\x82\x9aM\x98e.N\x0di\xceh6N\xc5\x82\x1cO\x1cl\xbc`AeZd\x16l O\xa0M\x8cexd\xceO\x0d\x82\x10i\xcbh\xc9\x82\x86e" ++
@@ -233,9 +234,11 @@ pub fn lookup(key: []const u8) ?[]const u8 {
             .eq => {
                 const bit = idx * ref_bits;
                 const at = bit / 8;
-                const raw = @as(u32, refs[at]) | @as(u32, refs[at + 1]) << 8 | @as(u32, refs[at + 2]) << 16 | @as(u32, refs[at + 3]) << 24;
+                const raw = std.mem.readInt(Raw, refs[at..][0..@sizeOf(Raw)], .little);
                 const ref = (raw >> @intCast(bit % 8)) & ((1 << ref_bits) - 1);
-                return values[ref & ((1 << off_bits) - 1) ..][0 .. ref >> off_bits];
+                const off: usize = @intCast(ref & ((1 << off_bits) - 1));
+                const len: usize = @intCast(ref >> off_bits);
+                return values[off..][0..len];
             },
             .gt => return null,
             .lt => {},
@@ -2388,8 +2391,13 @@ test "every entry round-trips" {
         if (e[0].len < max_name) try std.testing.expect(lookup(probe[0 .. e[0].len + 1]) == null);
         if (e[0].len > 1) {
             const shorter = e[0][0 .. e[0].len - 1];
-            var present = false;
-            for (expected) |o| present = present or std.mem.eql(u8, o[0], shorter);
+            var lo: usize = 0;
+            var hi: usize = expected.len;
+            while (lo < hi) {
+                const mid = lo + (hi - lo) / 2;
+                if (std.mem.order(u8, expected[mid][0], shorter) == .lt) lo = mid + 1 else hi = mid;
+            }
+            const present = lo < expected.len and std.mem.eql(u8, expected[lo][0], shorter);
             if (!present) try std.testing.expect(lookup(shorter) == null);
         }
     }
