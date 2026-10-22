@@ -16,6 +16,8 @@ var display: ?*c.Display = null;
 var window: c.Window = 0;
 var needs_redraw: bool = true;
 var wm_delete_window: c.Atom = 0;
+var hand_cursor: c.Cursor = 0;
+var over_link = false;
 
 // ============================================================
 // Colors
@@ -31,6 +33,7 @@ const col_border = Color{ .r = 48.0 / 255.0, .g = 54.0 / 255.0, .b = 61.0 / 255.
 const col_table_border = hexColor(0x3d444d);
 const col_stripe = hexColor(0x151b23);
 const col_close = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
+const col_link = Color{ .r = 68.0 / 255.0, .g = 147.0 / 255.0, .b = 248.0 / 255.0 };
 
 const col_hl_string = Color{ .r = 165.0 / 255.0, .g = 214.0 / 255.0, .b = 255.0 / 255.0 };
 
@@ -84,6 +87,7 @@ pub fn run() void {
 
     app.window_width = @floatFromInt(width);
     app.window_height = @floatFromInt(height);
+    hand_cursor = c.XCreateFontCursor(dpy, c.XC_hand2);
 
     // Set window title
     _ = c.XStoreName(dpy, window, "mdview");
@@ -126,10 +130,26 @@ pub fn run() void {
                     const ke = ev.xkey;
                     var keysym: c.KeySym = 0;
                     _ = c.XLookupString(@constCast(&ke), null, 0, &keysym, null);
+                    if ((ke.state & c.Mod1Mask) != 0) {
+                        if (keysym == 0xFF51) app.goBack();
+                        if (keysym == 0xFF53) app.goForward();
+                    }
                     // Ctrl+Q to quit
                     if (keysym == 'q' and (ke.state & c.ControlMask) != 0) {
                         running = false;
                     }
+                },
+                c.MotionNotify => {
+                    const me = ev.xmotion;
+                    const over = app.pointerMoved(@floatFromInt(me.x), @floatFromInt(me.y));
+                    if (over != over_link) {
+                        over_link = over;
+                        if (over) _ = c.XDefineCursor(dpy, window, hand_cursor) else _ = c.XUndefineCursor(dpy, window);
+                    }
+                },
+                c.ButtonRelease => {
+                    const be = ev.xbutton;
+                    if (be.button == 1) _ = app.mouseUp(@floatFromInt(be.x), @floatFromInt(be.y));
                 },
                 c.ButtonPress => {
                     const be = ev.xbutton;
@@ -146,6 +166,12 @@ pub fn run() void {
                         if (max_scroll > 0 and app.scroll_y > max_scroll) app.scroll_y = max_scroll;
                         needs_redraw = true;
                     }
+                    // Back and forward buttons
+                    else if (be.button == 8) {
+                        app.goBack();
+                    } else if (be.button == 9) {
+                        app.goForward();
+                    }
                     // Left click
                     else if (be.button == 1) {
                         const bx: f32 = @floatFromInt(be.x);
@@ -157,6 +183,8 @@ pub fn run() void {
                         // Alt+click to move window
                         else if ((be.state & c.Mod1Mask) != 0) {
                             initiateMove(dpy, window, be.x_root, be.y_root);
+                        } else {
+                            _ = app.mouseDown(bx, by);
                         }
                     }
                 },
@@ -340,8 +368,10 @@ fn render(dpy: *c.Display, win: c.Window) void {
     const padding: f32 = 40;
     const max_width = @max(app.window_width - padding * 2, 100);
     var y: f32 = padding - app.scroll_y;
+    app.beginFrame();
 
     for (app.blocks) |*block| {
+        app.noteBlock(y + app.scroll_y);
         const inset = block.inset();
         const x = padding + inset;
         const cw = @max(max_width - inset, 60);
@@ -436,6 +466,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
     drawCloseButton(cr);
 
     _ = c.cairo_surface_flush(surface);
+    if (app.afterRender()) needs_redraw = true;
 }
 
 fn setColor(cr: *c.cairo_t, col: Color) void {
@@ -467,7 +498,74 @@ fn renderTextBlock(
     // Clean up layout state for next use
     c.pango_layout_set_attributes(pango_layout, null);
 
+    app.noteHit(.{ .content = content, .x = x, .y = y + app.scroll_y, .w = max_width, .h = @floatFromInt(ph), .font = fontOfDesc(font_desc_str) });
     return @floatFromInt(ph);
+}
+
+fn fontOfDesc(desc: [*:0]const u8) app.Font {
+    const names = [_]struct { []const u8, app.Font }{
+        .{ "Sans Bold 24", .h1 },
+        .{ "Sans Bold 18", .h2 },
+        .{ "Sans Bold 15", .h3 },
+        .{ "Sans Bold 12", .h4 },
+        .{ "Sans Bold 10.5", .h5 },
+        .{ "Sans Bold 10.2", .h6 },
+    };
+    for (names) |n| if (std.mem.eql(u8, std.mem.span(desc), n[0])) return n[1];
+    return .body;
+}
+
+fn fontDesc(font: app.Font) [*:0]const u8 {
+    return switch (font) {
+        .body => "Sans 12",
+        .h1 => "Sans Bold 24",
+        .h2 => "Sans Bold 18",
+        .h3 => "Sans Bold 15",
+        .h4 => "Sans Bold 12",
+        .h5 => "Sans Bold 10.5",
+        .h6 => "Sans Bold 10.2",
+    };
+}
+
+pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
+    const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return null;
+    defer c.cairo_surface_destroy(surface);
+    const cr = c.cairo_create(surface) orelse return null;
+    defer c.cairo_destroy(cr);
+    const layout = c.pango_cairo_create_layout(cr) orelse return null;
+    defer c.g_object_unref(layout);
+
+    setInline(layout, hit.content, hit.w, if (hit.header) "Sans Bold 12" else fontDesc(hit.font));
+    c.pango_layout_set_alignment(layout, @intCast(switch (hit.alignment) {
+        .none, .left => c.PANGO_ALIGN_LEFT,
+        .center => c.PANGO_ALIGN_CENTER,
+        .right => c.PANGO_ALIGN_RIGHT,
+    }));
+    var index: c_int = 0;
+    var trailing: c_int = 0;
+    const scale: f32 = @floatFromInt(c.PANGO_SCALE);
+    if (c.pango_layout_xy_to_index(layout, @intFromFloat(x * scale), @intFromFloat(y * scale), &index, &trailing) == 0) return null;
+    return @intCast(index);
+}
+
+fn openUrl(url: []u8) void {
+    defer app.gpa.free(url);
+    var child = std.process.spawn(app.io, .{
+        .argv = &.{ "xdg-open", url },
+        .stdin = .ignore,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch return;
+    _ = child.wait(app.io) catch {};
+}
+
+pub fn openExternal(url: []const u8) void {
+    const copy = app.gpa.dupe(u8, url) catch return;
+    const thread = std.Thread.spawn(.{}, openUrl, .{copy}) catch {
+        app.gpa.free(copy);
+        return;
+    };
+    thread.detach();
 }
 
 fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
@@ -532,6 +630,35 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
         col_attr.*.start_index = start;
         col_attr.*.end_index = start + length;
         c.pango_attr_list_insert(attr_list, col_attr);
+    }
+
+    for (content.links) |l| {
+        const color = c.pango_attr_foreground_new(
+            @intFromFloat(col_link.r * 65535.0),
+            @intFromFloat(col_link.g * 65535.0),
+            @intFromFloat(col_link.b * 65535.0),
+        ) orelse continue;
+        color.*.start_index = l.start;
+        color.*.end_index = l.start + l.len;
+        c.pango_attr_list_insert(attr_list, color);
+        if (app.isHover(content, l)) {
+            const underline = c.pango_attr_underline_new(c.PANGO_UNDERLINE_SINGLE) orelse continue;
+            underline.*.start_index = l.start;
+            underline.*.end_index = l.start + l.len;
+            c.pango_attr_list_insert(attr_list, underline);
+        }
+    }
+
+    const rise: c_int = @intFromFloat(@as(f64, @floatFromInt(c.pango_font_description_get_size(desc))) * 0.4);
+    for (content.sup) |span| {
+        const scale = c.pango_attr_scale_new(0.7) orelse continue;
+        scale.*.start_index = span[0];
+        scale.*.end_index = span[0] + span[1];
+        c.pango_attr_list_insert(attr_list, scale);
+        const raise = c.pango_attr_rise_new(rise) orelse continue;
+        raise.*.start_index = span[0];
+        raise.*.end_index = span[0] + span[1];
+        c.pango_attr_list_insert(attr_list, raise);
     }
 
     c.pango_layout_set_attributes(pango_layout, attr_list);
@@ -609,6 +736,10 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
                     setColor(cr, col_text);
                     c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
                     c.pango_cairo_show_layout(cr, pango_layout);
+                    app.noteHit(.{
+                        .content = t.cell(row, col), .x = cx + cell_pad_x, .y = row_y + cell_pad_y + app.scroll_y, .w = w - cell_pad_x * 2,
+                        .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
+                    });
                 }
                 cx += w;
             }

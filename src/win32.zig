@@ -25,6 +25,15 @@ const WM_PAINT: u32 = 0x000F;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_MOUSEWHEEL: u32 = 0x020A;
 const WM_NCHITTEST: u32 = 0x0084;
+const WM_SETCURSOR: u32 = 0x0020;
+const WM_MOUSEMOVE: u32 = 0x0200;
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_XBUTTONUP: u32 = 0x020C;
+const WM_SYSKEYDOWN: u32 = 0x0104;
+const VK_LEFT: usize = 0x25;
+const VK_RIGHT: usize = 0x27;
+const SW_SHOWNORMAL: i32 = 1;
 const WM_NCCALCSIZE: u32 = 0x0083;
 const WM_TIMER: u32 = 0x0113;
 const WM_DROPFILES: u32 = 0x0233;
@@ -43,6 +52,7 @@ const WS_EX_ACCEPTFILES: u32 = 0x00000010;
 const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 const SW_SHOW: i32 = 5;
 const IDC_ARROW: usize = 32512;
+const IDC_HAND: usize = 32649;
 const HTCLIENT: u32 = 1;
 const HTCAPTION: u32 = 2;
 const HTLEFT: u32 = 10;
@@ -83,6 +93,7 @@ extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.c) BOOL;
 extern "user32" fn InvalidateRect(hWnd: HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.c) BOOL;
 extern "user32" fn RegisterClassExW(lpwcx: *const WNDCLASSEXW) callconv(.c) u16;
 extern "user32" fn LoadCursorW(hInstance: ?HINSTANCE, lpCursorName: usize) callconv(.c) ?*anyopaque;
+extern "user32" fn SetCursor(hCursor: ?*anyopaque) callconv(.c) ?*anyopaque;
 extern "user32" fn GetKeyState(nVirtKey: i32) callconv(.c) i16;
 extern "user32" fn ScreenToClient(hWnd: HWND, lpPoint: *POINT) callconv(.c) BOOL;
 extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?*anyopaque;
@@ -90,6 +101,7 @@ extern "user32" fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c
 extern "user32" fn SetTimer(hWnd: ?HWND, nIDEvent: usize, uElapse: u32, lpTimerFunc: ?*anyopaque) callconv(.c) usize;
 extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: u32) callconv(.c) HRESULT;
 extern "shell32" fn DragQueryFileW(hDrop: *anyopaque, iFile: u32, lpszFile: ?[*]u16, cch: u32) callconv(.c) u32;
+extern "shell32" fn ShellExecuteW(hwnd: ?HWND, lpOperation: ?[*:0]const u16, lpFile: [*:0]const u16, lpParameters: ?[*:0]const u16, lpDirectory: ?[*:0]const u16, nShowCmd: i32) callconv(.c) ?*anyopaque;
 extern "shell32" fn DragFinish(hDrop: *anyopaque) callconv(.c) void;
 extern "advapi32" fn RegCreateKeyExW(hKey: usize, lpSubKey: [*:0]const u16, Reserved: u32, lpClass: ?*anyopaque, dwOptions: u32, samDesired: u32, lpSecurityAttributes: ?*anyopaque, phkResult: *usize, lpdwDisposition: ?*u32) callconv(.c) i32;
 extern "advapi32" fn RegSetValueExW(hKey: usize, lpValueName: ?[*:0]const u16, Reserved: u32, dwType: u32, lpData: [*]const u8, cbData: u32) callconv(.c) i32;
@@ -112,6 +124,20 @@ const DWRITE_TEXT_RANGE = extern struct { startPosition: u32, length: u32 };
 const DWRITE_HIT_TEST_METRICS = extern struct {
     textPosition: u32, length: u32, left: f32, top: f32, width: f32, height: f32, bidiLevel: u32, isText: BOOL, isTrimmed: BOOL,
 };
+const DWRITE_GLYPH_RUN = extern struct {
+    fontFace: ?*anyopaque, fontEmSize: f32, glyphCount: u32, glyphIndices: ?*const u16,
+    glyphAdvances: ?*const f32, glyphOffsets: ?*const anyopaque, isSideways: BOOL, bidiLevel: u32,
+};
+const DWRITE_COLOR_F = extern struct { r: f32, g: f32, b: f32, a: f32 };
+const DWRITE_COLOR_GLYPH_RUN = extern struct {
+    glyphRun: DWRITE_GLYPH_RUN, glyphRunDescription: ?*const anyopaque, baselineOriginX: f32, baselineOriginY: f32,
+    runColor: DWRITE_COLOR_F, paletteIndex: u16,
+};
+const DWRITE_UNDERLINE = extern struct {
+    width: f32, thickness: f32, offset: f32, runHeight: f32, readingDirection: u32, flowDirection: u32,
+    localeName: ?*const u16, measuringMode: u32,
+};
+const DWRITE_MATRIX = extern struct { m11: f32, m12: f32, m21: f32, m22: f32, dx: f32, dy: f32 };
 const DWRITE_TEXT_METRICS = extern struct {
     left: f32, top: f32, width: f32, widthIncludingTrailingWhitespace: f32,
     height: f32, layoutWidth: f32, layoutHeight: f32, maxBidiReorderingDepth: u32, lineCount: u32,
@@ -145,7 +171,7 @@ const ID2D1RT_VTable = extern struct {
     FillGeometry: *const fn (*anyopaque, *anyopaque, *anyopaque, ?*anyopaque) callconv(.c) void, // 23
     _pad24_27: [4]*const anyopaque,
     DrawTextLayout: *const fn (*anyopaque, D2D1_POINT_2F, *anyopaque, *anyopaque, u32) callconv(.c) void, // 28
-    _pad29: *const anyopaque,
+    DrawGlyphRun: *const fn (*anyopaque, D2D1_POINT_2F, *const DWRITE_GLYPH_RUN, *anyopaque, u32) callconv(.c) void, // 29
     SetTransform: *const fn (*anyopaque, *const D2D1_MATRIX_3X2_F) callconv(.c) void, // 30
     _pad31_46: [16]*const anyopaque,
     Clear: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 47
@@ -181,11 +207,194 @@ const IDWriteTextLayout_VTable = extern struct {
     SetUnderline: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 36
     SetStrikethrough: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 37
     SetDrawingEffect: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 38
-    _pad39_59: [21]*const anyopaque,
+    _pad39_57: [19]*const anyopaque,
+    Draw: *const fn (*anyopaque, ?*anyopaque, *anyopaque, f32, f32) callconv(.c) HRESULT, // 58
+    _pad59: *const anyopaque,
     GetMetrics: *const fn (*anyopaque, *DWRITE_TEXT_METRICS) callconv(.c) HRESULT, // 60
-    _pad61_65: [5]*const anyopaque,
+    _pad61_63: [3]*const anyopaque,
+    HitTestPoint: *const fn (*anyopaque, f32, f32, *BOOL, *BOOL, *DWRITE_HIT_TEST_METRICS) callconv(.c) HRESULT, // 64
+    _pad65: *const anyopaque,
     HitTestTextRange: *const fn (*anyopaque, u32, u32, f32, f32, [*]DWRITE_HIT_TEST_METRICS, u32, *u32) callconv(.c) HRESULT, // 66
 };
+
+const IDWriteFactory2_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    _pad3_27: [25]*const anyopaque,
+    TranslateColorGlyphRun: *const fn (*anyopaque, f32, f32, *const DWRITE_GLYPH_RUN, ?*const anyopaque, u32, *const DWRITE_MATRIX, u32, *?*anyopaque) callconv(.c) HRESULT, // 28
+};
+
+const IDWriteColorGlyphRunEnumerator_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    MoveNext: *const fn (*anyopaque, *BOOL) callconv(.c) HRESULT, // 3
+    GetCurrentRun: *const fn (*anyopaque, *?*const DWRITE_COLOR_GLYPH_RUN) callconv(.c) HRESULT, // 4
+};
+
+const ID2D1SolidColorBrush_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    _pad3_7: [5]*const anyopaque,
+    SetColor: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 8
+};
+
+const IID_IDWriteFactory2 = GUID{ .Data1 = 0x0439fc60, .Data2 = 0xca44, .Data3 = 0x4994, .Data4 = .{ 0x8d, 0xee, 0x3a, 0x9a, 0xf7, 0xb7, 0x32, 0xec } };
+
+const IDWriteTextRenderer_VTable = extern struct {
+    QueryInterface: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+    AddRef: *const fn (*anyopaque) callconv(.c) u32,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    IsPixelSnappingDisabled: *const fn (*anyopaque, ?*anyopaque, *BOOL) callconv(.c) HRESULT,
+    GetCurrentTransform: *const fn (*anyopaque, ?*anyopaque, *DWRITE_MATRIX) callconv(.c) HRESULT,
+    GetPixelsPerDip: *const fn (*anyopaque, ?*anyopaque, *f32) callconv(.c) HRESULT,
+    DrawGlyphRun: *const fn (*anyopaque, ?*anyopaque, f32, f32, u32, *const DWRITE_GLYPH_RUN, ?*const anyopaque, ?*anyopaque) callconv(.c) HRESULT,
+    DrawUnderline: *const fn (*anyopaque, ?*anyopaque, f32, f32, *const DWRITE_UNDERLINE, ?*anyopaque) callconv(.c) HRESULT,
+    DrawStrikethrough: *const fn (*anyopaque, ?*anyopaque, f32, f32, *const anyopaque, ?*anyopaque) callconv(.c) HRESULT,
+    DrawInlineObject: *const fn (*anyopaque, ?*anyopaque, f32, f32, ?*anyopaque, BOOL, BOOL, ?*anyopaque) callconv(.c) HRESULT,
+};
+
+const TextRenderer = extern struct { vtbl: *const IDWriteTextRenderer_VTable };
+
+const DrawContext = struct { rt: *anyopaque, brush: *anyopaque };
+
+// Draws glyph runs itself so a run tagged with a sup brush can sit above the baseline.
+const text_renderer_vtable = IDWriteTextRenderer_VTable{
+    .QueryInterface = rendererQuery,
+    .AddRef = rendererRef,
+    .Release = rendererRef,
+    .IsPixelSnappingDisabled = rendererSnapping,
+    .GetCurrentTransform = rendererTransform,
+    .GetPixelsPerDip = rendererDip,
+    .DrawGlyphRun = rendererGlyphRun,
+    .DrawUnderline = rendererUnderline,
+    .DrawStrikethrough = rendererStrike,
+    .DrawInlineObject = rendererInline,
+};
+var g_text_renderer = TextRenderer{ .vtbl = &text_renderer_vtable };
+
+const IID_IUnknown = GUID{ .Data1 = 0, .Data2 = 0, .Data3 = 0, .Data4 = .{ 0xC0, 0, 0, 0, 0, 0, 0, 0x46 } };
+const IID_IDWritePixelSnapping = GUID{ .Data1 = 0xeaf3a2da, .Data2 = 0xecf4, .Data3 = 0x4d24, .Data4 = .{ 0xb6, 0x44, 0xb3, 0x4f, 0x68, 0x42, 0x02, 0x4b } };
+const IID_IDWriteTextRenderer = GUID{ .Data1 = 0xef8a8135, .Data2 = 0x5cc6, .Data3 = 0x45fe, .Data4 = .{ 0x88, 0x25, 0xc5, 0xa0, 0x72, 0x4e, 0xb8, 0x19 } };
+
+// Newer renderer interfaces must be refused: DrawGlyphRun differs there and the table ends early.
+fn rendererQuery(self: *anyopaque, iid: *const GUID, out: *?*anyopaque) callconv(.c) HRESULT {
+    inline for (.{ IID_IUnknown, IID_IDWritePixelSnapping, IID_IDWriteTextRenderer }) |known| {
+        if (std.mem.eql(u8, std.mem.asBytes(iid), std.mem.asBytes(&known))) {
+            out.* = self;
+            return 0;
+        }
+    }
+    out.* = null;
+    return @bitCast(@as(u32, 0x80004002));
+}
+fn rendererRef(_: *anyopaque) callconv(.c) u32 {
+    return 1;
+}
+fn rendererSnapping(_: *anyopaque, _: ?*anyopaque, out: *BOOL) callconv(.c) HRESULT {
+    out.* = 0;
+    return 0;
+}
+fn rendererTransform(_: *anyopaque, _: ?*anyopaque, out: *DWRITE_MATRIX) callconv(.c) HRESULT {
+    out.* = .{ .m11 = 1, .m12 = 0, .m21 = 0, .m22 = 1, .dx = 0, .dy = 0 };
+    return 0;
+}
+fn rendererDip(_: *anyopaque, _: ?*anyopaque, out: *f32) callconv(.c) HRESULT {
+    out.* = 1;
+    return 0;
+}
+
+fn isSupBrush(effect: ?*anyopaque) bool {
+    const e = effect orelse return false;
+    return e == g_brush_link_sup or e == g_brush_text_sup;
+}
+
+fn rendererGlyphRun(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, mode: u32, glyphs: *const DWRITE_GLYPH_RUN, desc: ?*const anyopaque, effect: ?*anyopaque) callconv(.c) HRESULT {
+    const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
+    const raise: f32 = if (isSupBrush(effect)) glyphs.fontEmSize * sup_raise else 0;
+    drawGlyphRun(dc, x, y - raise, mode, glyphs, desc, effect orelse dc.brush);
+    return 0;
+}
+
+// Colour fonts (emoji) come as layers, each with its own palette colour; plain runs draw as one.
+fn drawGlyphRun(dc: *const DrawContext, x: f32, y: f32, mode: u32, glyphs: *const DWRITE_GLYPH_RUN, desc: ?*const anyopaque, brush: *anyopaque) void {
+    const vt_rt = vtable(ID2D1RT_VTable, dc.rt);
+    if (g_dwrite_factory2) |f2| {
+        var layers: ?*anyopaque = null;
+        const identity = DWRITE_MATRIX{ .m11 = 1, .m12 = 0, .m21 = 0, .m22 = 1, .dx = 0, .dy = 0 };
+        if (vtable(IDWriteFactory2_VTable, f2).TranslateColorGlyphRun(f2, x, y, glyphs, desc, mode, &identity, 0, &layers) >= 0) {
+            if (layers) |en| {
+                defer _ = vtable(IDWriteColorGlyphRunEnumerator_VTable, en).Release(en);
+                const vt_en = vtable(IDWriteColorGlyphRunEnumerator_VTable, en);
+                var more: BOOL = 0;
+                while (vt_en.MoveNext(en, &more) >= 0 and more != 0) {
+                    var layer: ?*const DWRITE_COLOR_GLYPH_RUN = null;
+                    if (vt_en.GetCurrentRun(en, &layer) < 0) break;
+                    const l = layer orelse break;
+                    var use = brush;
+                    if (l.paletteIndex != 0xFFFF) if (g_brush_color_layer) |lb| {
+                        vtable(ID2D1SolidColorBrush_VTable, lb).SetColor(lb, &.{ .r = l.runColor.r, .g = l.runColor.g, .b = l.runColor.b, .a = l.runColor.a });
+                        use = lb;
+                    };
+                    vt_rt.DrawGlyphRun(dc.rt, .{ .x = l.baselineOriginX, .y = l.baselineOriginY }, &l.glyphRun, use, mode);
+                }
+                if (!g_color_logged) {
+                    g_color_logged = true;
+                    app.log("colour glyph run drawn");
+                }
+                return;
+            }
+        }
+    }
+    vt_rt.DrawGlyphRun(dc.rt, .{ .x = x, .y = y }, glyphs, brush, mode);
+}
+fn rendererUnderline(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, u: *const DWRITE_UNDERLINE, effect: ?*anyopaque) callconv(.c) HRESULT {
+    const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
+    const raise: f32 = if (isSupBrush(effect)) u.runHeight * sup_raise else 0;
+    const top = y + u.offset - raise;
+    vtable(ID2D1RT_VTable, dc.rt).FillRectangle(dc.rt, &.{ .left = x, .top = top, .right = x + u.width, .bottom = top + @max(u.thickness, 1) }, effect orelse dc.brush);
+    return 0;
+}
+fn rendererStrike(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, u: *const anyopaque, effect: ?*anyopaque) callconv(.c) HRESULT {
+    const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
+    const line: *const DWRITE_UNDERLINE = @ptrCast(@alignCast(u));
+    const top = y + line.offset;
+    vtable(ID2D1RT_VTable, dc.rt).FillRectangle(dc.rt, &.{ .left = x, .top = top, .right = x + line.width, .bottom = top + @max(line.thickness, 1) }, effect orelse dc.brush);
+    return 0;
+}
+fn rendererInline(_: *anyopaque, _: ?*anyopaque, _: f32, _: f32, _: ?*anyopaque, _: BOOL, _: BOOL, _: ?*anyopaque) callconv(.c) HRESULT {
+    return 0;
+}
+
+const sup_scale: f32 = 0.7;
+const sup_raise: f32 = 0.5;
+
+fn drawLayout(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, brush: *anyopaque, content: md.Inline) void {
+    if (content.sup.len == 0) {
+        vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
+        return;
+    }
+    var dc = DrawContext{ .rt = rt, .brush = brush };
+    _ = vtable(IDWriteTextLayout_VTable, lay).Draw(lay, &dc, &g_text_renderer, x, y);
+}
+
+fn baseFontSize(format: *anyopaque) f32 {
+    if (format == g_text_format_h1) return 32;
+    if (format == g_text_format_h2) return 24;
+    if (format == g_text_format_h3) return 20;
+    if (format == g_text_format_h5) return 14;
+    if (format == g_text_format_h6) return 13.6;
+    return 16;
+}
+
+fn fontOf(format: *anyopaque) app.Font {
+    if (format == g_text_format_h1) return .h1;
+    if (format == g_text_format_h2) return .h2;
+    if (format == g_text_format_h3) return .h3;
+    if (format == g_text_format_h4) return .h4;
+    if (format == g_text_format_h5) return .h5;
+    if (format == g_text_format_h6) return .h6;
+    return .body;
+}
 
 fn vtable(comptime VT: type, obj: *anyopaque) *const VT {
     const pp: *const *const VT = @ptrCast(@alignCast(obj));
@@ -228,6 +437,14 @@ var g_brush_err_bg: ?*anyopaque = null;
 var g_brush_err_border: ?*anyopaque = null;
 var g_alert_border: [5]?*anyopaque = @splat(null);
 var g_alert_fg: [5]?*anyopaque = @splat(null);
+var g_brush_link: ?*anyopaque = null;
+var g_brush_link_sup: ?*anyopaque = null;
+var g_brush_text_sup: ?*anyopaque = null;
+var g_brush_color_layer: ?*anyopaque = null;
+var g_dwrite_factory2: ?*anyopaque = null;
+var g_color_logged = false;
+var g_cursor_hand: ?*anyopaque = null;
+var g_over_link = false;
 
 pub fn invalidate() void {
     if (g_hwnd) |h| _ = InvalidateRect(h, null, 0);
@@ -267,9 +484,13 @@ pub fn run() void {
     }
 }
 
-fn initD2D() void {
+pub fn initD2D() void {
     _ = D2D1CreateFactory(0, &IID_ID2D1Factory, null, &g_d2d_factory);
     _ = DWriteCreateFactory(0, &IID_IDWriteFactory, &g_dwrite_factory);
+    if (g_dwrite_factory) |dwf| {
+        const query: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = @ptrCast(vtable(IDWriteFactory_VTable, dwf).QueryInterface);
+        _ = query(dwf, &IID_IDWriteFactory2, &g_dwrite_factory2);
+    }
     if (g_d2d_factory) |f| createAlertGeometries(f);
     if (g_dwrite_factory) |dwf| {
         const vt = vtable(IDWriteFactory_VTable, dwf);
@@ -327,6 +548,10 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_white = solidBrush(rt, 0xffffff);
     g_brush_err_bg = solidBrush(rt, 0x25171c);
     g_brush_err_border = solidBrush(rt, 0x6b2b2b);
+    g_brush_link = solidBrush(rt, 0x4493f8);
+    g_brush_link_sup = solidBrush(rt, 0x4493f8);
+    g_brush_text_sup = solidBrush(rt, 0xc9d1d9);
+    g_brush_color_layer = solidBrush(rt, 0xffffff);
     for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
         g_alert_border[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).border);
         g_alert_fg[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).fg);
@@ -349,8 +574,10 @@ fn render() void {
     const padding: f32 = 40;
     const max_width = @max(app.window_width - padding * 2, 100);
     var y: f32 = padding;
+    app.beginFrame();
 
     for (app.blocks) |*block| {
+        app.noteBlock(y);
         const inset = block.inset();
         const x = padding + inset;
         const w = @max(max_width - inset, 60);
@@ -601,11 +828,52 @@ fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
-    vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
+    drawLayout(vt_rt, rt, lay, x, y, brush, content);
+    app.noteHit(.{ .content = content, .x = x, .y = y, .w = max_width, .h = metrics.height, .font = fontOf(text_format) });
     return metrics.height;
 }
 
 const draw_color_font: u32 = 4; // D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT
+
+fn formatFor(font: app.Font) ?*anyopaque {
+    return switch (font) {
+        .body => g_text_format,
+        .h1 => g_text_format_h1,
+        .h2 => g_text_format_h2,
+        .h3 => g_text_format_h3,
+        .h4 => g_text_format_h4,
+        .h5 => g_text_format_h5,
+        .h6 => g_text_format_h6,
+    };
+}
+
+fn alignmentCode(a: md.Align) u32 {
+    return switch (a) {
+        .none, .left => 0,
+        .right => 1,
+        .center => 2,
+    };
+}
+
+pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
+    const dwf = g_dwrite_factory orelse return null;
+    const lay = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, hit.content, formatFor(hit.font) orelse return null, hit.w) orelse return null;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    if (hit.header) _ = vt.SetFontWeight(lay, 700, wideRange(hit.content.text, .{ 0, @intCast(hit.content.text.len) }));
+    _ = vt.SetTextAlignment(lay, alignmentCode(hit.alignment));
+    var trailing: BOOL = 0;
+    var inside: BOOL = 0;
+    var m: DWRITE_HIT_TEST_METRICS = undefined;
+    if (vt.HitTestPoint(lay, x, y, &trailing, &inside, &m) < 0 or inside == 0) return null;
+    return md.byteFromUtf16(hit.content.text, m.textPosition);
+}
+
+pub fn openExternal(url: []const u8) void {
+    const wide = std.unicode.utf8ToUtf16LeAllocZ(app.gpa, url) catch return;
+    defer app.gpa.free(wide);
+    _ = ShellExecuteW(null, L("open"), wide.ptr, null, null, SW_SHOWNORMAL);
+}
 
 fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, max_width: f32) ?*anyopaque {
     if (content.text.len == 0) return null;
@@ -632,6 +900,17 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
     for (content.emoji) |span| {
         _ = vt_layout.SetFontFamilyName(lay, std.unicode.utf8ToUtf16LeStringLiteral("Segoe UI Emoji"), wideRange(content.text, span));
     }
+    for (content.links) |l| {
+        const range = wideRange(content.text, .{ l.start, l.len });
+        if (g_brush_link) |b| _ = vt_layout.SetDrawingEffect(lay, b, range);
+        if (app.isHover(content, l)) _ = vt_layout.SetUnderline(lay, 1, range);
+    }
+    for (content.sup) |span| {
+        const range = wideRange(content.text, span);
+        _ = vt_layout.SetFontSize(lay, baseFontSize(text_format) * sup_scale, range);
+        const brush = if (content.linkAt(span[0]) != null) g_brush_link_sup else g_brush_text_sup;
+        if (brush) |b| _ = vt_layout.SetDrawingEffect(lay, b, range);
+    }
     return lay;
 }
 
@@ -644,11 +923,7 @@ fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table,
     const lay = createLayout(vt_dw, dwf, content, g_text_format orelse return null, width) orelse return null;
     const vt = vtable(IDWriteTextLayout_VTable, lay);
     if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) _ = vt.SetFontWeight(lay, 700, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
-    _ = vt.SetTextAlignment(lay, switch (t.aligns[col]) {
-        .none, .left => 0,
-        .right => 1,
-        .center => 2,
-    });
+    _ = vt.SetTextAlignment(lay, alignmentCode(t.aligns[col]));
     return lay;
 }
 
@@ -711,7 +986,11 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
                 if (t.nestedAt(row, col)) |nt| {
                     _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
                 } else if (lay) |l| {
-                    vt_rt.DrawTextLayout(rt, .{ .x = cx + cell_pad_x, .y = row_y + cell_pad_y }, l, g_brush_text.?, draw_color_font);
+                    drawLayout(vt_rt, rt, l, cx + cell_pad_x, row_y + cell_pad_y, g_brush_text.?, t.cell(row, col));
+                    app.noteHit(.{
+                        .content = t.cell(row, col), .x = cx + cell_pad_x, .y = row_y + cell_pad_y, .w = w - cell_pad_x * 2,
+                        .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
+                    });
                 }
             }
             if (lay) |l| _ = vtable(IDWriteTextLayout_VTable, l).Release(l);
@@ -820,6 +1099,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             var ps: PAINTSTRUCT = undefined;
             _ = BeginPaint(hwnd, &ps);
             _ = EndPaint(hwnd, &ps);
+            if (app.afterRender()) _ = InvalidateRect(hwnd, null, 0);
             return 0;
         },
         WM_SIZE => {
@@ -845,6 +1125,56 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             if (max_scroll > 0 and app.scroll_y > max_scroll) app.scroll_y = max_scroll;
             _ = InvalidateRect(hwnd, null, 0);
             return 0;
+        },
+        WM_MOUSEMOVE => {
+            const lp: usize = @bitCast(lParam);
+            const x: i16 = @bitCast(@as(u16, @truncate(lp)));
+            const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
+            g_over_link = app.pointerMoved(@floatFromInt(x), @floatFromInt(y));
+            return 0;
+        },
+        WM_SETCURSOR => {
+            const lp: usize = @bitCast(lParam);
+            if (g_over_link and @as(u16, @truncate(lp)) == HTCLIENT) {
+                if (g_cursor_hand == null) g_cursor_hand = LoadCursorW(null, IDC_HAND);
+                _ = SetCursor(g_cursor_hand);
+                return 1;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+        },
+        WM_LBUTTONDOWN => {
+            const lp: usize = @bitCast(lParam);
+            const x: i16 = @bitCast(@as(u16, @truncate(lp)));
+            const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
+            _ = app.mouseDown(@floatFromInt(x), @floatFromInt(y));
+            return 0;
+        },
+        WM_LBUTTONUP => {
+            const lp: usize = @bitCast(lParam);
+            const x: i16 = @bitCast(@as(u16, @truncate(lp)));
+            const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
+            _ = app.mouseUp(@floatFromInt(x), @floatFromInt(y));
+            return 0;
+        },
+        WM_XBUTTONUP => {
+            const wp: usize = @bitCast(wParam);
+            switch (@as(u16, @truncate(wp >> 16))) {
+                1 => app.goBack(),
+                2 => app.goForward(),
+                else => {},
+            }
+            return 1;
+        },
+        WM_SYSKEYDOWN => {
+            if (wParam == VK_LEFT) {
+                app.goBack();
+                return 0;
+            }
+            if (wParam == VK_RIGHT) {
+                app.goForward();
+                return 0;
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
         WM_KEYDOWN => {
             if (wParam == VK_Q and (@as(u16, @bitCast(GetKeyState(VK_CONTROL))) & 0x8000) != 0) {
@@ -945,4 +1275,30 @@ fn setRegString(root: usize, subkey: [*:0]const u16, value_name: ?[*:0]const u16
     while (data[len] != 0) len += 1;
     len += 1;
     _ = RegSetValueExW(hkey, value_name, 0, REG_SZ, @ptrCast(data), len * 2);
+}
+
+const testing = std.testing;
+
+test "hit testing maps the pointer to the character under it" {
+    app.gpa = testing.allocator;
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    var doc = try md.parse(testing.allocator, "Go to [the site](http://x.org) now");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    const hit: app.Hit = .{ .content = content, .x = 0, .y = 0, .w = 500, .h = 30 };
+
+    var first: ?u32 = null;
+    var last: u32 = 0;
+    var x: f32 = 1;
+    while (x < 250) : (x += 1) {
+        const index = textIndexAt(hit, x, 10) orelse continue;
+        if (content.linkAt(index) == null) continue;
+        if (first == null) first = index;
+        last = index;
+    }
+    try testing.expectEqual(@as(?u32, 6), first);
+    try testing.expectEqual(@as(u32, 13), last);
+    try testing.expectEqual(@as(?u32, 0), textIndexAt(hit, 2, 10));
+    try testing.expectEqual(@as(?u32, null), textIndexAt(hit, 480, 10));
 }

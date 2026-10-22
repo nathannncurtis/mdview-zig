@@ -1,5 +1,6 @@
 const std = @import("std");
 const md = @import("markdown.zig");
+const links = @import("links.zig");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -22,6 +23,85 @@ fn escape(out: *std.ArrayList(u8), a: Allocator, s: []const u8, breaks: bool) !v
         '\n' => if (breaks) try out.appendSlice(a, "<br />\n") else try out.append(a, c),
         else => try out.append(a, c),
     };
+}
+
+const Tag = enum { strong, em, del, code, a, img };
+
+const Range = struct { start: u32, len: u32, tag: Tag, target: []const u8 = "", title: []const u8 = "" };
+
+fn rangeLess(_: void, x: Range, y: Range) bool {
+    if (x.start != y.start) return x.start < y.start;
+    return x.len > y.len;
+}
+
+fn titleAttr(out: *std.ArrayList(u8), a: Allocator, title: []const u8) !void {
+    if (title.len == 0) return;
+    try out.appendSlice(a, " title=\"");
+    try escape(out, a, title, false);
+    try out.append(a, '"');
+}
+
+fn renderRanges(out: *std.ArrayList(u8), a: Allocator, text: []const u8, ranges: []const Range, lo: u32, hi: u32) !void {
+    var pos = lo;
+    var i: usize = 0;
+    while (i < ranges.len) {
+        const r = ranges[i];
+        var j = i + 1;
+        while (j < ranges.len and ranges[j].start < r.start + r.len) j += 1;
+        try escape(out, a, text[pos..r.start], true);
+        const inner = text[r.start..][0..r.len];
+        const children = ranges[i + 1 .. j];
+        switch (r.tag) {
+            .strong, .em, .del => {
+                const name = switch (r.tag) {
+                    .strong => "strong",
+                    .em => "em",
+                    else => "del",
+                };
+                try out.print(a, "<{s}>", .{name});
+                try renderRanges(out, a, text, children, r.start, r.start + r.len);
+                try out.print(a, "</{s}>", .{name});
+            },
+            .code => {
+                try out.appendSlice(a, "<code>");
+                try escape(out, a, inner, false);
+                try out.appendSlice(a, "</code>");
+            },
+            .a => {
+                try out.appendSlice(a, "<a href=\"");
+                try escape(out, a, try links.encodeUrl(a, r.target), false);
+                try out.append(a, '"');
+                try titleAttr(out, a, r.title);
+                try out.append(a, '>');
+                try renderRanges(out, a, text, children, r.start, r.start + r.len);
+                try out.appendSlice(a, "</a>");
+            },
+            .img => {
+                try out.appendSlice(a, "<img src=\"");
+                try escape(out, a, try links.encodeUrl(a, r.target), false);
+                try out.appendSlice(a, "\" alt=\"");
+                try escape(out, a, inner, false);
+                try out.append(a, '"');
+                try titleAttr(out, a, r.title);
+                try out.appendSlice(a, " />");
+            },
+        }
+        pos = r.start + r.len;
+        i = j;
+    }
+    try escape(out, a, text[pos..hi], true);
+}
+
+fn inlineHtml(out: *std.ArrayList(u8), a: Allocator, c: md.Inline) !void {
+    var ranges: std.ArrayList(Range) = .empty;
+    for (c.bold) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .strong });
+    for (c.italic) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .em });
+    for (c.strike) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .del });
+    for (c.code) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .code });
+    for (c.links) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .a, .target = l.target, .title = l.title });
+    for (c.images) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .img, .target = l.target, .title = l.title });
+    std.mem.sort(Range, ranges.items, {}, rangeLess);
+    try renderRanges(out, a, c.text, ranges.items, 0, @intCast(c.text.len));
 }
 
 fn sameLevel(a: Level, b: Level) bool {
@@ -102,14 +182,14 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
                     .task_done => try out.appendSlice(a, "<input checked=\"\" disabled=\"\" type=\"checkbox\"> "),
                     else => {},
                 }
-                try escape(&out, a, b.content.text, true);
+                try inlineHtml(&out, a, b.content);
                 if (!tight) try out.appendSlice(a, "</p>\n");
             },
             .h1, .h2, .h3, .h4, .h5, .h6 => {
                 const n = @intFromEnum(b.kind) - @intFromEnum(md.BlockKind.h1) + 1;
                 try cr(&out, a);
                 try out.print(a, "<h{d}>", .{n});
-                try escape(&out, a, b.content.text, true);
+                try inlineHtml(&out, a, b.content);
                 try out.print(a, "</h{d}>\n", .{n});
             },
             .hr => {
@@ -214,4 +294,60 @@ test "spec examples for the block sections" {
     }
     std.debug.print("\nspec: {d}/{d} exact, {d}/{d} ignoring inline markup\nfailing: {any}\n", .{ pass, parsed.len, loose_pass, parsed.len, failed.items });
     try testing.expect(pass >= 227 and loose_pass >= 239);
+}
+
+const link_floor = 144;
+
+// Examples where GitHub's renderer (checked with its markdown API) differs from the spec text:
+// it removes raw HTML it does not allow, and the autolink extension links bare URLs and emails.
+const github_html = [_]struct { n: u32, html: []const u8 }{
+    .{ .n = 170, .html = "<p>[foo]: (baz)</p>\n<p>[foo]</p>\n" },
+    .{ .n = 500, .html = "<p>[link]()</p>\n" },
+    .{ .n = 532, .html = "<p>[foo </p>\n" },
+    .{ .n = 544, .html = "<p>[foo </p>\n" },
+    .{ .n = 616, .html = "<p>&lt; <a href=\"http://foo.bar\">http://foo.bar</a> &gt;</p>\n" },
+    .{ .n = 619, .html = "<p><a href=\"http://example.com\">http://example.com</a></p>\n" },
+    .{ .n = 620, .html = "<p><a href=\"mailto:foo@bar.example.com\">foo@bar.example.com</a></p>\n" },
+};
+
+fn oneLine(a: Allocator, s: []const u8) ![]const u8 {
+    const out = try a.dupe(u8, s);
+    std.mem.replaceScalar(u8, out, '\n', ' ');
+    return out;
+}
+
+test "spec examples for links, definitions and autolinks" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var passed: u32 = 0;
+    var total: u32 = 0;
+    var failed: std.ArrayList(u32) = .empty;
+    var rest: []const u8 = @embedFile("spec_links.txt");
+    while (std.mem.indexOf(u8, rest, "@@EX ")) |ex| {
+        const head_end = std.mem.indexOfScalar(u8, rest[ex..], '\n').? + ex;
+        var head = std.mem.tokenizeScalar(u8, rest[ex + 5 .. head_end], ' ');
+        const number = try std.fmt.parseInt(u32, head.next().?, 10);
+        const mid = std.mem.indexOfPos(u8, rest, head_end, "@@HTML\n").?;
+        const end = std.mem.indexOfPos(u8, rest, mid, "@@END\n").?;
+        const markdown = rest[head_end + 1 .. mid];
+        const expected = rest[mid + 7 .. end];
+        rest = rest[end + 5 ..];
+
+        var doc = try md.parse(testing.allocator, markdown);
+        defer doc.deinit();
+        const got = try oneLine(a, try toHtml(a, doc));
+        var want = expected;
+        for (github_html) |g| if (g.n == number) {
+            want = g.html;
+        };
+        total += 1;
+        if (std.mem.eql(u8, got, try oneLine(a, want))) passed += 1 else {
+            try failed.append(a, number);
+            if (show_failures > 1) std.debug.print("--- {d}\n{s}-- got\n{s}-- want\n{s}", .{ number, markdown, got, expected });
+        }
+    }
+    if (show_failures > 0) std.debug.print("\nlink spec: {d}/{d}\nfailing: {any}\n", .{ passed, total, failed.items });
+    try testing.expect(passed >= link_floor);
 }

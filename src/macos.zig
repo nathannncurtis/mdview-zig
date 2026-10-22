@@ -36,6 +36,7 @@ const msgSend_void_i64 = @as(*const fn (id, SEL, i64) callconv(.c) void, @ptrCas
 const msgSend_void = @as(*const fn (id, SEL) callconv(.c) void, @ptrCast(&c.objc_msgSend));
 const msgSend_bool = @as(*const fn (id, SEL) callconv(.c) BOOL, @ptrCast(&c.objc_msgSend));
 const msgSend_u16 = @as(*const fn (id, SEL) callconv(.c) u16, @ptrCast(&c.objc_msgSend));
+const msgSend_i64 = @as(*const fn (id, SEL) callconv(.c) i64, @ptrCast(&c.objc_msgSend));
 const msgSend_u64 = @as(*const fn (id, SEL) callconv(.c) u64, @ptrCast(&c.objc_msgSend));
 const msgSend_cgfloat = @as(*const fn (id, SEL) callconv(.c) CGFloat, @ptrCast(&c.objc_msgSend));
 const msgSend_id_id = @as(*const fn (id, SEL, id) callconv(.c) id, @ptrCast(&c.objc_msgSend));
@@ -97,6 +98,7 @@ const border_color = hexColor(0x30363d);
 const table_border_color = hexColor(0x3d444d);
 const stripe_color = hexColor(0x151b23);
 const blockquote_color = hexColor(0x8b949e);
+const link_color = hexColor(0x4493f8);
 const close_btn_color = hexColor(0x8b949e);
 
 // Syntax highlighting colors
@@ -123,6 +125,7 @@ const close_btn_size: CGFloat = 28.0;
 var g_nsapp: id = null;
 var g_view: id = null;
 var g_window: id = null;
+var g_height: CGFloat = 0;
 
 // ============================================================
 // CoreFoundation / CoreText helpers
@@ -328,11 +331,95 @@ fn drawPlainText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloa
     return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
 }
 
-fn drawRichText(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color) CGFloat {
+fn drawRichText(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color, font: app.Font) CGFloat {
     if (content.text.len == 0) return 0;
     const attr_str = createRichAttrStr(content, base_font, base_color) orelse return 0;
     defer c.CFRelease(attr_str);
-    return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
+    const height = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
+    noteHit(content, x, y_cg, max_width, height, font, false, .none);
+    return height;
+}
+
+fn noteHit(content: md.Inline, x: CGFloat, y_cg: CGFloat, w: CGFloat, h: CGFloat, font: app.Font, header: bool, alignment: md.Align) void {
+    app.noteHit(.{
+        .content = content,
+        .x = @floatCast(x),
+        .y = @floatCast(g_height - y_cg + app.scroll_y),
+        .w = @floatCast(w),
+        .h = @floatCast(h),
+        .font = font,
+        .header = header,
+        .alignment = alignment,
+    });
+}
+
+fn fontFor(font: app.Font) c.CTFontRef {
+    return switch (font) {
+        .body => createFont("Helvetica Neue", font_size_body, false, false),
+        .h1 => createFont("Helvetica Neue", font_size_h1, true, false),
+        .h2 => createFont("Helvetica Neue", font_size_h2, true, false),
+        .h3 => createFont("Helvetica Neue", font_size_h3, true, false),
+        .h4 => createFont("Helvetica Neue", font_size_body, true, false),
+        .h5 => createFont("Helvetica Neue", 14.0, true, false),
+        .h6 => createFont("Helvetica Neue", 13.6, true, false),
+    };
+}
+
+pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
+    const font = if (hit.header) createFont("Helvetica Neue", font_size_body, true, false) else fontFor(hit.font);
+    defer c.CFRelease(font);
+    const attr_str = createAlignedAttrStr(hit.content, hit.alignment, font) orelse return null;
+    defer c.CFRelease(attr_str);
+    const framesetter = c.CTFramesetterCreateWithAttributedString(@ptrCast(attr_str));
+    defer c.CFRelease(framesetter);
+
+    const height: CGFloat = hit.h;
+    const path = c.CGPathCreateMutable();
+    defer c.CGPathRelease(path);
+    c.CGPathAddRect(path, null, cgRect(0, 0, hit.w, height));
+    const frame = c.CTFramesetterCreateFrame(framesetter, c.CFRange{ .location = 0, .length = 0 }, path, null);
+    defer c.CFRelease(frame);
+
+    const lines = c.CTFrameGetLines(frame);
+    const count: usize = @intCast(c.CFArrayGetCount(lines));
+    if (count == 0) return null;
+    const origins = app.gpa.alloc(CGPoint, count) catch return null;
+    defer app.gpa.free(origins);
+    c.CTFrameGetLineOrigins(frame, c.CFRange{ .location = 0, .length = 0 }, origins.ptr);
+
+    const cg_y: CGFloat = height - y;
+    var best: usize = 0;
+    var best_dist: CGFloat = std.math.floatMax(CGFloat);
+    for (origins, 0..) |o, i| {
+        const dist = @abs(cg_y - o.y);
+        if (dist < best_dist) {
+            best_dist = dist;
+            best = i;
+        }
+    }
+    const line: c.CTLineRef = @ptrCast(c.CFArrayGetValueAtIndex(lines, @intCast(best)));
+    var ascent: CGFloat = 0;
+    var descent: CGFloat = 0;
+    var leading: CGFloat = 0;
+    const width = c.CTLineGetTypographicBounds(line, &ascent, &descent, &leading);
+    const origin = origins[best];
+    if (cg_y > origin.y + ascent or cg_y < origin.y - descent - leading) return null;
+    const rel_x: CGFloat = x - origin.x;
+    if (rel_x < 0 or rel_x > width) return null;
+
+    var index = c.CTLineGetStringIndexForPosition(line, CGPoint{ .x = rel_x, .y = 0 });
+    if (index == c.kCFNotFound) return null;
+    if (index > 0 and c.CTLineGetOffsetForStringIndex(line, index, null) > rel_x) index -= 1;
+    return md.byteFromUtf16(hit.content.text, @intCast(index));
+}
+
+pub fn openExternal(url: []const u8) void {
+    const cf = cfString(url) orelse return;
+    defer c.CFRelease(cf);
+    const nsurl = msgSend_id_id(objcClass("NSURL"), sel("URLWithString:"), @constCast(@ptrCast(cf)));
+    if (nsurl == null) return;
+    const workspace = msgSend_id(objcClass("NSWorkspace"), sel("sharedWorkspace"));
+    _ = msgSend_id_id(workspace, sel("openURL:"), nsurl);
 }
 
 fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Color) c.CFMutableAttributedStringRef {
@@ -395,6 +482,19 @@ fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Col
         }
     }
 
+    for (content.links) |l| {
+        const r = cfRange(text, .{ l.start, l.len });
+        setAttrColor(attr_str, r.location, r.length, link_color);
+        if (app.isHover(content, l)) setAttrUnderline(attr_str, r.location, r.length);
+    }
+
+    for (content.sup) |span| {
+        var one: i32 = 1;
+        const number = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &one);
+        defer c.CFRelease(number);
+        c.CFAttributedStringSetAttribute(attr_str, cfRange(text, span), c.kCTSuperscriptAttributeName, @ptrCast(number));
+    }
+
     return attr_str;
 }
 
@@ -415,8 +515,12 @@ fn suggestSize(attr_str: c.CFAttributedStringRef, max_width: CGFloat) CGSize {
 }
 
 fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef, header_font: c.CTFontRef) c.CFMutableAttributedStringRef {
-    const attr_str = createRichAttrStr(t.cell(row, col), if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) header_font else body_font, text_color) orelse return null;
-    var alignment: c.CTTextAlignment = @intCast(switch (t.aligns[col]) {
+    return createAlignedAttrStr(t.cell(row, col), t.aligns[col], if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) header_font else body_font);
+}
+
+fn createAlignedAttrStr(content: md.Inline, alignment_kind: md.Align, font: c.CTFontRef) c.CFMutableAttributedStringRef {
+    const attr_str = createRichAttrStr(content, font, text_color) orelse return null;
+    var alignment: c.CTTextAlignment = @intCast(switch (alignment_kind) {
         .none, .left => c.kCTTextAlignmentLeft,
         .center => c.kCTTextAlignmentCenter,
         .right => c.kCTTextAlignmentRight,
@@ -496,7 +600,9 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
                 if (t.nestedAt(row, col)) |nt| {
                     _ = drawTable(ctx, nt, cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2, body_font, true, null);
                 } else if (cell) |attr_str| {
-                    _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2);
+                    const cell_h = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2);
+                    const header = (row == 0 and t.header_row) or (col == 0 and t.header_col);
+                    noteHit(t.cell(row, col), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2, cell_h, .body, header, t.aligns[col]);
                 }
             }
             if (cell) |attr_str| c.CFRelease(attr_str);
@@ -805,11 +911,13 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     defer c.CFRelease(h6_font);
 
     var screen_y: CGFloat = padding_top - scroll;
+    g_height = height;
+    app.beginFrame();
 
     for (app.blocks) |*block| {
-
-        // Cull blocks far below the visible area
-        if (screen_y > height + 200) break;
+        // Cull blocks far below the visible area, unless a jump needs every block placed
+        if (!app.full_layout and screen_y > height + 200) break;
+        app.noteBlock(@floatCast(screen_y + scroll));
 
         // CG y for the top of this block
         const cg_y = height - screen_y;
@@ -828,13 +936,13 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
                 const first = block.kind == .h1;
                 const lead: CGFloat = if (first) 24 else 20;
                 const after: CGFloat = if (first) 8 else 6;
-                const th = drawRichText(ctx, block.content, x, cg_y - lead, w, if (first) h1_font else h2_font, if (first) h1_color else h2_color);
+                const th = drawRichText(ctx, block.content, x, cg_y - lead, w, if (first) h1_font else h2_font, if (first) h1_color else h2_color, if (first) .h1 else .h2);
                 c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
                 c.CGContextFillRect(ctx, cgRect(x, cg_y - lead - th - after - 1, w, 1));
                 content_h = lead + th + after + 1;
             },
             .h3 => {
-                content_h = 16 + drawRichText(ctx, block.content, x, cg_y - 16, w, h3_font, h3_color);
+                content_h = 16 + drawRichText(ctx, block.content, x, cg_y - 16, w, h3_font, h3_color, .h3);
                 gap = 12;
             },
             .h4, .h5, .h6 => {
@@ -843,17 +951,22 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
                     .h5 => h5_font,
                     else => h6_font,
                 };
-                content_h = 24 + drawRichText(ctx, block.content, x, cg_y - 24, w, font, if (block.kind == .h6) blockquote_color else h3_color);
+                const tag: app.Font = switch (block.kind) {
+                    .h4 => .h4,
+                    .h5 => .h5,
+                    else => .h6,
+                };
+                content_h = 24 + drawRichText(ctx, block.content, x, cg_y - 24, w, font, if (block.kind == .h6) blockquote_color else h3_color, tag);
             },
             .error_box => content_h = drawErrorBox(ctx, block.content, x, cg_y, w, body_font),
             .paragraph => {
-                content_h = drawRichText(ctx, block.content, x, cg_y, w, body_font, text_col);
+                content_h = drawRichText(ctx, block.content, x, cg_y, w, body_font, text_col, .body);
                 if (block.compact) gap = 4;
             },
             .alert_title => {
                 const alert = block.frames[block.frames.len - 1].alert;
                 drawAlertIcon(ctx, alert, x, cg_y - 8);
-                _ = drawRichText(ctx, block.content, x + 24, cg_y - 6, w - 24, h4_font, colorOf(alerts.style(alert).fg));
+                _ = drawRichText(ctx, block.content, x + 24, cg_y - 6, w - 24, h4_font, colorOf(alerts.style(alert).fg), .h4);
                 content_h = 24;
             },
             .code_block => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
@@ -883,6 +996,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
 
     // Update content height for scroll bounds
     app.content_height = @floatCast(screen_y + scroll);
+    if (app.afterRender()) invalidate();
 
     // Draw close button (top-right corner) — in CG coords, top = near height
     const btn_x = width - close_btn_size - 8;
@@ -958,6 +1072,16 @@ fn keyDownCallback(_self: id, _sel: SEL, event: id) callconv(.c) void {
     const cmd_mask: u64 = 1 << 20; // NSEventModifierFlagCommand
     const ctrl_mask: u64 = 1 << 18; // NSEventModifierFlagControl
 
+    const option_mask: u64 = 1 << 19;
+    if ((mod_flags & option_mask) != 0) {
+        if (key_code == 123) app.goBack();
+        if (key_code == 124) app.goForward();
+    }
+    if ((mod_flags & cmd_mask) != 0) {
+        if (key_code == 33) app.goBack();
+        if (key_code == 30) app.goForward();
+    }
+
     // Q = keyCode 12
     if (key_code == 12 and ((mod_flags & cmd_mask) != 0 or (mod_flags & ctrl_mask) != 0)) {
         app.saveScrollPosition();
@@ -989,10 +1113,40 @@ fn mouseDownCallback(self: id, _sel: SEL, event: id) callconv(.c) void {
         return;
     }
 
+    if (app.mouseDown(@floatCast(loc.x), @floatCast(bounds.size.height - loc.y))) return;
+
     // Allow window dragging from anywhere else (borderless window)
     if (g_window != null) {
         msgSend_void_id(g_window, sel("performWindowDragWithEvent:"), event);
     }
+}
+
+fn mouseUpCallback(self: id, _sel: SEL, event: id) callconv(.c) void {
+    _ = _sel;
+    const loc_in_window = msgSend_point(event, sel("locationInWindow"));
+    const loc = msgSend_convertPoint(self, sel("convertPoint:fromView:"), loc_in_window, null);
+    const bounds = msgSend_rect(self, sel("bounds"));
+    _ = app.mouseUp(@floatCast(loc.x), @floatCast(bounds.size.height - loc.y));
+}
+
+fn otherMouseDownCallback(_self: id, _sel: SEL, event: id) callconv(.c) void {
+    _ = _self;
+    _ = _sel;
+    switch (msgSend_i64(event, sel("buttonNumber"))) {
+        3 => app.goBack(),
+        4 => app.goForward(),
+        else => {},
+    }
+}
+
+fn mouseMovedCallback(self: id, _sel: SEL, event: id) callconv(.c) void {
+    _ = _sel;
+    const loc_in_window = msgSend_point(event, sel("locationInWindow"));
+    const loc = msgSend_convertPoint(self, sel("convertPoint:fromView:"), loc_in_window, null);
+    const bounds = msgSend_rect(self, sel("bounds"));
+    const over = app.pointerMoved(@floatCast(loc.x), @floatCast(bounds.size.height - loc.y));
+    const cursor = msgSend_id(objcClass("NSCursor"), sel(if (over) "pointingHandCursor" else "arrowCursor"));
+    msgSend_void(cursor, sel("set"));
 }
 
 fn acceptsFirstResponderCallback(_self: id, _sel: SEL) callconv(.c) BOOL {
@@ -1049,6 +1203,9 @@ fn registerViewClass() c.Class {
     _ = c.class_addMethod(new_cls, sel("scrollWheel:"), @as(c.IMP, @ptrCast(&scrollWheelCallback)), "v@:@");
     _ = c.class_addMethod(new_cls, sel("keyDown:"), @as(c.IMP, @ptrCast(&keyDownCallback)), "v@:@");
     _ = c.class_addMethod(new_cls, sel("mouseDown:"), @as(c.IMP, @ptrCast(&mouseDownCallback)), "v@:@");
+    _ = c.class_addMethod(new_cls, sel("mouseUp:"), @as(c.IMP, @ptrCast(&mouseUpCallback)), "v@:@");
+    _ = c.class_addMethod(new_cls, sel("otherMouseDown:"), @as(c.IMP, @ptrCast(&otherMouseDownCallback)), "v@:@");
+    _ = c.class_addMethod(new_cls, sel("mouseMoved:"), @as(c.IMP, @ptrCast(&mouseMovedCallback)), "v@:@");
     _ = c.class_addMethod(new_cls, sel("acceptsFirstResponder"), @as(c.IMP, @ptrCast(&acceptsFirstResponderCallback)), "B@:");
     _ = c.class_addMethod(new_cls, sel("isFlipped"), @as(c.IMP, @ptrCast(&isFlippedCallback)), "B@:");
 
@@ -1142,6 +1299,8 @@ pub fn run() void {
     // Create content view
     g_view = msgSend_initFrame(alloc(@ptrCast(view_cls)), sel("initWithFrame:"), content_rect);
     msgSend_void_id(g_window, sel("setContentView:"), g_view);
+    msgSend_void_bool(g_window, sel("setAcceptsMouseMovedEvents:"), 1);
+    msgSend_void_id(g_window, sel("makeFirstResponder:"), g_view);
 
     // Center and show
     msgSend_void(g_window, sel("center"));
