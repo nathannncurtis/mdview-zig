@@ -250,9 +250,55 @@ fn measureAndDrawAttrStr(ctx: c.CGContextRef, attr_str: c.CFAttributedStringRef,
 
     c.CGContextSaveGState(ctx);
     c.CTFrameDraw(frame, ctx);
+    drawStrikes(ctx, frame, x, y_cg - suggested.height);
     c.CGContextRestoreGState(ctx);
 
     return suggested.height;
+}
+
+// CoreText has no strikethrough, so runs tagged with this attribute get a line drawn over them.
+const strike_key_name = "mdview-strikethrough";
+
+fn drawStrikes(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame_y: CGFloat) void {
+    const lines = c.CTFrameGetLines(frame);
+    const line_count: usize = @intCast(c.CFArrayGetCount(lines));
+    if (line_count == 0) return;
+    const origins = app.gpa.alloc(CGPoint, line_count) catch return;
+    defer app.gpa.free(origins);
+    c.CTFrameGetLineOrigins(frame, c.CFRange{ .location = 0, .length = 0 }, origins.ptr);
+
+    const key = cfString(strike_key_name);
+    defer c.CFRelease(key);
+    for (origins, 0..) |origin, li| {
+        const line: c.CTLineRef = @ptrCast(@constCast(c.CFArrayGetValueAtIndex(lines, @intCast(li))));
+        const runs = c.CTLineGetGlyphRuns(line);
+        const run_count: usize = @intCast(c.CFArrayGetCount(runs));
+        for (0..run_count) |ri| {
+            const glyph_run: c.CTRunRef = @ptrCast(@constCast(c.CFArrayGetValueAtIndex(runs, @intCast(ri))));
+            const attrs = c.CTRunGetAttributes(glyph_run);
+            if (c.CFDictionaryContainsKey(attrs, @ptrCast(key)) == 0) continue;
+
+            const range = c.CTRunGetStringRange(glyph_run);
+            const x0 = c.CTLineGetOffsetForStringIndex(line, range.location, null);
+            const x1 = c.CTLineGetOffsetForStringIndex(line, range.location + range.length, null);
+            var ascent: CGFloat = 0;
+            var descent: CGFloat = 0;
+            var leading: CGFloat = 0;
+            _ = c.CTRunGetTypographicBounds(glyph_run, c.CFRange{ .location = 0, .length = 0 }, &ascent, &descent, &leading);
+
+            const y = frame_y + origin.y + ascent * 0.3;
+            if (c.CFDictionaryGetValue(attrs, c.kCTForegroundColorAttributeName)) |col| {
+                c.CGContextSetStrokeColorWithColor(ctx, @ptrCast(@constCast(col)));
+            } else {
+                c.CGContextSetRGBStrokeColor(ctx, text_color.r, text_color.g, text_color.b, 1.0);
+            }
+            c.CGContextSetLineWidth(ctx, 1.0);
+            c.CGContextBeginPath(ctx);
+            c.CGContextMoveToPoint(ctx, frame_x + origin.x + x0, y);
+            c.CGContextAddLineToPoint(ctx, frame_x + origin.x + x1, y);
+            c.CGContextStrokePath(ctx);
+        }
+    }
 }
 
 fn drawPlainText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, font: c.CTFontRef, col: Color) CGFloat {
@@ -306,6 +352,26 @@ fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Col
         for (content.italic) |span| {
             const r = cfRange(text, span);
             setAttrFont(attr_str, r.location, r.length, italic_font);
+        }
+    }
+
+    if (content.strike.len > 0) {
+        const key = cfString(strike_key_name);
+        defer c.CFRelease(key);
+        for (content.strike) |span| {
+            const r = cfRange(text, span);
+            c.CFAttributedStringSetAttribute(attr_str, r, key, @ptrCast(c.kCFBooleanTrue));
+        }
+    }
+
+    if (content.emoji.len > 0) {
+        const name = cfString("Apple Color Emoji");
+        defer c.CFRelease(name);
+        const emoji_font = c.CTFontCreateWithName(name, c.CTFontGetSize(base_font), null);
+        defer c.CFRelease(emoji_font);
+        for (content.emoji) |span| {
+            const r = cfRange(text, span);
+            setAttrFont(attr_str, r.location, r.length, emoji_font);
         }
     }
 

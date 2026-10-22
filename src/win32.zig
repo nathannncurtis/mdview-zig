@@ -165,7 +165,7 @@ const IDWriteTextLayout_VTable = extern struct {
     SetMaxWidth: *const fn (*anyopaque, f32) callconv(.c) HRESULT, // 28
     SetMaxHeight: *const fn (*anyopaque, f32) callconv(.c) HRESULT, // 29
     _pad30: *const anyopaque,
-    _pad31: *const anyopaque,
+    SetFontFamilyName: *const fn (*anyopaque, [*:0]const u16, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 31
     SetFontWeight: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 32
     SetFontStyle: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 33
     _pad34: *const anyopaque,
@@ -377,9 +377,11 @@ fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
-    vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, 0);
+    vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
     return metrics.height;
 }
+
+const draw_color_font: u32 = 4; // D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT
 
 fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, max_width: f32) ?*anyopaque {
     if (content.text.len == 0) return null;
@@ -396,6 +398,15 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
     }
     for (content.italic) |span| {
         _ = vt_layout.SetFontStyle(lay, 2, wideRange(content.text, span));
+    }
+    for (content.strike) |span| {
+        _ = vt_layout.SetStrikethrough(lay, 1, wideRange(content.text, span));
+    }
+    for (content.code) |span| {
+        _ = vt_layout.SetFontFamilyName(lay, std.unicode.utf8ToUtf16LeStringLiteral("Consolas"), wideRange(content.text, span));
+    }
+    for (content.emoji) |span| {
+        _ = vt_layout.SetFontFamilyName(lay, std.unicode.utf8ToUtf16LeStringLiteral("Segoe UI Emoji"), wideRange(content.text, span));
     }
     return lay;
 }
@@ -456,7 +467,7 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
         var cx = x;
         for (layouts, widths) |lay, w| {
             if (lay) |l| {
-                vt_rt.DrawTextLayout(rt, .{ .x = cx + cell_pad_x, .y = row_y + cell_pad_y }, l, g_brush_text.?, 0);
+                vt_rt.DrawTextLayout(rt, .{ .x = cx + cell_pad_x, .y = row_y + cell_pad_y }, l, g_brush_text.?, draw_color_font);
                 _ = vtable(IDWriteTextLayout_VTable, l).Release(l);
             }
             cx += w;
