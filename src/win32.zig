@@ -1,6 +1,7 @@
 const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
+const hl = @import("highlight.zig");
 const windows = std.os.windows;
 const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
@@ -107,6 +108,9 @@ const D2D1_RENDER_TARGET_PROPERTIES = extern struct {
 };
 const D2D1_HWND_RENDER_TARGET_PROPERTIES = extern struct { hwnd: HWND, pixel_size: D2D1_SIZE_U, present_options: u32 = 0 };
 const DWRITE_TEXT_RANGE = extern struct { startPosition: u32, length: u32 };
+const DWRITE_HIT_TEST_METRICS = extern struct {
+    textPosition: u32, length: u32, left: f32, top: f32, width: f32, height: f32, bidiLevel: u32, isText: BOOL, isTrimmed: BOOL,
+};
 const DWRITE_TEXT_METRICS = extern struct {
     left: f32, top: f32, width: f32, widthIncludingTrailingWhitespace: f32,
     height: f32, layoutWidth: f32, layoutHeight: f32, maxBidiReorderingDepth: u32, lineCount: u32,
@@ -175,6 +179,8 @@ const IDWriteTextLayout_VTable = extern struct {
     SetDrawingEffect: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 38
     _pad39_59: [21]*const anyopaque,
     GetMetrics: *const fn (*anyopaque, *DWRITE_TEXT_METRICS) callconv(.c) HRESULT, // 60
+    _pad61_65: [5]*const anyopaque,
+    HitTestTextRange: *const fn (*anyopaque, u32, u32, f32, f32, [*]DWRITE_HIT_TEST_METRICS, u32, *u32) callconv(.c) HRESULT, // 66
 };
 
 fn vtable(comptime VT: type, obj: *anyopaque) *const VT {
@@ -204,12 +210,8 @@ var g_brush_quote: ?*anyopaque = null;
 var g_brush_hr: ?*anyopaque = null;
 var g_brush_table_border: ?*anyopaque = null;
 var g_brush_close: ?*anyopaque = null;
-var g_brush_hl_keyword: ?*anyopaque = null;
-var g_brush_hl_string: ?*anyopaque = null;
-var g_brush_hl_comment: ?*anyopaque = null;
-var g_brush_hl_number: ?*anyopaque = null;
-var g_brush_hl_type: ?*anyopaque = null;
-var g_brush_hl_func: ?*anyopaque = null;
+var g_brush_hl: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
+var g_brush_hl_bg: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
 
 pub fn invalidate() void {
     if (g_hwnd) |h| _ = InvalidateRect(h, null, 0);
@@ -274,6 +276,15 @@ fn createRenderTarget(hwnd: HWND) void {
     }
 }
 
+fn rgbColor(rgb: u24) D2D1_COLOR_F {
+    return .{
+        .r = @as(f32, @floatFromInt(rgb >> 16 & 0xff)) / 255.0,
+        .g = @as(f32, @floatFromInt(rgb >> 8 & 0xff)) / 255.0,
+        .b = @as(f32, @floatFromInt(rgb & 0xff)) / 255.0,
+        .a = 1,
+    };
+}
+
 fn createBrushes(rt: *anyopaque) void {
     const vt = vtable(ID2D1RT_VTable, rt);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_text);
@@ -284,12 +295,11 @@ fn createBrushes(rt: *anyopaque) void {
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.129, .g = 0.149, .b = 0.176, .a = 1 }, null, &g_brush_hr);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.188, .g = 0.212, .b = 0.239, .a = 1 }, null, &g_brush_table_border);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 1.0, .g = 0.482, .b = 0.447, .a = 1 }, null, &g_brush_hl_keyword);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.647, .g = 0.839, .b = 1.0, .a = 1 }, null, &g_brush_hl_string);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_hl_comment);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.475, .g = 0.753, .b = 1.0, .a = 1 }, null, &g_brush_hl_number);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 1.0, .g = 0.651, .b = 0.341, .a = 1 }, null, &g_brush_hl_type);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.824, .g = 0.659, .b = 1.0, .a = 1 }, null, &g_brush_hl_func);
+    for (0..g_brush_hl.len) |n| {
+        const st = hl.style(@enumFromInt(n));
+        if (st.fg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl[n]);
+        if (st.bg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl_bg[n]);
+    }
 }
 
 // ============================================================
@@ -345,7 +355,7 @@ fn render() void {
                 y += 16;
             },
             .code_block => {
-                y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block.content.text, padding, y, max_width) + 16;
+                y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block.content.text, block.tokens, padding, y, max_width) + 16;
             },
             .table => {
                 y += renderTable(vt_rt, vt_dw, rt, dwf, block.table, padding, y, max_width) + 16;
@@ -490,7 +500,7 @@ fn wideRange(text: []const u8, span: md.Span) DWRITE_TEXT_RANGE {
     return .{ .startPosition = start, .length = md.utf16Offset(text, span[0] + span[1]) - start };
 }
 
-fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, text: []const u8, x: f32, y: f32, max_width: f32) f32 {
+fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, text: []const u8, toks: []const hl.Token, x: f32, y: f32, max_width: f32) f32 {
     if (text.len == 0) return 0;
     const wide = std.unicode.utf8ToUtf16LeAlloc(app.gpa, text) catch return 0;
     defer app.gpa.free(wide);
@@ -501,7 +511,7 @@ fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
     const lay = layout orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
 
-    applySyntaxHighlighting(lay, text);
+    applySyntaxHighlighting(lay, text, toks);
 
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
@@ -513,6 +523,7 @@ fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
             .radiusX = 6, .radiusY = 6,
         }, bg);
     }
+    drawLineBackgrounds(vt_rt, rt, lay, text, toks, x, y + 12, max_width);
     if (g_brush_code_text) |brush| {
         vt_rt.DrawTextLayout(rt, .{ .x = x + 16, .y = y + 12 }, lay, brush, 0);
     }
@@ -524,76 +535,41 @@ fn synRange(cursor: *md.Utf16Cursor, start: u32, end: u32) DWRITE_TEXT_RANGE {
     return .{ .startPosition = lo, .length = cursor.at(end) - lo };
 }
 
-fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
+fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8, toks: []const hl.Token) void {
     const vt = vtable(IDWriteTextLayout_VTable, lay);
     var cursor: md.Utf16Cursor = .{ .text = text };
-    var i: u32 = 0;
-    const len: u32 = @intCast(text.len);
+    for (toks) |tok| {
+        const st = hl.style(tok.kind);
+        const range = synRange(&cursor, tok.start, tok.end);
+        if (g_brush_hl[@intFromEnum(tok.kind)]) |brush| _ = vt.SetDrawingEffect(lay, brush, range);
+        if (st.bold) _ = vt.SetFontWeight(lay, 700, range);
+        if (st.underline) _ = vt.SetUnderline(lay, 1, range);
+    }
+}
 
-    while (i < len) {
-        const c = text[i];
-        if (c == '/' and i + 1 < len and text[i + 1] == '/') {
-            const start = i;
-            while (i < len and text[i] != '\n') i += 1;
-            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-            continue;
+const E_NOT_SUFFICIENT_BUFFER: HRESULT = @bitCast(@as(u32, 0x8007007A));
+
+fn drawLineBackgrounds(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, text: []const u8, toks: []const hl.Token, x: f32, top: f32, width: f32) void {
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    var cursor: md.Utf16Cursor = .{ .text = text };
+    for (toks) |tok| {
+        const brush = g_brush_hl_bg[@intFromEnum(tok.kind)] orelse continue;
+        const range = synRange(&cursor, tok.start, tok.end);
+        var stack: [16]DWRITE_HIT_TEST_METRICS = undefined;
+        var rects: []DWRITE_HIT_TEST_METRICS = &stack;
+        var heap: ?[]DWRITE_HIT_TEST_METRICS = null;
+        defer if (heap) |h| app.gpa.free(h);
+        var count: u32 = 0;
+        var hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
+        if (hr == E_NOT_SUFFICIENT_BUFFER) {
+            heap = app.gpa.alloc(DWRITE_HIT_TEST_METRICS, count) catch continue;
+            rects = heap.?;
+            hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
         }
-        if (c == '#') {
-            const start = i;
-            while (i < len and text[i] != '\n') i += 1;
-            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-            continue;
+        if (hr < 0) continue;
+        for (rects[0..@min(count, rects.len)]) |r| {
+            vt_rt.FillRectangle(rt, &.{ .left = x, .top = top + r.top, .right = x + width, .bottom = top + r.top + r.height }, brush);
         }
-        if (c == '/' and i + 1 < len and text[i + 1] == '*') {
-            const start = i;
-            i += 2;
-            while (i + 1 < len and !(text[i] == '*' and text[i + 1] == '/')) i += 1;
-            if (i + 1 < len) i += 2;
-            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-            continue;
-        }
-        if (c == '"' or c == '\'') {
-            const start = i;
-            const quote = c;
-            i += 1;
-            while (i < len and text[i] != quote and text[i] != '\n') {
-                if (text[i] == '\\' and i + 1 < len) i += 1;
-                i += 1;
-            }
-            if (i < len) i += 1;
-            if (g_brush_hl_string) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-            continue;
-        }
-        if (c >= '0' and c <= '9') {
-            const start = i;
-            while (i < len and ((text[i] >= '0' and text[i] <= '9') or text[i] == '.' or text[i] == 'x' or text[i] == 'b' or
-                (text[i] >= 'a' and text[i] <= 'f') or (text[i] >= 'A' and text[i] <= 'F') or text[i] == '_'))
-                i += 1;
-            if (g_brush_hl_number) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-            continue;
-        }
-        if (md.isIdentStart(c)) {
-            const start = i;
-            while (i < len and md.isIdentChar(text[i])) i += 1;
-            const word = text[start..i];
-            var j = i;
-            while (j < len and text[j] == ' ') j += 1;
-            if (j < len and text[j] == '(') {
-                if (g_brush_hl_func) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-                continue;
-            }
-            for (md.hl_keywords) |kw| {
-                if (std.mem.eql(u8, word, kw)) {
-                    if (g_brush_hl_keyword) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-                    break;
-                }
-            }
-            if (c >= 'A' and c <= 'Z' and word.len > 1) {
-                if (g_brush_hl_type) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
-            }
-            continue;
-        }
-        i += 1;
     }
 }
 

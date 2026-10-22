@@ -2,6 +2,7 @@
 const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
+const hl = @import("highlight.zig");
 
 const c = @import("c");
 
@@ -28,12 +29,7 @@ const col_hr = Color{ .r = 33.0 / 255.0, .g = 38.0 / 255.0, .b = 45.0 / 255.0 };
 const col_border = Color{ .r = 48.0 / 255.0, .g = 54.0 / 255.0, .b = 61.0 / 255.0 };
 const col_close = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 
-const col_hl_keyword = Color{ .r = 255.0 / 255.0, .g = 123.0 / 255.0, .b = 114.0 / 255.0 };
 const col_hl_string = Color{ .r = 165.0 / 255.0, .g = 214.0 / 255.0, .b = 255.0 / 255.0 };
-const col_hl_comment = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
-const col_hl_number = Color{ .r = 121.0 / 255.0, .g = 192.0 / 255.0, .b = 255.0 / 255.0 };
-const col_hl_type = Color{ .r = 255.0 / 255.0, .g = 166.0 / 255.0, .b = 87.0 / 255.0 };
-const col_hl_func = Color{ .r = 210.0 / 255.0, .g = 168.0 / 255.0, .b = 255.0 / 255.0 };
 
 // ============================================================
 // Public API
@@ -389,7 +385,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 y += 16;
             },
             .code_block => {
-                y += renderCodeBlock(cr, pango_layout, block.content.text, padding, y, max_width);
+                y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, padding, y, max_width);
                 y += 16;
             },
             .table => {
@@ -594,6 +590,7 @@ fn renderCodeBlock(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
     text: []const u8,
+    toks: []const hl.Token,
     x: f32,
     y: f32,
     max_width: f32,
@@ -608,8 +605,9 @@ fn renderCodeBlock(
     c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
     c.pango_layout_set_text(pango_layout, text.ptr, @intCast(text.len));
 
+
     // Apply syntax highlighting as Pango attributes
-    const attr_list = buildSyntaxAttributes(text);
+    const attr_list = buildSyntaxAttributes(toks);
     c.pango_layout_set_attributes(pango_layout, attr_list);
     defer if (attr_list) |al| c.pango_attr_list_unref(al);
 
@@ -623,6 +621,8 @@ fn renderCodeBlock(
     drawRoundedRect(cr, x, y, max_width, block_height, 6);
     setColor(cr, col_code_bg);
     c.cairo_fill(cr);
+
+    drawLineBackgrounds(cr, pango_layout, toks, x, y + 12, max_width);
 
     // Draw text
     setColor(cr, col_text);
@@ -659,95 +659,49 @@ fn drawCloseButton(cr: *c.cairo_t) void {
 // ============================================================
 // Syntax highlighting
 // ============================================================
-fn buildSyntaxAttributes(text: []const u8) ?*c.PangoAttrList {
+fn rgbColor(rgb: u24) Color {
+    return .{
+        .r = @as(f64, @floatFromInt(rgb >> 16 & 0xff)) / 255.0,
+        .g = @as(f64, @floatFromInt(rgb >> 8 & 0xff)) / 255.0,
+        .b = @as(f64, @floatFromInt(rgb & 0xff)) / 255.0,
+    };
+}
+
+fn buildSyntaxAttributes(toks: []const hl.Token) ?*c.PangoAttrList {
     const attr_list = c.pango_attr_list_new() orelse return null;
-    const len: u32 = @intCast(text.len);
-    var i: u32 = 0;
-
-    while (i < len) {
-        const ch = text[i];
-
-        // Line comments: // or #
-        if (ch == '/' and i + 1 < len and text[i + 1] == '/') {
-            const start = i;
-            while (i < len and text[i] != '\n') i += 1;
-            addColorAttr(attr_list, col_hl_comment, start, i);
-            continue;
-        }
-        if (ch == '#') {
-            const start = i;
-            while (i < len and text[i] != '\n') i += 1;
-            addColorAttr(attr_list, col_hl_comment, start, i);
-            continue;
-        }
-        // Block comments: /* ... */
-        if (ch == '/' and i + 1 < len and text[i + 1] == '*') {
-            const start = i;
-            i += 2;
-            while (i + 1 < len and !(text[i] == '*' and text[i + 1] == '/')) i += 1;
-            if (i + 1 < len) i += 2;
-            addColorAttr(attr_list, col_hl_comment, start, i);
-            continue;
-        }
-        // Strings
-        if (ch == '"' or ch == '\'') {
-            const start = i;
-            const quote = ch;
-            i += 1;
-            while (i < len and text[i] != quote and text[i] != '\n') {
-                if (text[i] == '\\' and i + 1 < len) i += 1;
-                i += 1;
-            }
-            if (i < len) i += 1;
-            addColorAttr(attr_list, col_hl_string, start, i);
-            continue;
-        }
-        // Numbers
-        if (ch >= '0' and ch <= '9') {
-            const start = i;
-            while (i < len and ((text[i] >= '0' and text[i] <= '9') or text[i] == '.' or
-                text[i] == 'x' or text[i] == 'b' or
-                (text[i] >= 'a' and text[i] <= 'f') or
-                (text[i] >= 'A' and text[i] <= 'F') or text[i] == '_'))
-                i += 1;
-            addColorAttr(attr_list, col_hl_number, start, i);
-            continue;
-        }
-        // Identifiers / keywords / types / functions
-        if (md.isIdentStart(ch)) {
-            const start = i;
-            while (i < len and md.isIdentChar(text[i])) i += 1;
-            const word = text[start..i];
-
-            // Check if followed by '(' => function call
-            var j = i;
-            while (j < len and text[j] == ' ') j += 1;
-            if (j < len and text[j] == '(') {
-                addColorAttr(attr_list, col_hl_func, start, i);
-                continue;
-            }
-
-            // Check keywords
-            var is_kw = false;
-            for (md.hl_keywords) |kw| {
-                if (std.mem.eql(u8, word, kw)) {
-                    addColorAttr(attr_list, col_hl_keyword, start, i);
-                    is_kw = true;
-                    break;
-                }
-            }
-            if (is_kw) continue;
-
-            // Uppercase start => type
-            if (ch >= 'A' and ch <= 'Z' and word.len > 1) {
-                addColorAttr(attr_list, col_hl_type, start, i);
-            }
-            continue;
-        }
-        i += 1;
+    for (toks) |tok| {
+        const st = hl.style(tok.kind);
+        if (st.fg) |rgb| addColorAttr(attr_list, rgbColor(rgb), tok.start, tok.end);
+        if (st.bold) addAttr(attr_list, c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD), tok.start, tok.end);
+        if (st.underline) addAttr(attr_list, c.pango_attr_underline_new(c.PANGO_UNDERLINE_SINGLE), tok.start, tok.end);
     }
-
     return attr_list;
+}
+
+fn addAttr(attr_list: *c.PangoAttrList, attr: ?*c.PangoAttribute, start: u32, end: u32) void {
+    const a = attr orelse return;
+    a.*.start_index = start;
+    a.*.end_index = end;
+    c.pango_attr_list_insert(attr_list, a);
+}
+
+fn drawLineBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, toks: []const hl.Token, x: f32, y: f32, width: f32) void {
+    const iter = c.pango_layout_get_iter(layout) orelse return;
+    defer c.pango_layout_iter_free(iter);
+    var i: usize = 0;
+    while (true) {
+        const start: u32 = @intCast(c.pango_layout_iter_get_index(iter));
+        while (i < toks.len and (hl.style(toks[i].kind).bg == null or toks[i].end <= start)) i += 1;
+        if (i < toks.len and toks[i].start <= start) {
+            var r: c.PangoRectangle = undefined;
+            c.pango_layout_iter_get_line_extents(iter, null, &r);
+            const scale: f64 = c.PANGO_SCALE;
+            setColor(cr, rgbColor(hl.style(toks[i].kind).bg.?));
+            c.cairo_rectangle(cr, x, y + @as(f64, @floatFromInt(r.y)) / scale, width, @as(f64, @floatFromInt(r.height)) / scale);
+            c.cairo_fill(cr);
+        }
+        if (c.pango_layout_iter_next_line(iter) == 0) break;
+    }
 }
 
 fn addColorAttr(attr_list: *c.PangoAttrList, color: Color, start: u32, end: u32) void {
