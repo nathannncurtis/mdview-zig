@@ -18,9 +18,13 @@ pub var window_width: f32 = 900;
 pub var blocks: []const md.Block = &.{};
 pub var file_path: []const u8 = "";
 pub var file_mtime: std.Io.Timestamp = .zero;
+// SAFETY: set in main before first use
 pub var allocator: std.mem.Allocator = undefined;
+// SAFETY: set in main before first use
 pub var gpa: std.mem.Allocator = undefined;
+// SAFETY: set in main before first use
 pub var io: std.Io = undefined;
+// SAFETY: set in main before first use
 pub var environ: *std.process.Environ.Map = undefined;
 pub var log_file: ?std.Io.File = null;
 var doc: ?md.Document = null;
@@ -309,15 +313,15 @@ fn openMarkdown(target: []const u8) void {
 // ============================================================
 pub fn initLog() void {
     const dir = data_dir orelse return;
-    std.Io.Dir.cwd().createDirPath(io, dir) catch {};
+    std.Io.Dir.cwd().createDirPath(io, dir) catch return;
     const log_path = std.fmt.allocPrint(allocator, "{s}/mdview-zig.log", .{dir}) catch return;
     log_file = std.Io.Dir.cwd().createFile(io, log_path, .{ .truncate = true }) catch null;
 }
 
 pub fn log(msg: []const u8) void {
     if (log_file) |f| {
-        f.writeStreamingAll(io, msg) catch {};
-        f.writeStreamingAll(io, "\n") catch {};
+        f.writeStreamingAll(io, msg) catch return;
+        f.writeStreamingAll(io, "\n") catch return;
     }
 }
 
@@ -325,8 +329,8 @@ pub fn logFmt(comptime fmt: []const u8, args: anytype) void {
     if (log_file) |f| {
         var buf: [256]u8 = undefined;
         var w = f.writerStreaming(io, &buf);
-        w.interface.print(fmt ++ "\n", args) catch {};
-        w.interface.flush() catch {};
+        w.interface.print(fmt ++ "\n", args) catch return;
+        w.interface.flush() catch return;
     }
 }
 
@@ -426,8 +430,8 @@ pub fn saveScrollPosition() void {
     if (scroll_y > 1) {
         entries.print(gpa, "{s}={d:.0}\n", .{ file_path, scroll_y }) catch return;
     }
-    std.Io.Dir.cwd().createDirPath(io, data_dir.?) catch {};
-    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = entries.items }) catch {};
+    std.Io.Dir.cwd().createDirPath(io, data_dir.?) catch return;
+    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = entries.items }) catch return;
 }
 
 // ============================================================
