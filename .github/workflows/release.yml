@@ -6,174 +6,33 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Zig
-        run: |
-          curl -L -o zig.zip https://ziglang.org/download/0.14.1/zig-x86_64-windows-0.14.1.zip
-          Expand-Archive zig.zip -DestinationPath .
-          echo "$PWD\zig-x86_64-windows-0.14.1" | Out-File -Append $env:GITHUB_PATH
-
-      - name: Build
-        run: zig build -Doptimize=ReleaseSmall
-
-      - name: Build installer
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMDVIEW_VERSION=$version installer.iss
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: |
-            zig-out/bin/mdview.exe
-            Output/mdview-setup.exe
-
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev
-
-      - name: Download Zig
-        run: |
-          curl -L -o zig.tar.xz https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
-          tar -xf zig.tar.xz
-          echo "$PWD/zig-x86_64-linux-0.14.1" >> $GITHUB_PATH
-
-      - name: Build
-        run: zig build -Doptimize=ReleaseSmall
-
-      - name: Build deb package
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          mkdir -p deb/DEBIAN
-          mkdir -p deb/usr/bin
-          mkdir -p deb/usr/share/applications
-          cp zig-out/bin/mdview deb/usr/bin/mdview
-          chmod +x deb/usr/bin/mdview
-          cat > deb/DEBIAN/control << EOF
-          Package: mdview
-          Version: ${VERSION}
-          Section: text
-          Priority: optional
-          Architecture: amd64
-          Depends: libx11-6, libcairo2, libpango-1.0-0, libpangocairo-1.0-0
-          Maintainer: nathannncurtis
-          Description: Fast, native markdown viewer
-           Dark-themed, borderless markdown viewer built with Zig and DirectWrite/Cairo/Pango.
-          EOF
-          cat > deb/usr/share/applications/mdview.desktop << EOF
-          [Desktop Entry]
-          Name=mdview
-          Comment=Markdown Viewer
-          Exec=mdview %f
-          Terminal=false
-          Type=Application
-          MimeType=text/markdown;text/x-markdown;
-          Categories=Utility;TextEditor;
-          EOF
-          dpkg-deb --build deb mdview-linux-x86_64.deb
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux
-          path: |
-            zig-out/bin/mdview
-            mdview-linux-x86_64.deb
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Zig
-        run: |
-          curl -L -o zig.tar.xz https://ziglang.org/download/0.14.1/zig-aarch64-macos-0.14.1.tar.xz
-          tar -xf zig.tar.xz
-          echo "$PWD/zig-aarch64-macos-0.14.1" >> $GITHUB_PATH
-
-      - name: Build
-        run: zig build -Doptimize=ReleaseSmall
-
-      - name: Build .app bundle and .dmg
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-
-          # Create .app bundle
-          mkdir -p mdview.app/Contents/MacOS
-          mkdir -p mdview.app/Contents/Resources
-          cp zig-out/bin/mdview mdview.app/Contents/MacOS/mdview
-          chmod +x mdview.app/Contents/MacOS/mdview
-
-          cat > mdview.app/Contents/Info.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key><string>mdview</string>
-            <key>CFBundleDisplayName</key><string>mdview</string>
-            <key>CFBundleIdentifier</key><string>com.nathannncurtis.mdview</string>
-            <key>CFBundleVersion</key><string>${VERSION}</string>
-            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
-            <key>CFBundleExecutable</key><string>mdview</string>
-            <key>CFBundlePackageType</key><string>APPL</string>
-            <key>LSMinimumSystemVersion</key><string>11.0</string>
-            <key>CFBundleDocumentTypes</key>
-            <array>
-              <dict>
-                <key>CFBundleTypeExtensions</key>
-                <array><string>md</string><string>markdown</string></array>
-                <key>CFBundleTypeRole</key><string>Viewer</string>
-                <key>CFBundleTypeName</key><string>Markdown File</string>
-              </dict>
-            </array>
-          </dict>
-          </plist>
-          EOF
-
-          # Create .dmg
-          mkdir -p dmg_staging
-          cp -r mdview.app dmg_staging/
-          ln -s /Applications dmg_staging/Applications
-          hdiutil create -volname "mdview" -srcfolder dmg_staging -ov -format UDZO mdview-macos-arm64.dmg
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: |
-            mdview-macos-arm64.dmg
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ github.ref_name }}
 
   release:
-    needs: [build-windows, build-linux, build-macos]
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+          pattern: mdview-*
+          merge-multiple: true
+          path: dist
+      - name: Every asset is present
+        run: |
+          for f in mdview.exe mdview-setup.exe mdview mdview-linux-x86_64.deb mdview-macos-arm64.dmg; do
+            test -s "dist/$f" || { echo "::error::missing $f"; exit 1; }
+          done
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: |
-            artifacts/windows/mdview.exe
-            artifacts/windows/mdview-setup.exe
-            artifacts/linux/mdview
-            artifacts/linux/mdview-linux-x86_64.deb
-            artifacts/macos/mdview-macos-arm64.dmg
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
