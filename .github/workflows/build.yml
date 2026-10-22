@@ -93,6 +93,19 @@ jobs:
             if ($sig.Status -ne 'Valid') { throw "$f signature: $($sig.Status)" }
             "$f signed by $($sig.SignerCertificate.Subject)"
           }
+      - name: Install the package
+        if: inputs.sign
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          Add-AppxPackage Output/mdview-x64.msix
+          $p = Get-AppxPackage NathanCurtis.mdview
+          if (-not $p) { throw 'package not installed' }
+          "$($p.Name) $($p.Version) $($p.Publisher)"
+          if ($p.Version -ne "$($env:VERSION.TrimStart('v')).0") { throw "version: $($p.Version)" }
+          if ($p.Publisher -ne 'CN=Nathan Curtis, O=Nathan Curtis, L=Riverside, S=ca, C=US') { throw "publisher: $($p.Publisher)" }
+          if (-not (Test-Path "$env:LOCALAPPDATA\Microsoft\WindowsApps\mdview.exe")) { throw 'alias missing' }
+          Remove-AppxPackage $p
       - name: Stage
         run: |
           New-Item -ItemType Directory dist | Out-Null

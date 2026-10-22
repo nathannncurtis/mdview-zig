@@ -671,7 +671,15 @@ fn handleDrop(hDrop: *anyopaque) void {
     invalidate();
 }
 
+extern "kernel32" fn GetCurrentPackageFullName(length: *u32, name: ?[*]u16) callconv(.c) i32;
+
 pub fn registerFileAssociation() void {
+    var pkg_len: u32 = 0;
+    if (GetCurrentPackageFullName(&pkg_len, null) != 15700) {
+        std.Io.File.stdout().writeStreamingAll(app.io, "mdview is installed as a package, which already registers .md and .markdown. Choose mdview under Settings > Default apps.
+") catch {};
+        return;
+    }
     var exe_buf: [512]u16 = undefined;
     const exe_len = GetModuleFileNameW(null, &exe_buf, 512);
     if (exe_len == 0) return;
