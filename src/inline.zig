@@ -528,6 +528,8 @@ pub fn isAsciiPunct(c: u8) bool {
 fn prevCp(src: []const u8, i: usize) u21 {
     var j = i - 1;
     while (j > 0 and src[j] & 0xC0 == 0x80) j -= 1;
+    const len = std.unicode.utf8ByteSequenceLength(src[j]) catch return 0xFFFD;
+    if (j + len != i) return 0xFFFD;
     return std.unicode.utf8Decode(src[j..i]) catch 0xFFFD;
 }
 

@@ -103,7 +103,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
       - name: Fuzz the parser
-        run: zig build fuzz --fuzz=800K -Doptimize=ReleaseSafe --summary all
+        run: |
+          zig build fuzz --fuzz=800K -Doptimize=ReleaseSafe --summary all 2>&1 | tee fuzz.log
+          ! grep -qE 'panic|run test failure|FAILED' fuzz.log
 
   docs:
     needs: changes

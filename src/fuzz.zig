@@ -59,6 +59,7 @@ const corpus = [_][]const u8{
     seed("> [!NOTE]\n> text\n> [!WARNING]\n> - [!TIP]\n\n[!CAUTION]\n> [!IMPORTANT]\n"),
     seed("> [!NOTE" ++ rep("> ", 200) ++ "[!TIP]\n"),
     seed("&amp; &#0; &#x110000; &#xD800; &#99999999999; &bogus; &"),
+    seed("\xe2\x82*a* \xf0\x9f\x98_b_ \x80**c** \xc3\xa9**d**"),
     seed(":smile: :+1: :nope: ::: :a"),
 };
 
