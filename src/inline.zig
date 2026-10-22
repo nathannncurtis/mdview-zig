@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const entities = @import("entities.zig");
 const emoji = @import("emoji.zig");
+const unicode = @import("unicode.zig");
 
 pub const Kind = enum { em, strong, strike, code, emoji, link, image };
 pub const EventTag = enum { open, close, html, soft, hard };
@@ -310,10 +311,10 @@ const Scanner = struct {
         }
         const before: u21 = if (i == 0) '\n' else prevCp(src, i);
         const after: u21 = if (i + n >= src.len) '\n' else nextCp(src, i + n);
-        const ws_b = isWhitespace(before);
-        const ws_a = isWhitespace(after);
-        const p_b = isPunct(before);
-        const p_a = isPunct(after);
+        const ws_b = unicode.isWhitespace(before);
+        const ws_a = unicode.isWhitespace(after);
+        const p_b = unicode.isPunctuation(before);
+        const p_a = unicode.isPunctuation(after);
         const left = !ws_a and (!p_a or ws_b or p_b);
         const right = !ws_b and (!p_b or ws_a or p_a);
         var can_open = left;
@@ -509,27 +510,6 @@ fn nextCp(src: []const u8, i: usize) u21 {
     const len = std.unicode.utf8ByteSequenceLength(src[i]) catch return 0xFFFD;
     if (i + len > src.len) return 0xFFFD;
     return std.unicode.utf8Decode(src[i .. i + len]) catch 0xFFFD;
-}
-
-fn isWhitespace(cp: u21) bool {
-    return switch (cp) {
-        ' ', '\t', '\n', '\r', 0x0B, 0x0C, 0xA0, 0x1680, 0x2000...0x200A, 0x202F, 0x205F, 0x3000 => true,
-        else => false,
-    };
-}
-
-// Unicode P and S categories, approximated by block: std has no general-category table.
-fn isPunct(cp: u21) bool {
-    if (cp < 128) return isAsciiPunct(@intCast(cp));
-    return switch (cp) {
-        0xA1...0xA9, 0xAB, 0xAC, 0xAE...0xB1, 0xB4, 0xB6...0xB8, 0xBB, 0xBF, 0xD7, 0xF7 => true,
-        0x2010...0x2027, 0x2030...0x205E, 0x20A0...0x20C0 => true,
-        0x2190...0x23FF, 0x2500...0x27BF, 0x2900...0x2BFF => true,
-        0x3001...0x3003, 0x3008...0x3020, 0x3030 => true,
-        0xFF01...0xFF0F, 0xFF1A...0xFF20, 0xFF3B...0xFF40, 0xFF5B...0xFF65 => true,
-        0x1F000...0x1FAFF => true,
-        else => false,
-    };
 }
 
 fn isHtmlSpace(c: u8) bool {
