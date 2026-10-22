@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-version=0.14.1
+version=0.17.0
 case "$RUNNER_OS-$RUNNER_ARCH" in
-  Windows-X64) name=zig-x86_64-windows-$version; ext=zip; sum=554f5378228923ffd558eac35e21af020c73789d87afeabf4bfd16f2e6feed2c ;;
-  Linux-X64)   name=zig-x86_64-linux-$version;   ext=tar.xz; sum=24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c ;;
-  macOS-ARM64) name=zig-aarch64-macos-$version;  ext=tar.xz; sum=39f3dc5e79c22088ce878edc821dedb4ca5a1cd9f5ef915e9b3cc3053e8faefa ;;
+  Windows-X64) name=zig-x86_64-windows-$version; ext=zip; sum=b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428 ;;
+  Linux-X64)   name=zig-x86_64-linux-$version;   ext=tar.xz; sum=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 ;;
+  macOS-ARM64) name=zig-aarch64-macos-$version;  ext=tar.xz; sum=b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a ;;
   *) echo "::error::no Zig build pinned for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
 esac
 
