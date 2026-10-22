@@ -1,2 +1,0 @@
-line one
-this has zz-namecheck-canary-zz in it
