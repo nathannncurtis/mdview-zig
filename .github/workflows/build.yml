@@ -71,8 +71,9 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          pwsh msix/make_assets.ps1
-          pwsh msix/pack.ps1 -Exe zig-out/bin/mdview.exe -Version $env:VERSION -Output "$PWD\Output\mdview-x64.msix" -Work "$env:RUNNER_TEMP\msix"
+          zig build msix-assets
+          if ($LASTEXITCODE) { throw 'msix assets failed' }
+          zig build pack-msix -- zig-out/bin/mdview.exe $env:VERSION "$PWD\Output\mdview-x64.msix" "$env:RUNNER_TEMP\msix"
           if ($LASTEXITCODE) { throw 'msix failed' }
       - name: Sign mdview-x64.msix
         if: inputs.sign

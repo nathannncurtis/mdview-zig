@@ -1,0 +1,21 @@
+    };
+    try std.testing.expectEqual(@as(usize, count), expected.len);
+    var probe: [max_name + 1]u8 = undefined;
+    for (expected) |e| {
+        try std.testing.expectEqualStrings(e[1], lookup(e[0]).?);
+        @memcpy(probe[0..e[0].len], e[0]);
+        probe[e[0].len] = '~';
+        if (e[0].len < max_name) try std.testing.expect(lookup(probe[0 .. e[0].len + 1]) == null);
+        if (e[0].len > 1) {
+            const shorter = e[0][0 .. e[0].len - 1];
+            var lo: usize = 0;
+            var hi: usize = expected.len;
+            while (lo < hi) {
+                const mid = lo + (hi - lo) / 2;
+                if (std.mem.order(u8, expected[mid][0], shorter) == .lt) lo = mid + 1 else hi = mid;
+            }
+            const present = lo < expected.len and std.mem.eql(u8, expected[lo][0], shorter);
+            if (!present) try std.testing.expect(lookup(shorter) == null);
+        }
+    }
+}

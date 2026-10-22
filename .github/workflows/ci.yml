@@ -32,6 +32,7 @@ jobs:
               - 'src/**'
               - 'build.zig'
               - 'build.zig.zon'
+              - 'tools/**'
               - 'icon.ico'
               - 'icon.rc'
               - 'installer.iss'

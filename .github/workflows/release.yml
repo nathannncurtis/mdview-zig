@@ -26,11 +26,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - run: bash .github/scripts/setup-zig.sh
       - name: Release notes
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: python3 .github/scripts/release-notes.py "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md" || true
+        run: |
+          : > "$RUNNER_TEMP/notes.md"
+          timeout 300 zig build release-notes -- "$GITHUB_REF_NAME" "$RUNNER_TEMP/notes.md" || : > "$RUNNER_TEMP/notes.md"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: mdview-*

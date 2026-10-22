@@ -1,0 +1,131 @@
+name: data-update
+
+on:
+  schedule:
+    - cron: "41 6 3 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Regenerate and test, then stop before pushing anything
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # A failed scheduled run would email the owner; the outcome goes to the job summary instead.
+    continue-on-error: true
+    env:
+      GH_TOKEN: ${{ secrets.DATA_UPDATE_TOKEN }}
+      BRANCH: data-update
+      DATA: ${{ github.workspace }}/upstream
+    steps:
+      - name: Mode
+        env:
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$INPUT_DRY_RUN" = true ] || [ "$GITHUB_REF" != refs/heads/master ]; then dry=true; else dry=false; fi
+          echo "DRY_RUN=$dry" >> "$GITHUB_ENV"
+          echo "Dry run: $dry" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$dry" = false ] && [ -z "$GH_TOKEN" ]; then echo "::error::DATA_UPDATE_TOKEN is not set"; exit 1; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.DATA_UPDATE_TOKEN || github.token }}
+      - run: bash .github/scripts/setup-zig.sh
+      - name: Download the latest upstream data
+        run: |
+          mkdir -p "$DATA/ucd"
+          get() { curl -sSfL --retry 3 --retry-delay 5 -o "$1" "$2"; }
+          get "$DATA/entities.json" https://html.spec.whatwg.org/entities.json
+          get "$DATA/emoji.json" https://raw.githubusercontent.com/github/gemoji/master/db/emoji.json
+          for f in UnicodeData CaseFolding SpecialCasing; do
+            get "$DATA/ucd/$f.txt" "https://www.unicode.org/Public/UCD/latest/ucd/$f.txt"
+          done
+          get "$DATA/dark.json" https://cdn.jsdelivr.net/npm/@primer/primitives@latest/dist/docs/functional/themes/dark.json
+          get "$DATA/languages.yml" https://raw.githubusercontent.com/github-linguist/linguist/main/lib/linguist/languages.yml
+          head -n 1 "$DATA/ucd/CaseFolding.txt" | sed 's/^# /Unicode: /' >> "$GITHUB_STEP_SUMMARY"
+      - name: Regenerate the tables
+        run: |
+          zig build gen-entities -- "$DATA/entities.json" src/entities.zig
+          zig build gen-emoji -- "$DATA/emoji.json" src/emoji.zig
+          zig build gen-unicode -- "$DATA/ucd/UnicodeData.txt" src/unicode.zig
+          zig build gen-highlight-colors -- "$DATA/dark.json" src/highlight_colors.zig
+          zig build gen-languages -- "$DATA/languages.yml" src/languages.zig
+          echo "Regenerated entities, emoji, unicode, highlight colours and languages." >> "$GITHUB_STEP_SUMMARY"
+      - name: Test
+        run: |
+          set -o pipefail
+          zig build test --summary all 2>&1 | tail -n 30
+          echo "zig build test passed (parser, generators and growth tests)." >> "$GITHUB_STEP_SUMMARY"
+      - name: Changed
+        id: diff
+        run: |
+          git add -A src
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream changes." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --cached --stat | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Dry run stops here
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "Dry run: nothing was pushed, merged or tagged." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Open the pull request and merge it once its checks pass
+        if: env.DRY_RUN == 'false' && steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git commit -qm "Update data tables from upstream"
+          git push -f origin "$BRANCH"
+          gh pr view "$BRANCH" --json state -q .state 2>/dev/null | grep -qx OPEN ||
+            gh pr create --head "$BRANCH" --base master --title "Update data tables from upstream" \
+              --body "Monthly regeneration of the entity, emoji, Unicode, highlight colour and language tables from their upstream sources."
+          watched=false
+          for _ in $(seq 10); do
+            if out=$(gh pr checks "$BRANCH" --required --watch --fail-fast --interval 30 2>&1); then
+              echo "$out"
+              watched=true
+              break
+            fi
+            echo "$out"
+            echo "$out" | grep -qi "no \(required \)\?checks" || exit 1
+            sleep 30
+          done
+          [ "$watched" = true ] || { echo "::error::no required checks appeared"; exit 1; }
+          gh pr merge "$BRANCH" --merge --admin --delete-branch
+          sha=$(gh pr view "$BRANCH" --json mergeCommit -q .mergeCommit.oid)
+          echo "merged=$sha" >> "$GITHUB_ENV"
+          echo "Merged as $sha." >> "$GITHUB_STEP_SUMMARY"
+      - name: Release a patch version once master's CI passes
+        if: env.DRY_RUN == 'false' && steps.diff.outputs.changed == 'true'
+        run: |
+          run=
+          for _ in $(seq 60); do
+            run=$(gh run list --commit "$merged" --workflow ci --event push --json databaseId -q '.[0].databaseId')
+            [ -n "$run" ] && break
+            sleep 10
+          done
+          [ -n "$run" ] || { echo "::error::no ci run for $merged"; exit 1; }
+          gh run watch "$run" --exit-status --interval 30 > /dev/null
+          last=$(gh release view --json tagName -q .tagName)
+          IFS=. read -r major minor patch <<< "${last#v}"
+          next="v$major.$minor.$((patch + 1))"
+          git fetch -q origin master
+          git tag -a "$next" -m "$next" "$merged"
+          git push origin "$next"
+          echo "Tagged $next; the Release workflow publishes it." >> "$GITHUB_STEP_SUMMARY"
+      - name: Outcome
+        if: always()
+        run: |
+          echo "Job status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

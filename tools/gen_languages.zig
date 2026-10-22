@@ -1,0 +1,166 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
+const yaml = @import("yaml");
+const files = @import("files.zig");
+const packed_table = @import("packed_table.zig");
+
+const source = "https://raw.githubusercontent.com/github-linguist/linguist/main/lib/linguist/languages.yml";
+const restart_every = 16;
+
+const Language = struct { name: []const u8, aliases: []const []const u8, extensions: []const []const u8 };
+
+fn fold(arena: Allocator, s: []const u8) ![]u8 {
+    return std.ascii.allocLowerString(arena, s);
+}
+
+fn scalars(arena: Allocator, v: yaml.Value) ![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    if (v == .seq) for (v.seq) |item| if (item == .scalar) try out.append(arena, item.scalar.text);
+    return out.items;
+}
+
+fn parse(arena: Allocator, io: std.Io, text: []const u8) ![]const Language {
+    const root = switch (try yaml.parse(arena, text)) {
+        .ok => |v| v,
+        .err => |e| {
+            files.say(io, "{s}\n", .{e.message});
+            return error.BadYaml;
+        },
+        .other => return error.BadYaml,
+    };
+    if (root != .map) return error.BadYaml;
+    var langs: std.ArrayList(Language) = .empty;
+    for (root.map) |pair| {
+        var l: Language = .{ .name = pair.key, .aliases = &.{}, .extensions = &.{} };
+        if (pair.value == .map) for (pair.value.map) |field| {
+            if (std.mem.eql(u8, field.key, "aliases")) l.aliases = try scalars(arena, field.value);
+            if (std.mem.eql(u8, field.key, "extensions")) l.extensions = try scalars(arena, field.value);
+        };
+        try langs.append(arena, l);
+    }
+    return langs.items;
+}
+
+const Row = struct { key: []const u8, id: u16 };
+
+fn rowLess(_: void, a: Row, b: Row) bool {
+    return std.mem.order(u8, a.key, b.key) == .lt;
+}
+
+fn intType(limit: usize) []const u8 {
+    return if (limit < 256) "u8" else if (limit < 65536) "u16" else "u32";
+}
+
+fn zigBytes(w: *Writer, data: []const u8) Writer.Error!void {
+    var i: usize = 0;
+    while (i < data.len) : (i += 64) {
+        if (i > 0) try w.writeAll(" ++\n");
+        try w.writeAll("    \"");
+        for (data[i..@min(i + 64, data.len)]) |b| try packed_table.escapeByte(w, b);
+        try w.writeByte('"');
+    }
+}
+
+fn lit(w: *Writer, s: []const u8) Writer.Error!void {
+    try w.writeByte('"');
+    for (s) |c| {
+        if (c == '\\' or c == '"') try w.writeByte('\\');
+        try w.writeByte(c);
+    }
+    try w.writeByte('"');
+}
+
+pub fn generate(arena: Allocator, io: std.Io, text: []const u8) ![]u8 {
+    const langs = try parse(arena, io, text);
+    if (langs.len > 0xFFFF) return error.TooManyLanguages;
+
+    var ids: std.StringHashMapUnmanaged(u16) = .empty;
+    for (langs, 0..) |l, n| try ids.put(arena, try fold(arena, l.name), @intCast(n));
+    var table: std.StringHashMapUnmanaged(u16) = .empty;
+    var it = ids.iterator();
+    while (it.next()) |kv| try table.put(arena, kv.key_ptr.*, kv.value_ptr.*);
+    for (langs) |l| {
+        const id = ids.get(try fold(arena, l.name)).?;
+        for (l.aliases) |alias| {
+            const gop = try table.getOrPut(arena, try fold(arena, alias));
+            if (!gop.found_existing) gop.value_ptr.* = id;
+        }
+    }
+    for (langs) |l| {
+        const id = ids.get(try fold(arena, l.name)).?;
+        for (l.extensions) |raw| {
+            const ext = std.mem.trimStart(u8, raw, ".");
+            if (ext.len == 0) continue;
+            const gop = try table.getOrPut(arena, try fold(arena, ext));
+            if (!gop.found_existing) gop.value_ptr.* = id;
+        }
+    }
+    var rows: std.ArrayList(Row) = .empty;
+    var ti = table.iterator();
+    while (ti.next()) |kv| try rows.append(arena, .{ .key = kv.key_ptr.*, .id = kv.value_ptr.* });
+    std.mem.sort(Row, rows.items, {}, rowLess);
+
+    var blob: std.ArrayList(u8) = .empty;
+    var restarts: std.ArrayList(usize) = .empty;
+    var prev: []const u8 = "";
+    for (rows.items, 0..) |row, n| {
+        if (n % restart_every == 0) {
+            try restarts.append(arena, blob.items.len);
+            prev = "";
+        }
+        const k = row.key;
+        var lcp: usize = 0;
+        while (lcp < @min(prev.len, k.len) and prev[lcp] == k[lcp]) lcp += 1;
+        if (k.len > 255) return error.KeyTooLong;
+        try blob.appendSlice(arena, &.{ @intCast(lcp), @intCast(k.len - lcp) });
+        try blob.appendSlice(arena, k[lcp..]);
+        try blob.appendSlice(arena, &.{ @truncate(row.id), @truncate(row.id >> 8) });
+        prev = k;
+    }
+
+    var names: std.ArrayList(u8) = .empty;
+    var name_offsets: std.ArrayList(usize) = .empty;
+    try name_offsets.append(arena, 0);
+    for (langs) |l| {
+        try names.appendSlice(arena, try fold(arena, l.name));
+        try name_offsets.append(arena, names.items.len);
+    }
+
+    var aw: Writer.Allocating = .init(arena);
+    const w = &aw.writer;
+    try w.print("// Generated by tools/gen_languages.zig from {s}\n", .{source});
+    try w.writeAll("// Do not edit; the monthly workflow regenerates this file.\n");
+    try w.writeAll("// Keys: case-folded Linguist names, aliases and file extensions, sorted and front-coded\n");
+    try w.print("// in blocks of {d}; each entry is lcp, suffix length, suffix, u16 language id.\n\n", .{restart_every});
+    try w.writeAll("const std = @import(\"std\");\n\n");
+    try w.print("const restarts = [_]{s}{{ ", .{intType(blob.items.len)});
+    for (restarts.items, 0..) |r, i| try w.print("{s}{d}", .{ if (i > 0) ", " else "", r });
+    try w.writeAll(" };\n\nconst blob =\n");
+    try zigBytes(w, blob.items);
+    try w.print(";\n\nconst name_offsets = [_]{s}{{ ", .{intType(names.items.len)});
+    for (name_offsets.items, 0..) |o, i| try w.print("{s}{d}", .{ if (i > 0) ", " else "", o });
+    try w.writeAll(" };\n\nconst name_blob =\n");
+    try zigBytes(w, names.items);
+    try w.writeAll(";\n\n");
+    try w.writeAll(lookup_source);
+    for (rows.items) |row| {
+        try w.writeAll("    .{ ");
+        try lit(w, row.key);
+        try w.writeAll(", ");
+        try lit(w, try fold(arena, langs[row.id].name));
+        try w.writeAll(" },\n");
+    }
+    try w.writeAll(test_source);
+    files.say(io, "{d} keys, {d} languages\n", .{ rows.items.len, langs.len });
+    return aw.written();
+}
+
+const lookup_source = @embedFile("languages_lookup.zig.in");
+const test_source = @embedFile("languages_test.zig.in");
+
+pub fn main(init: std.process.Init) !void {
+    const a = try files.args(init, 2, "gen-languages <languages.yml> <out.zig>");
+    const arena = init.arena.allocator();
+    try files.write(init.io, a[1], try generate(arena, init.io, try files.read(init.io, arena, a[0])));
+}
