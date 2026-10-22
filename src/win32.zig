@@ -2,6 +2,7 @@ const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
 const hl = @import("highlight.zig");
+const alerts = @import("alerts.zig");
 const windows = std.os.windows;
 const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
@@ -122,7 +123,9 @@ extern "dwrite" fn DWriteCreateFactory(factoryType: u32, iid: *const GUID, facto
 // COM vtables
 const ID2D1Factory_VTable = extern struct {
     QueryInterface: *const anyopaque, AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.c) u32, _pad: [11]*const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32, _pad3_9: [7]*const anyopaque,
+    CreatePathGeometry: *const fn (*anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 10
+    _pad11_13: [3]*const anyopaque,
     CreateHwndRenderTarget: *const fn (*anyopaque, *const D2D1_RENDER_TARGET_PROPERTIES, *const D2D1_HWND_RENDER_TARGET_PROPERTIES, *?*anyopaque) callconv(.c) HRESULT,
 };
 
@@ -138,8 +141,9 @@ const ID2D1RT_VTable = extern struct {
     FillRectangle: *const fn (*anyopaque, *const D2D1_RECT_F, *anyopaque) callconv(.c) void, // 17
     _pad18: *const anyopaque,
     FillRoundedRectangle: *const fn (*anyopaque, *const D2D1_ROUNDED_RECT, *anyopaque) callconv(.c) void, // 19
-    _pad20_26: [7]*const anyopaque,
-    _pad27: *const anyopaque,
+    _pad20_22: [3]*const anyopaque,
+    FillGeometry: *const fn (*anyopaque, *anyopaque, *anyopaque, ?*anyopaque) callconv(.c) void, // 23
+    _pad24_27: [4]*const anyopaque,
     DrawTextLayout: *const fn (*anyopaque, D2D1_POINT_2F, *anyopaque, *anyopaque, u32) callconv(.c) void, // 28
     _pad29: *const anyopaque,
     SetTransform: *const fn (*anyopaque, *const D2D1_MATRIX_3X2_F) callconv(.c) void, // 30
@@ -201,6 +205,9 @@ var g_text_format: ?*anyopaque = null;
 var g_text_format_h1: ?*anyopaque = null;
 var g_text_format_h2: ?*anyopaque = null;
 var g_text_format_h3: ?*anyopaque = null;
+var g_text_format_h4: ?*anyopaque = null;
+var g_text_format_h5: ?*anyopaque = null;
+var g_text_format_h6: ?*anyopaque = null;
 var g_text_format_code: ?*anyopaque = null;
 var g_brush_text: ?*anyopaque = null;
 var g_brush_heading: ?*anyopaque = null;
@@ -209,9 +216,18 @@ var g_brush_code_text: ?*anyopaque = null;
 var g_brush_quote: ?*anyopaque = null;
 var g_brush_hr: ?*anyopaque = null;
 var g_brush_table_border: ?*anyopaque = null;
+var g_brush_stripe: ?*anyopaque = null;
 var g_brush_close: ?*anyopaque = null;
 var g_brush_hl: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
 var g_brush_hl_bg: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
+var g_brush_bar: ?*anyopaque = null;
+var g_brush_bg: ?*anyopaque = null;
+var g_brush_check: ?*anyopaque = null;
+var g_brush_white: ?*anyopaque = null;
+var g_brush_err_bg: ?*anyopaque = null;
+var g_brush_err_border: ?*anyopaque = null;
+var g_alert_border: [5]?*anyopaque = @splat(null);
+var g_alert_fg: [5]?*anyopaque = @splat(null);
 
 pub fn invalidate() void {
     if (g_hwnd) |h| _ = InvalidateRect(h, null, 0);
@@ -254,6 +270,7 @@ pub fn run() void {
 fn initD2D() void {
     _ = D2D1CreateFactory(0, &IID_ID2D1Factory, null, &g_d2d_factory);
     _ = DWriteCreateFactory(0, &IID_IDWriteFactory, &g_dwrite_factory);
+    if (g_d2d_factory) |f| createAlertGeometries(f);
     if (g_dwrite_factory) |dwf| {
         const vt = vtable(IDWriteFactory_VTable, dwf);
         const font = L("Segoe UI");
@@ -262,6 +279,9 @@ fn initD2D() void {
         _ = vt.CreateTextFormat(dwf, font, null, 700, 0, 5, 32.0, locale, &g_text_format_h1);
         _ = vt.CreateTextFormat(dwf, font, null, 600, 0, 5, 24.0, locale, &g_text_format_h2);
         _ = vt.CreateTextFormat(dwf, font, null, 600, 0, 5, 20.0, locale, &g_text_format_h3);
+        _ = vt.CreateTextFormat(dwf, font, null, 600, 0, 5, 16.0, locale, &g_text_format_h4);
+        _ = vt.CreateTextFormat(dwf, font, null, 600, 0, 5, 14.0, locale, &g_text_format_h5);
+        _ = vt.CreateTextFormat(dwf, font, null, 600, 0, 5, 13.6, locale, &g_text_format_h6);
         _ = vt.CreateTextFormat(dwf, L("Consolas"), null, 400, 0, 5, 14.0, locale, &g_text_format_code);
     }
 }
@@ -293,12 +313,23 @@ fn createBrushes(rt: *anyopaque) void {
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_code_text);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_quote);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.129, .g = 0.149, .b = 0.176, .a = 1 }, null, &g_brush_hr);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.188, .g = 0.212, .b = 0.239, .a = 1 }, null, &g_brush_table_border);
+    g_brush_table_border = solidBrush(rt, 0x3d444d);
+    g_brush_stripe = solidBrush(rt, 0x151b23);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
     for (0..g_brush_hl.len) |n| {
         const st = hl.style(@enumFromInt(n));
         if (st.fg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl[n]);
         if (st.bg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl_bg[n]);
+    }
+    g_brush_bar = solidBrush(rt, 0x3d444d);
+    g_brush_bg = solidBrush(rt, 0x0d1117);
+    g_brush_check = solidBrush(rt, 0x1f6feb);
+    g_brush_white = solidBrush(rt, 0xffffff);
+    g_brush_err_bg = solidBrush(rt, 0x25171c);
+    g_brush_err_border = solidBrush(rt, 0x6b2b2b);
+    for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
+        g_alert_border[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).border);
+        g_alert_fg[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).fg);
     }
 }
 
@@ -320,53 +351,87 @@ fn render() void {
     var y: f32 = padding;
 
     for (app.blocks) |*block| {
+        const inset = block.inset();
+        const x = padding + inset;
+        const w = @max(max_width - inset, 60);
+        const top = y;
+        var gap: f32 = 0;
+        const text_brush = if (block.muted()) g_brush_quote.? else g_brush_text.?;
+        for (block.marks) |l| drawMarker(vt_rt, vt_dw, rt, dwf, l.mark, padding + l.inset, y);
+
         switch (block.kind) {
             .h1 => {
                 y += 24;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h1.?, padding, y, max_width, g_brush_heading.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h1.?, x, y, w, g_brush_heading.?);
                 y += 8;
-                vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + max_width, .bottom = y + 1 }, g_brush_hr.?);
-                y += 16;
+                vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, g_brush_hr.?);
+                y += 1;
+                gap = 16;
             },
             .h2 => {
                 y += 20;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h2.?, padding, y, max_width, g_brush_heading.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h2.?, x, y, w, g_brush_heading.?);
                 y += 6;
-                vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + max_width, .bottom = y + 1 }, g_brush_hr.?);
-                y += 16;
+                vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, g_brush_hr.?);
+                y += 1;
+                gap = 16;
             },
             .h3 => {
                 y += 16;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h3.?, padding, y, max_width, g_brush_heading.?);
-                y += 12;
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h3.?, x, y, w, g_brush_heading.?);
+                gap = 12;
+            },
+            .h4, .h5, .h6 => {
+                y += 24;
+                const fmt = switch (block.kind) {
+                    .h4 => g_text_format_h4,
+                    .h5 => g_text_format_h5,
+                    else => g_text_format_h6,
+                };
+                const brush = if (block.kind == .h6) g_brush_quote.? else g_brush_heading.?;
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, fmt.?, x, y, w, brush);
+                gap = 16;
             },
             .paragraph => {
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, padding, y, max_width, g_brush_text.?);
-                y += 16;
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, x, y, w, text_brush);
+                gap = block.paragraphGap();
             },
-            .list_item => {
-                vt_rt.FillRectangle(rt, &.{ .left = padding + 8, .top = y + 7, .right = padding + 12, .bottom = y + 11 }, g_brush_text.?);
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, padding + 24, y, max_width - 24, g_brush_text.?);
+            .alert_title => {
+                const alert = block.frames[block.frames.len - 1].alert;
                 y += 8;
-            },
-            .blockquote => {
-                vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + 3, .bottom = y + 24 }, g_brush_hr.?);
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, padding + 16, y, max_width - 16, g_brush_quote.?);
+                drawAlertIcon(vt_rt, rt, alert, x, y);
+                _ = renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h4.?, x + 24, y - 2, w - 24, g_alert_fg[@intFromEnum(alert) - 1].?);
                 y += 16;
+                gap = 16;
+            },
+            .error_box => {
+                y += renderErrorBox(vt_rt, vt_dw, rt, dwf, block.content, x, y, w);
+                gap = 16;
             },
             .code_block => {
-                y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block.content.text, block.tokens, padding, y, max_width) + 16;
+                y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block.content.text, block.tokens, x, y, w);
+                gap = 16;
             },
             .table => {
-                y += renderTable(vt_rt, vt_dw, rt, dwf, block.table, padding, y, max_width) + 16;
+                y += renderTable(vt_rt, vt_dw, rt, dwf, block.table, x, y, w, true, null);
+                gap = 16;
             },
             .hr => {
                 y += 12;
-                vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + max_width, .bottom = y + 2 }, g_brush_hr.?);
-                y += 14;
+                vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 2 }, g_brush_hr.?);
+                y += 2;
+                gap = 14;
             },
-            .blank => {},
         }
+
+        for (block.frames, 0..) |f, i| {
+            if (f.kind != .quote) continue;
+            if (f.alert != .none and !f.open) y += 8;
+            const brush = if (f.alert == .none) g_brush_bar.? else g_alert_border[@intFromEnum(f.alert) - 1].?;
+            const bar_x = padding + block.insetBefore(i);
+            vt_rt.FillRectangle(rt, &.{ .left = bar_x, .top = top, .right = bar_x + md.quote_bar, .bottom = y + if (f.open) gap else 0 }, brush);
+        }
+        y += gap;
     }
 
     app.content_height = y + padding;
@@ -380,6 +445,155 @@ fn render() void {
     }
 
     _ = vt_rt.EndDraw(rt, null, null);
+}
+
+fn solidBrush(rt: *anyopaque, hex: u24) ?*anyopaque {
+    var brush: ?*anyopaque = null;
+    const c: D2D1_COLOR_F = .{
+        .r = @as(f32, @floatFromInt((hex >> 16) & 0xFF)) / 255.0,
+        .g = @as(f32, @floatFromInt((hex >> 8) & 0xFF)) / 255.0,
+        .b = @as(f32, @floatFromInt(hex & 0xFF)) / 255.0,
+        .a = 1,
+    };
+    _ = vtable(ID2D1RT_VTable, rt).CreateSolidColorBrush(rt, &c, null, &brush);
+    return brush;
+}
+
+const D2D1_BEZIER_SEGMENT = extern struct { p1: D2D1_POINT_2F, p2: D2D1_POINT_2F, p3: D2D1_POINT_2F };
+
+const ID2D1PathGeometry_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    _pad3_16: [14]*const anyopaque,
+    Open: *const fn (*anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 17
+};
+
+const ID2D1GeometrySink_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    SetFillMode: *const fn (*anyopaque, u32) callconv(.c) void, // 3
+    _pad4: *const anyopaque,
+    BeginFigure: *const fn (*anyopaque, D2D1_POINT_2F, u32) callconv(.c) void, // 5
+    _pad6_7: [2]*const anyopaque,
+    EndFigure: *const fn (*anyopaque, u32) callconv(.c) void, // 8
+    Close: *const fn (*anyopaque) callconv(.c) HRESULT, // 9
+    AddLine: *const fn (*anyopaque, D2D1_POINT_2F) callconv(.c) void, // 10
+    AddBezier: *const fn (*anyopaque, *const D2D1_BEZIER_SEGMENT) callconv(.c) void, // 11
+};
+
+var g_alert_geom: [5]?*anyopaque = @splat(null);
+
+fn point(p: [2]f32) D2D1_POINT_2F {
+    return .{ .x = p[0], .y = p[1] };
+}
+
+fn createAlertGeometries(factory: *anyopaque) void {
+    const fvt = vtable(ID2D1Factory_VTable, factory);
+    for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
+        var geom: ?*anyopaque = null;
+        if (fvt.CreatePathGeometry(factory, &geom) < 0) continue;
+        const g = geom orelse continue;
+        var sink_ptr: ?*anyopaque = null;
+        if (vtable(ID2D1PathGeometry_VTable, g).Open(g, &sink_ptr) < 0) continue;
+        const sink = sink_ptr orelse continue;
+        const sv = vtable(ID2D1GeometrySink_VTable, sink);
+        sv.SetFillMode(sink, 1);
+        var open = false;
+        for (alerts.icon(a)) |op| switch (op) {
+            .move => |p| {
+                if (open) sv.EndFigure(sink, 0);
+                sv.BeginFigure(sink, point(p), 0);
+                open = true;
+            },
+            .line => |p| sv.AddLine(sink, point(p)),
+            .cubic => |q| sv.AddBezier(sink, &.{ .p1 = point(.{ q[0], q[1] }), .p2 = point(.{ q[2], q[3] }), .p3 = point(.{ q[4], q[5] }) }),
+            .close => {
+                sv.EndFigure(sink, 1);
+                open = false;
+            },
+        };
+        if (open) sv.EndFigure(sink, 0);
+        _ = sv.Close(sink);
+        _ = sv.Release(sink);
+        g_alert_geom[@intFromEnum(a) - 1] = g;
+    }
+}
+
+fn drawAlertIcon(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, alert: md.Alert, x: f32, y: f32) void {
+    const idx = @intFromEnum(alert) - 1;
+    const geom = g_alert_geom[idx] orelse return;
+    const brush = g_alert_fg[idx] orelse return;
+    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, x, y - app.scroll_y } });
+    vt_rt.FillGeometry(rt, geom, brush, null);
+    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, 0, -app.scroll_y } });
+}
+
+fn renderErrorBox(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, x: f32, y: f32, w: f32) f32 {
+    const lay = createLayout(vt_dw, dwf, content, g_text_format.?, @max(w - 34, 20)) orelse return 0;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    var m: DWRITE_TEXT_METRICS = undefined;
+    _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
+    const h = m.height + 32;
+    vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x, .top = y, .right = x + w, .bottom = y + h }, .radiusX = 6, .radiusY = 6 }, g_brush_err_border.?);
+    vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x + 1, .top = y + 1, .right = x + w - 1, .bottom = y + h - 1 }, .radiusX = 5, .radiusY = 5 }, g_brush_err_bg.?);
+    vt_rt.DrawTextLayout(rt, .{ .x = x + 17, .y = y + 16 }, lay, g_brush_text.?, 0);
+    return h;
+}
+
+fn fillDisc(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, cx: f32, cy: f32, r: f32, brush: *anyopaque) void {
+    vt_rt.FillRoundedRectangle(rt, &.{
+        .rect = .{ .left = cx - r, .top = cy - r, .right = cx + r, .bottom = cy + r },
+        .radiusX = r,
+        .radiusY = r,
+    }, brush);
+}
+
+fn fillBox(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, x: f32, y: f32, size: f32, radius: f32, brush: *anyopaque) void {
+    vt_rt.FillRoundedRectangle(rt, &.{
+        .rect = .{ .left = x, .top = y, .right = x + size, .bottom = y + size },
+        .radiusX = radius,
+        .radiusY = radius,
+    }, brush);
+}
+
+fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, m: md.Mark, x: f32, y: f32) void {
+    const text = g_brush_text.?;
+    switch (m.kind) {
+        .none => {},
+        .bullet => {
+            const cx = x - 13;
+            const cy = y + 12;
+            switch (m.depth % 3) {
+                0 => fillDisc(vt_rt, rt, cx, cy, 2.8, text),
+                1 => {
+                    fillDisc(vt_rt, rt, cx, cy, 2.8, text);
+                    fillDisc(vt_rt, rt, cx, cy, 1.8, g_brush_bg.?);
+                },
+                else => vt_rt.FillRectangle(rt, &.{ .left = cx - 2.5, .top = cy - 2.5, .right = cx + 2.5, .bottom = cy + 2.5 }, text),
+            }
+        },
+        .number => {
+            var buf: [16]u8 = undefined;
+            const lay = createLayout(vt_dw, dwf, .{ .text = md.markerLabel(&buf, m) }, g_text_format.?, 100) orelse return;
+            defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+            var met: DWRITE_TEXT_METRICS = undefined;
+            _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &met);
+            vt_rt.DrawTextLayout(rt, .{ .x = x - 6 - met.width, .y = y }, lay, text, 0);
+        },
+        .task_open, .task_done => {
+            const bx = x - 23;
+            const by = y + 5;
+            if (m.kind == .task_done) {
+                fillBox(vt_rt, rt, bx, by, 14, 3, g_brush_check.?);
+                const white = g_brush_white.?;
+                vt_rt.DrawLine(rt, .{ .x = bx + 3.5, .y = by + 7.5 }, .{ .x = bx + 6, .y = by + 10 }, white, 1.8, null);
+                vt_rt.DrawLine(rt, .{ .x = bx + 6, .y = by + 10 }, .{ .x = bx + 10.5, .y = by + 4.5 }, white, 1.8, null);
+            } else {
+                fillBox(vt_rt, rt, bx, by, 14, 3, g_brush_quote.?);
+                fillBox(vt_rt, rt, bx + 1, by + 1, 12, 2, g_brush_bg.?);
+            }
+        },
+    }
 }
 
 fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque) f32 {
@@ -422,13 +636,14 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
 }
 
 const cell_pad_x: f32 = 13;
+const nested_margin: f32 = md.nested_table_margin;
 const cell_pad_y: f32 = 6;
 
 fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table, row: usize, col: usize, width: f32) ?*anyopaque {
     const content = t.cell(row, col);
     const lay = createLayout(vt_dw, dwf, content, g_text_format orelse return null, width) orelse return null;
     const vt = vtable(IDWriteTextLayout_VTable, lay);
-    if (row == 0) _ = vt.SetFontWeight(lay, 700, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
+    if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) _ = vt.SetFontWeight(lay, 700, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
     _ = vt.SetTextAlignment(lay, switch (t.aligns[col]) {
         .none, .left => 0,
         .right => 1,
@@ -437,8 +652,10 @@ fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table,
     return lay;
 }
 
-fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: md.Table, x: f32, y: f32, max_width: f32) f32 {
+fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
     const border = g_brush_table_border orelse return 0;
+    if (out_width) |o| o.* = 0;
+    if (t.rows() == 0) return 0;
     const widths = app.gpa.alloc(f32, t.columns) catch return 0;
     defer app.gpa.free(widths);
     const layouts = app.gpa.alloc(?*anyopaque, t.columns) catch return 0;
@@ -447,6 +664,12 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
     @memset(widths, 0);
     for (0..t.rows()) |row| {
         for (widths, 0..) |*w, col| {
+            if (t.nestedAt(row, col)) |nt| {
+                var nw: f32 = 0;
+                _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, 100000, false, &nw);
+                w.* = @max(w.*, nw);
+                continue;
+            }
             const lay = cellLayout(vt_dw, dwf, t, row, col, 100000) orelse continue;
             defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
             var m: DWRITE_TEXT_METRICS = undefined;
@@ -458,11 +681,17 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
     for (widths) |*w| w.* += cell_pad_x * 2 + 1;
     md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
     for (widths) |w| table_w += w;
+    if (out_width) |o| o.* = table_w;
 
     var row_y = y;
     for (0..t.rows()) |row| {
         var text_h: f32 = 21;
         for (layouts, 0..) |*lay, col| {
+            lay.* = null;
+            if (t.nestedAt(row, col)) |nt| {
+                text_h = @max(text_h, renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, widths[col] - cell_pad_x * 2, false, null) + nested_margin);
+                continue;
+            }
             lay.* = cellLayout(vt_dw, dwf, t, row, col, widths[col] - cell_pad_x * 2);
             if (lay.*) |l| {
                 var m: DWRITE_TEXT_METRICS = undefined;
@@ -471,26 +700,34 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
             }
         }
         const row_h = text_h + cell_pad_y * 2;
-        if (row == 0) {
-            if (g_brush_code_bg) |bg| vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + row_h }, bg);
+        if (draw) {
+            if (md.Table.striped(t, row)) {
+                vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + row_h }, g_brush_stripe.?);
+            }
         }
         var cx = x;
-        for (layouts, widths) |lay, w| {
-            if (lay) |l| {
-                vt_rt.DrawTextLayout(rt, .{ .x = cx + cell_pad_x, .y = row_y + cell_pad_y }, l, g_brush_text.?, draw_color_font);
-                _ = vtable(IDWriteTextLayout_VTable, l).Release(l);
+        for (layouts, widths, 0..) |lay, w, col| {
+            if (draw) {
+                if (t.nestedAt(row, col)) |nt| {
+                    _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
+                } else if (lay) |l| {
+                    vt_rt.DrawTextLayout(rt, .{ .x = cx + cell_pad_x, .y = row_y + cell_pad_y }, l, g_brush_text.?, draw_color_font);
+                }
             }
+            if (lay) |l| _ = vtable(IDWriteTextLayout_VTable, l).Release(l);
             cx += w;
         }
-        vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
+        if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
         row_y += row_h;
     }
-    vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
-    var cx = x;
-    vt_rt.FillRectangle(rt, &.{ .left = cx, .top = y, .right = cx + 1, .bottom = row_y + 1 }, border);
-    for (widths) |w| {
-        cx += w;
-        vt_rt.FillRectangle(rt, &.{ .left = cx - 1, .top = y, .right = cx, .bottom = row_y + 1 }, border);
+    if (draw) {
+        vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
+        var cx = x;
+        vt_rt.FillRectangle(rt, &.{ .left = cx, .top = y, .right = cx + 1, .bottom = row_y + 1 }, border);
+        for (widths) |w| {
+            cx += w;
+            vt_rt.FillRectangle(rt, &.{ .left = cx - 1, .top = y, .right = cx, .bottom = row_y + 1 }, border);
+        }
     }
     return row_y + 1 - y;
 }

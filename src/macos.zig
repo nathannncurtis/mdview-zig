@@ -3,6 +3,7 @@ const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
 const hl = @import("highlight.zig");
+const alerts = @import("alerts.zig");
 
 const c = @import("c");
 
@@ -93,6 +94,8 @@ const h2_color = hexColor(0xe6edf3);
 const h3_color = hexColor(0xd2d8de);
 const code_bg_color = hexColor(0x161b22);
 const border_color = hexColor(0x30363d);
+const table_border_color = hexColor(0x3d444d);
+const stripe_color = hexColor(0x151b23);
 const blockquote_color = hexColor(0x8b949e);
 const close_btn_color = hexColor(0x8b949e);
 
@@ -101,16 +104,16 @@ const close_btn_color = hexColor(0x8b949e);
 // ============================================================
 // Layout constants
 // ============================================================
-const font_size_body: CGFloat = 15.0;
-const font_size_code: CGFloat = 13.0;
-const font_size_h1: CGFloat = 28.0;
-const font_size_h2: CGFloat = 22.0;
-const font_size_h3: CGFloat = 18.0;
+const font_size_body: CGFloat = 16.0;
+const font_size_code: CGFloat = 13.6;
+const font_size_h1: CGFloat = 32.0;
+const font_size_h2: CGFloat = 24.0;
+const font_size_h3: CGFloat = 20.0;
 
 const padding_x: CGFloat = 40.0;
 const padding_top: CGFloat = 50.0;
 const line_spacing: CGFloat = 6.0;
-const para_spacing: CGFloat = 14.0;
+const para_spacing: CGFloat = 16.0;
 const code_padding: CGFloat = 12.0;
 const close_btn_size: CGFloat = 28.0;
 
@@ -412,7 +415,7 @@ fn suggestSize(attr_str: c.CFAttributedStringRef, max_width: CGFloat) CGSize {
 }
 
 fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef, header_font: c.CTFontRef) c.CFMutableAttributedStringRef {
-    const attr_str = createRichAttrStr(t.cell(row, col), if (row == 0) header_font else body_font, text_color) orelse return null;
+    const attr_str = createRichAttrStr(t.cell(row, col), if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) header_font else body_font, text_color) orelse return null;
     var alignment: c.CTTextAlignment = @intCast(switch (t.aligns[col]) {
         .none, .left => c.kCTTextAlignmentLeft,
         .center => c.kCTTextAlignmentCenter,
@@ -435,7 +438,9 @@ fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef
 }
 
 /// y_cg is the top edge of the table in CG coordinates; returns the height used.
-fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, body_font: c.CTFontRef) CGFloat {
+fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, body_font: c.CTFontRef, draw: bool, out_width: ?*CGFloat) CGFloat {
+    if (out_width) |o| o.* = 0;
+    if (t.rows() == 0) return 0;
     const header_font = createFont("Helvetica Neue", c.CTFontGetSize(body_font), true, false);
     defer c.CFRelease(header_font);
     const widths = app.gpa.alloc(f32, t.columns) catch return 0;
@@ -446,6 +451,12 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
     @memset(widths, 0);
     for (0..t.rows()) |row| {
         for (widths, 0..) |*w, col| {
+            if (t.nestedAt(row, col)) |nt| {
+                var nw: CGFloat = 0;
+                _ = drawTable(ctx, nt, 0, 0, 100000.0, body_font, false, &nw);
+                w.* = @max(w.*, @as(f32, @floatCast(nw)));
+                continue;
+            }
             const attr_str = createCellAttrStr(t, row, col, body_font, header_font) orelse continue;
             defer c.CFRelease(attr_str);
             w.* = @max(w.*, @as(f32, @floatCast(suggestSize(@ptrCast(attr_str), 100000.0).width)));
@@ -455,43 +466,59 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
     md.fitColumns(widths, @floatCast(max_width), @floatCast(cell_pad_x * 2 + 24));
     var table_w: CGFloat = 0;
     for (widths) |w| table_w += w;
+    if (out_width) |o| o.* = table_w;
 
     const min_text_h = c.CTFontGetSize(body_font) * 1.25;
     var top = y_cg;
     for (0..t.rows()) |row| {
         var text_h = min_text_h;
         for (cells, widths, 0..) |*cell, w, col| {
+            cell.* = null;
+            if (t.nestedAt(row, col)) |nt| {
+                text_h = @max(text_h, drawTable(ctx, nt, 0, 0, w - cell_pad_x * 2, body_font, false, null) + md.nested_table_margin);
+                continue;
+            }
             cell.* = createCellAttrStr(t, row, col, body_font, header_font);
             if (cell.*) |attr_str| {
                 text_h = @max(text_h, suggestSize(@ptrCast(attr_str), w - cell_pad_x * 2).height);
             }
         }
         const row_h = text_h + cell_pad_y * 2;
-        if (row == 0) {
-            c.CGContextSetRGBFillColor(ctx, code_bg_color.r, code_bg_color.g, code_bg_color.b, 1.0);
-            c.CGContextFillRect(ctx, cgRect(x, top - row_h, table_w, row_h));
+        if (draw) {
+            if (md.Table.striped(t, row)) {
+                c.CGContextSetRGBFillColor(ctx, stripe_color.r, stripe_color.g, stripe_color.b, 1.0);
+                c.CGContextFillRect(ctx, cgRect(x, top - row_h, table_w, row_h));
+            }
         }
         var cx = x;
-        for (cells, widths) |cell, w| {
-            if (cell) |attr_str| {
-                _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2);
-                c.CFRelease(attr_str);
+        for (cells, widths, 0..) |cell, w, col| {
+            if (draw) {
+                if (t.nestedAt(row, col)) |nt| {
+                    _ = drawTable(ctx, nt, cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2, body_font, true, null);
+                } else if (cell) |attr_str| {
+                    _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2);
+                }
             }
+            if (cell) |attr_str| c.CFRelease(attr_str);
             cx += w;
         }
-        c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
-        c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
+        if (draw) {
+            c.CGContextSetRGBFillColor(ctx, table_border_color.r, table_border_color.g, table_border_color.b, 1.0);
+            c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
+        }
         top -= row_h;
     }
 
     const height = y_cg - top + 1;
-    c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
-    c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
-    var cx = x;
-    c.CGContextFillRect(ctx, cgRect(cx, y_cg - height, 1, height));
-    for (widths) |w| {
-        cx += w;
-        c.CGContextFillRect(ctx, cgRect(cx - 1, y_cg - height, 1, height));
+    if (draw) {
+        c.CGContextSetRGBFillColor(ctx, table_border_color.r, table_border_color.g, table_border_color.b, 1.0);
+        c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
+        var cx = x;
+        c.CGContextFillRect(ctx, cgRect(cx, y_cg - height, 1, height));
+        for (widths) |w| {
+            cx += w;
+            c.CGContextFillRect(ctx, cgRect(cx - 1, y_cg - height, 1, height));
+        }
     }
     return height;
 }
@@ -656,6 +683,95 @@ fn drawLineBackgrounds(ctx: c.CGContextRef, frame: c.CTFrameRef, text: []const u
     }
 }
 
+fn colorOf(hex: u24) Color {
+    return .{
+        .r = @as(CGFloat, @floatFromInt((hex >> 16) & 0xFF)) / 255.0,
+        .g = @as(CGFloat, @floatFromInt((hex >> 8) & 0xFF)) / 255.0,
+        .b = @as(CGFloat, @floatFromInt(hex & 0xFF)) / 255.0,
+    };
+}
+
+const bar_color = hexColor(0x3d444d);
+const err_bg_color = hexColor(0x25171c);
+const err_border_color = hexColor(0x6b2b2b);
+const check_color = hexColor(0x1f6feb);
+
+fn drawAlertIcon(ctx: c.CGContextRef, alert: md.Alert, x: CGFloat, cg_top: CGFloat) void {
+    const col = colorOf(alerts.style(alert).fg);
+    const path = c.CGPathCreateMutable();
+    defer c.CGPathRelease(path);
+    for (alerts.icon(alert)) |op| switch (op) {
+        .move => |p| c.CGPathMoveToPoint(path, null, x + p[0], cg_top - p[1]),
+        .line => |p| c.CGPathAddLineToPoint(path, null, x + p[0], cg_top - p[1]),
+        .cubic => |q| c.CGPathAddCurveToPoint(path, null, x + q[0], cg_top - q[1], x + q[2], cg_top - q[3], x + q[4], cg_top - q[5]),
+        .close => c.CGPathCloseSubpath(path),
+    };
+    c.CGContextSetRGBFillColor(ctx, col.r, col.g, col.b, 1.0);
+    c.CGContextAddPath(ctx, path);
+    c.CGContextFillPath(ctx);
+}
+
+fn drawErrorBox(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, cg_y: CGFloat, w: CGFloat, font: c.CTFontRef) CGFloat {
+    const attr_str = createRichAttrStr(content, font, text_color) orelse return 0;
+    defer c.CFRelease(attr_str);
+    const h = suggestSize(@ptrCast(attr_str), @max(w - 34, 20)).height + 32;
+    c.CGContextSetRGBFillColor(ctx, err_border_color.r, err_border_color.g, err_border_color.b, 1.0);
+    drawRoundedRect(ctx, cgRect(x, cg_y - h, w, h), 6.0);
+    c.CGContextFillPath(ctx);
+    c.CGContextSetRGBFillColor(ctx, err_bg_color.r, err_bg_color.g, err_bg_color.b, 1.0);
+    drawRoundedRect(ctx, cgRect(x + 1, cg_y - h + 1, w - 2, h - 2), 5.0);
+    c.CGContextFillPath(ctx);
+    _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x + 17, cg_y - 16, @max(w - 34, 20));
+    return h;
+}
+
+fn drawMarker(ctx: c.CGContextRef, m: md.Mark, x: CGFloat, cg_y: CGFloat, font: c.CTFontRef) void {
+    switch (m.kind) {
+        .none => {},
+        .bullet => {
+            const cx = x - 13;
+            const cy = cg_y - 9.5;
+            c.CGContextSetRGBFillColor(ctx, text_color.r, text_color.g, text_color.b, 1.0);
+            c.CGContextSetRGBStrokeColor(ctx, text_color.r, text_color.g, text_color.b, 1.0);
+            switch (m.depth % 3) {
+                0 => c.CGContextFillEllipseInRect(ctx, cgRect(cx - 2.8, cy - 2.8, 5.6, 5.6)),
+                1 => {
+                    c.CGContextSetLineWidth(ctx, 1.0);
+                    c.CGContextStrokeEllipseInRect(ctx, cgRect(cx - 2.4, cy - 2.4, 4.8, 4.8));
+                },
+                else => c.CGContextFillRect(ctx, cgRect(cx - 2.5, cy - 2.5, 5, 5)),
+            }
+        },
+        .number => {
+            var buf: [16]u8 = undefined;
+            const attr_str = createRichAttrStr(.{ .text = md.markerLabel(&buf, m) }, font, text_color) orelse return;
+            defer c.CFRelease(attr_str);
+            const width = suggestSize(@ptrCast(attr_str), 200).width;
+            _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x - 6 - width, cg_y, width + 2);
+        },
+        .task_open, .task_done => {
+            const bx = x - 23;
+            const top = cg_y - 5;
+            if (m.kind == .task_done) {
+                c.CGContextSetRGBFillColor(ctx, check_color.r, check_color.g, check_color.b, 1.0);
+                drawRoundedRect(ctx, cgRect(bx, top - 14, 14, 14), 3.0);
+                c.CGContextFillPath(ctx);
+                c.CGContextSetRGBStrokeColor(ctx, 1.0, 1.0, 1.0, 1.0);
+                c.CGContextSetLineWidth(ctx, 1.8);
+                c.CGContextMoveToPoint(ctx, bx + 3.5, top - 7.5);
+                c.CGContextAddLineToPoint(ctx, bx + 6, top - 10);
+                c.CGContextAddLineToPoint(ctx, bx + 10.5, top - 4.5);
+                c.CGContextStrokePath(ctx);
+            } else {
+                c.CGContextSetRGBStrokeColor(ctx, blockquote_color.r, blockquote_color.g, blockquote_color.b, 1.0);
+                c.CGContextSetLineWidth(ctx, 1.0);
+                drawRoundedRect(ctx, cgRect(bx + 0.5, top - 13.5, 13, 13), 2.5);
+                c.CGContextStrokePath(ctx);
+            }
+        },
+    }
+}
+
 // ============================================================
 // Main draw routine (called from drawRect:)
 // ============================================================
@@ -681,6 +797,12 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     defer c.CFRelease(h2_font);
     const h3_font = createFont("Helvetica Neue", font_size_h3, true, false);
     defer c.CFRelease(h3_font);
+    const h4_font = createFont("Helvetica Neue", font_size_body, true, false);
+    defer c.CFRelease(h4_font);
+    const h5_font = createFont("Helvetica Neue", 14.0, true, false);
+    defer c.CFRelease(h5_font);
+    const h6_font = createFont("Helvetica Neue", 13.6, true, false);
+    defer c.CFRelease(h6_font);
 
     var screen_y: CGFloat = padding_top - scroll;
 
@@ -692,64 +814,71 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
         // CG y for the top of this block
         const cg_y = height - screen_y;
 
-        var block_height: CGFloat = 0;
+        const inset: CGFloat = block.inset();
+        const x = padding_x + inset;
+        const w = @max(max_text_width - inset, 60);
+        const text_col = if (block.muted()) blockquote_color else text_color;
+        var content_h: CGFloat = 0;
+        var gap: CGFloat = para_spacing;
+
+        for (block.marks) |l| drawMarker(ctx, l.mark, padding_x + l.inset, cg_y, body_font);
 
         switch (block.kind) {
-            .h1 => {
-                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, h1_font, h1_color);
-                block_height += para_spacing;
-            },
-            .h2 => {
-                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, h2_font, h2_color);
-                block_height += para_spacing;
+            .h1, .h2 => {
+                const first = block.kind == .h1;
+                const lead: CGFloat = if (first) 24 else 20;
+                const after: CGFloat = if (first) 8 else 6;
+                const th = drawRichText(ctx, block.content, x, cg_y - lead, w, if (first) h1_font else h2_font, if (first) h1_color else h2_color);
+                c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
+                c.CGContextFillRect(ctx, cgRect(x, cg_y - lead - th - after - 1, w, 1));
+                content_h = lead + th + after + 1;
             },
             .h3 => {
-                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, h3_font, h3_color);
-                block_height += para_spacing;
+                content_h = 16 + drawRichText(ctx, block.content, x, cg_y - 16, w, h3_font, h3_color);
+                gap = 12;
             },
+            .h4, .h5, .h6 => {
+                const font = switch (block.kind) {
+                    .h4 => h4_font,
+                    .h5 => h5_font,
+                    else => h6_font,
+                };
+                content_h = 24 + drawRichText(ctx, block.content, x, cg_y - 24, w, font, if (block.kind == .h6) blockquote_color else h3_color);
+            },
+            .error_box => content_h = drawErrorBox(ctx, block.content, x, cg_y, w, body_font),
             .paragraph => {
-                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, body_font, text_color);
-                block_height += para_spacing;
+                content_h = drawRichText(ctx, block.content, x, cg_y, w, body_font, text_col);
+                if (block.compact) gap = 4;
             },
-            .code_block => {
-                block_height = drawCodeBlock(ctx, block.content.text, block.tokens, padding_x, cg_y, max_text_width);
-                block_height += para_spacing;
+            .alert_title => {
+                const alert = block.frames[block.frames.len - 1].alert;
+                drawAlertIcon(ctx, alert, x, cg_y - 8);
+                _ = drawRichText(ctx, block.content, x + 24, cg_y - 6, w - 24, h4_font, colorOf(alerts.style(alert).fg));
+                content_h = 24;
             },
-            .table => {
-                block_height = drawTable(ctx, block.table, padding_x, cg_y, max_text_width, body_font);
-                block_height += para_spacing;
-            },
-            .blockquote => {
-                // Draw text indented
-                const text_h = drawRichText(ctx, block.content, padding_x + 16, cg_y, max_text_width - 16, body_font, blockquote_color);
-                // Draw left border bar
-                c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
-                c.CGContextFillRect(ctx, cgRect(padding_x, cg_y - text_h, 3.0, text_h));
-                block_height = text_h + para_spacing;
-            },
+            .code_block => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
+            .table => content_h = drawTable(ctx, block.table, x, cg_y, w, body_font, true, null),
             .hr => {
                 c.CGContextSetRGBStrokeColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
                 c.CGContextSetLineWidth(ctx, 1.0);
                 const hr_cg_y = cg_y - 8;
-                c.CGContextMoveToPoint(ctx, padding_x, hr_cg_y);
-                c.CGContextAddLineToPoint(ctx, width - padding_x, hr_cg_y);
+                c.CGContextMoveToPoint(ctx, x, hr_cg_y);
+                c.CGContextAddLineToPoint(ctx, x + w, hr_cg_y);
                 c.CGContextStrokePath(ctx);
-                block_height = 16.0 + para_spacing;
-            },
-            .list_item => {
-                // Draw bullet
-                const bullet_cg_y = cg_y - font_size_body * 0.7;
-                c.CGContextSetRGBFillColor(ctx, text_color.r, text_color.g, text_color.b, 1.0);
-                c.CGContextFillEllipseInRect(ctx, cgRect(padding_x + 4, bullet_cg_y, 5, 5));
-                block_height = drawRichText(ctx, block.content, padding_x + 20, cg_y, max_text_width - 20, body_font, text_color);
-                block_height += line_spacing;
-            },
-            .blank => {
-                block_height = line_spacing;
+                content_h = 16.0;
             },
         }
 
-        screen_y += block_height;
+        for (block.frames, 0..) |f, i| {
+            if (f.kind != .quote) continue;
+            if (f.alert != .none and !f.open) content_h += 8;
+            const col = if (f.alert == .none) bar_color else colorOf(alerts.style(f.alert).border);
+            const bar_h = content_h + (if (f.open) gap else 0);
+            c.CGContextSetRGBFillColor(ctx, col.r, col.g, col.b, 1.0);
+            c.CGContextFillRect(ctx, cgRect(padding_x + block.insetBefore(i), cg_y - bar_h, md.quote_bar, bar_h));
+        }
+
+        screen_y += content_h + gap;
     }
 
     // Update content height for scroll bounds
