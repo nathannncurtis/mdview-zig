@@ -35,9 +35,11 @@ pub fn lookup(key: []const u8) ?[]const u8 {
             .eq => {
                 const bit = idx * ref_bits;
                 const at = bit / 8;
-                const raw = @as(u32, refs[at]) | @as(u32, refs[at + 1]) << 8 | @as(u32, refs[at + 2]) << 16 | @as(u32, refs[at + 3]) << 24;
+                const raw = std.mem.readInt(Raw, refs[at..][0..@sizeOf(Raw)], .little);
                 const ref = (raw >> @intCast(bit % 8)) & ((1 << ref_bits) - 1);
-                return values[ref & ((1 << off_bits) - 1) ..][0 .. ref >> off_bits];
+                const off: usize = @intCast(ref & ((1 << off_bits) - 1));
+                const len: usize = @intCast(ref >> off_bits);
+                return values[off..][0..len];
             },
             .gt => return null,
             .lt => {},
@@ -114,12 +116,14 @@ def source(entries, header, tests, block=BLOCK, share=True):
     off_bits = max(max(val_off).bit_length(), 1)
     len_bits = max(val_len).bit_length()
     ref_bits = off_bits + len_bits
-    if len(stream) > 0xFFFF or ref_bits > 24:
-        raise SystemExit("table too large for the packing")
+    if ref_bits > 57:
+        raise SystemExit("value references need more than 57 bits")
+    raw_type, raw_bytes = ("u32", 4) if ref_bits <= 25 else ("u64", 8)
+    restart_type = "u16" if len(stream) <= 0xFFFF else "u32"
     bits = 0
     for i, (o, n) in enumerate(zip(val_off, val_len)):
         bits |= (o | n << off_bits) << (i * ref_bits)
-    refs = bits.to_bytes((len(names) * ref_bits + 7) // 8 + 3, "little")
+    refs = bits.to_bytes((len(names) * ref_bits + 7) // 8 + raw_bytes - 1, "little")
 
     lines = [
         header,
@@ -131,10 +135,11 @@ def source(entries, header, tests, block=BLOCK, share=True):
         "",
         "const names = " + literal(bytes(stream)) + ";",
         "",
-        int_array("restarts", "u16", restarts),
+        int_array("restarts", restart_type, restarts),
         "",
         "const off_bits = %d;" % off_bits,
         "const ref_bits = %d;" % ref_bits,
+        "const Raw = %s;" % raw_type,
         "const refs = " + literal(refs) + ";",
         "",
         "const values = " + literal(bytes(blob)) + ";",
@@ -158,8 +163,13 @@ def source(entries, header, tests, block=BLOCK, share=True):
         "        if (e[0].len < max_name) try std.testing.expect(lookup(probe[0 .. e[0].len + 1]) == null);",
         "        if (e[0].len > 1) {",
         "            const shorter = e[0][0 .. e[0].len - 1];",
-        "            var present = false;",
-        "            for (expected) |o| present = present or std.mem.eql(u8, o[0], shorter);",
+        "            var lo: usize = 0;",
+        "            var hi: usize = expected.len;",
+        "            while (lo < hi) {",
+        "                const mid = lo + (hi - lo) / 2;",
+        "                if (std.mem.order(u8, expected[mid][0], shorter) == .lt) lo = mid + 1 else hi = mid;",
+        "            }",
+        "            const present = lo < expected.len and std.mem.eql(u8, expected[lo][0], shorter);",
         "            if (!present) try std.testing.expect(lookup(shorter) == null);",
         "        }",
         "    }",
