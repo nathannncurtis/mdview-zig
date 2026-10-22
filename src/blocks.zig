@@ -297,6 +297,7 @@ const P = struct {
         if (raw_label[0] == '^') return null;
 
         i = skipWs(s, i, true);
+        // SAFETY: assigned in both destination branches before use
         var dest: []const u8 = undefined;
         if (i < s.len and s[i] == '<') {
             const st = i + 1;
@@ -629,6 +630,7 @@ const P = struct {
         }
         const blank_item = p.peek(p.offset) == null;
         const after = p.column - sp_col;
+        // SAFETY: assigned in both branches below
         var padding: usize = undefined;
         if (after >= 5 or after < 1 or blank_item) {
             padding = mlen + 1;

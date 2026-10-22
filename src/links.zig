@@ -169,12 +169,14 @@ fn entityAt(s: []const u8, i: usize) ?Entity {
         const digits = body[if (hex) 2 else 1..];
         if (digits.len == 0 or digits.len > 7) return null;
         const cp = std.fmt.parseInt(u21, digits, if (hex) 16 else 10) catch return null;
+        // SAFETY: buf is written by utf8Encode below and read only up to len
         var e: Entity = .{ .end = semi + 1, .buf = undefined, .len = 0, .name = null };
         const v: u21 = if (cp == 0 or cp > 0x10FFFF or (cp >= 0xD800 and cp < 0xE000)) 0xFFFD else cp;
         e.len = std.unicode.utf8Encode(v, &e.buf) catch return null;
         return e;
     }
     const name = entities.lookup(body) orelse return null;
+    // SAFETY: len is 0, so buf is never read
     return .{ .end = semi + 1, .buf = undefined, .len = 0, .name = name };
 }
 

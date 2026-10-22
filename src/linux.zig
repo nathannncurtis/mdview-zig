@@ -29,7 +29,6 @@ const col_text = Color{ .r = 201.0 / 255.0, .g = 209.0 / 255.0, .b = 217.0 / 255
 const col_code_bg = Color{ .r = 22.0 / 255.0, .g = 27.0 / 255.0, .b = 34.0 / 255.0 };
 const col_quote = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 const col_hr = Color{ .r = 33.0 / 255.0, .g = 38.0 / 255.0, .b = 45.0 / 255.0 };
-const col_border = Color{ .r = 48.0 / 255.0, .g = 54.0 / 255.0, .b = 61.0 / 255.0 };
 const col_table_border = hexColor(0x3d444d);
 const col_stripe = hexColor(0x151b23);
 const col_close = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
@@ -43,6 +42,7 @@ const col_hl_string = Color{ .r = 165.0 / 255.0, .g = 214.0 / 255.0, .b = 255.0 
 pub fn invalidate() void {
     needs_redraw = true;
     if (display) |dpy| {
+        // SAFETY: every field XSendEvent reads is set below
         var ev: c.XEvent = undefined;
         ev.type = c.Expose;
         ev.xexpose.window = window;
@@ -113,6 +113,7 @@ pub fn run() void {
     while (running) {
         // Process all pending events first
         while (c.XPending(dpy) > 0) {
+            // SAFETY: written by XNextEvent
             var ev: c.XEvent = undefined;
             _ = c.XNextEvent(dpy, &ev);
 
@@ -242,7 +243,7 @@ pub fn registerFileAssociation() void {
     const exe_path = exe_buf[0..exe_len];
 
     const desktop_dir = std.fmt.allocPrint(app.allocator, "{s}/.local/share/applications", .{home}) catch return;
-    cwd.createDirPath(io, desktop_dir) catch {};
+    cwd.createDirPath(io, desktop_dir) catch return;
 
     const desktop_path = std.fmt.allocPrint(app.allocator, "{s}/mdview.desktop", .{desktop_dir}) catch return;
     const desktop_content = std.fmt.allocPrint(app.allocator,
@@ -278,7 +279,7 @@ pub fn registerFileAssociation() void {
         mf.writeStreamingAll(io, "[Default Applications]\ntext/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n") catch return;
     }
 
-    std.Io.File.stdout().writeStreamingAll(io, "mdview registered as default viewer for .md and .markdown files.\n") catch {};
+    std.Io.File.stdout().writeStreamingAll(io, "mdview registered as default viewer for .md and .markdown files.\n") catch return;
 }
 
 // ============================================================
@@ -556,7 +557,7 @@ fn openUrl(url: []u8) void {
         .stdout = .ignore,
         .stderr = .ignore,
     }) catch return;
-    _ = child.wait(app.io) catch {};
+    _ = child.wait(app.io) catch return;
 }
 
 pub fn openExternal(url: []const u8) void {
@@ -971,6 +972,7 @@ fn drawLineBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, toks: []const hl.
         const start: u32 = @intCast(c.pango_layout_iter_get_index(iter));
         while (i < toks.len and (hl.style(toks[i].kind).bg == null or toks[i].end <= start)) i += 1;
         if (i < toks.len and toks[i].start <= start) {
+            // SAFETY: written by pango_layout_iter_get_line_extents
             var r: c.PangoRectangle = undefined;
             c.pango_layout_iter_get_line_extents(iter, null, &r);
             const scale: f64 = c.PANGO_SCALE;

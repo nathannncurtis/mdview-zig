@@ -641,7 +641,9 @@ fn pacificOffset(epoch: i64) i64 {
     const days = @divFloor(epoch, 86400);
     const year = civilFromDays(days).y;
     if (year < 1987) return -8 * 3600;
+    // SAFETY: start and end are assigned in both branches below
     var start: i64 = undefined;
+    // SAFETY: assigned in both branches below
     var end: i64 = undefined;
     if (year >= 2007) {
         start = nthSunday(year, 3, 2) * 86400 + 10 * 3600;

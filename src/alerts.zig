@@ -26,6 +26,7 @@ const data = [_][]const u8{
 };
 
 const Builder = struct {
+    // SAFETY: only ops[0..n] is ever read
     ops: [160]Op = undefined,
     n: usize = 0,
     cx: f64 = 0,
