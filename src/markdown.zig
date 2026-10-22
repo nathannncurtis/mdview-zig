@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const inl = @import("inline.zig");
+const highlight = @import("highlight.zig");
 
 pub const BlockKind = enum { h1, h2, h3, paragraph, code_block, blockquote, hr, list_item, table, blank };
 
@@ -35,6 +36,8 @@ pub const Table = struct {
 
 pub const Block = struct {
     kind: BlockKind,
+    lang: []const u8 = "",
+    tokens: []const highlight.Token = &.{},
     content: Inline = .{},
     table: Table = .{},
 };
@@ -72,6 +75,7 @@ const RawInline = struct {
 
 const RawBlock = struct {
     kind: BlockKind,
+    lang: []const u8 = "",
     content: RawInline,
     columns: u32 = 0,
     aligns: Range = .{ .lo = 0, .hi = 0 },
@@ -99,6 +103,7 @@ const Parser = struct {
     fn run(p: *Parser, markdown: []const u8) Allocator.Error!void {
         var in_code = false;
         var code_start: u32 = 0;
+        var code_lang: []const u8 = "";
         var lines = std.mem.splitScalar(u8, markdown, '\n');
 
         while (lines.next()) |raw_line| {
@@ -107,10 +112,13 @@ const Parser = struct {
             if (std.mem.startsWith(u8, line, "```")) {
                 if (in_code) {
                     try p.addBlock(.code_block, p.textFrom(code_start));
+                    p.blocks.items[p.blocks.items.len - 1].lang = code_lang;
                     in_code = false;
                 } else {
                     in_code = true;
                     code_start = p.textLen();
+                    const info = std.mem.trim(u8, line[3..], " \t");
+                    code_lang = try p.a.dupe(u8, info[0 .. std.mem.findAny(u8, info, " \t") orelse info.len]);
                 }
                 continue;
             }
@@ -149,6 +157,13 @@ const Parser = struct {
         }
     }
 
+    fn highlightTokens(p: *Parser, raw: RawBlock) Allocator.Error![]const highlight.Token {
+        if (raw.kind != .code_block or raw.lang.len == 0) return &.{};
+        var list: highlight.List = .empty;
+        try highlight.tokens(p.a, raw.lang, p.text.items[raw.content.text.lo..raw.content.text.hi], &list);
+        return list.items;
+    }
+
     fn finish(p: *Parser) Allocator.Error![]const Block {
         const cells = try p.a.alloc(Inline, p.cells.items.len);
         for (cells, p.cells.items) |*c, raw| c.* = p.resolve(raw);
@@ -156,7 +171,9 @@ const Parser = struct {
         for (out, p.blocks.items) |*b, raw| {
             b.* = .{
                 .kind = raw.kind,
+                .lang = raw.lang,
                 .content = p.resolve(raw.content),
+                .tokens = try p.highlightTokens(raw),
                 .table = .{
                     .columns = raw.columns,
                     .aligns = p.aligns.items[raw.aligns.lo..raw.aligns.hi],
@@ -388,37 +405,27 @@ pub const Utf16Cursor = struct {
     }
 };
 
-// Syntax highlighting helpers (used by platform renderers)
-pub const hl_keywords = [_][]const u8{
-    "fn",       "const",    "var",      "return",   "if",       "else",
-    "while",    "for",      "break",    "continue", "switch",   "pub",
-    "struct",   "enum",     "union",    "defer",    "try",      "catch",
-    "import",   "export",   "default",  "async",    "await",    "class",
-    "function", "let",      "def",      "self",     "true",     "false",
-    "null",     "undefined", "None",    "True",     "False",    "nil",
-    "use",      "mod",      "impl",     "trait",    "type",     "match",
-    "mut",      "ref",      "unsafe",   "move",     "static",   "extern",
-    "crate",    "super",    "where",    "yield",    "from",     "with",
-    "as",       "in",       "not",      "and",      "or",       "pass",
-    "raise",    "except",   "finally",  "lambda",   "elif",     "del",
-    "global",   "nonlocal", "assert",   "package",  "chan",     "go",
-    "select",   "fallthrough", "range", "interface", "map",     "func",
-    "void",     "int",      "float",    "double",   "char",     "bool",
-    "string",   "println",  "printf",   "print",
-};
-
-pub fn isIdentStart(c: u8) bool {
-    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_' or c == '@';
-}
-
-pub fn isIdentChar(c: u8) bool {
-    return isIdentStart(c) or (c >= '0' and c <= '9');
-}
-
 const testing = std.testing;
 
 test {
     _ = inl;
+    _ = highlight;
+}
+
+test "fence info string keeps its first word as the block language" {
+    var doc = try parse(testing.allocator, "```Rust title=x\nfn\n```\n```\nplain\n```\n");
+    defer doc.deinit();
+    try testing.expectEqualStrings("Rust", doc.blocks[0].lang);
+    try testing.expectEqualStrings("", doc.blocks[1].lang);
+}
+
+test "code block tokens are computed once at parse time" {
+    var doc = try parse(testing.allocator, "```zig\nconst x = 1;\n```\n```nope\nconst x = 1;\n```\n```\nplain\n```\n");
+    defer doc.deinit();
+    try testing.expect(doc.blocks[0].tokens.len > 0);
+    try testing.expectEqual(highlight.Kind.keyword, doc.blocks[0].tokens[0].kind);
+    try testing.expectEqual(@as(usize, 0), doc.blocks[1].tokens.len);
+    try testing.expectEqual(@as(usize, 0), doc.blocks[2].tokens.len);
 }
 
 test "1500 paragraphs are all retained" {
