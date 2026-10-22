@@ -17,6 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
+      - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall
       - name: Installer
         env:
@@ -41,6 +42,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev
       - run: bash .github/scripts/setup-zig.sh
+      - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall
       - name: Debian package
         env:
@@ -82,11 +84,12 @@ jobs:
           if-no-files-found: error
 
   macos:
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
+      - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall
       - name: App bundle and disk image
         env:

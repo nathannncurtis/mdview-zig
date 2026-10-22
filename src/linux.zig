@@ -3,14 +3,7 @@ const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
 
-const c = @cImport({
-    @cInclude("X11/Xlib.h");
-    @cInclude("X11/Xutil.h");
-    @cInclude("X11/Xatom.h");
-    @cInclude("cairo/cairo.h");
-    @cInclude("cairo/cairo-xlib.h");
-    @cInclude("pango/pangocairo.h");
-});
+const c = @import("c");
 
 const posix = std.posix;
 
@@ -32,6 +25,7 @@ const col_text = Color{ .r = 201.0 / 255.0, .g = 209.0 / 255.0, .b = 217.0 / 255
 const col_code_bg = Color{ .r = 22.0 / 255.0, .g = 27.0 / 255.0, .b = 34.0 / 255.0 };
 const col_quote = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 const col_hr = Color{ .r = 33.0 / 255.0, .g = 38.0 / 255.0, .b = 45.0 / 255.0 };
+const col_border = Color{ .r = 48.0 / 255.0, .g = 54.0 / 255.0, .b = 61.0 / 255.0 };
 const col_close = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 
 const col_hl_keyword = Color{ .r = 255.0 / 255.0, .g = 123.0 / 255.0, .b = 114.0 / 255.0 };
@@ -110,7 +104,7 @@ pub fn run() void {
 
     // Event loop with select()-based timeout
     const x11_fd = c.ConnectionNumber(dpy);
-    var last_save_time: i64 = std.time.milliTimestamp();
+    var last_save_time: i64 = std.Io.Timestamp.now(app.io, .awake).toMilliseconds();
     var running = true;
 
     while (running) {
@@ -184,7 +178,7 @@ pub fn run() void {
         }
 
         // Save scroll position periodically (every ~3 seconds)
-        const now = std.time.milliTimestamp();
+        const now = std.Io.Timestamp.now(app.io, .awake).toMilliseconds();
         if (now - last_save_time >= 3000) {
             app.saveScrollPosition();
             last_save_time = now;
@@ -205,20 +199,23 @@ pub fn run() void {
 
 pub fn registerFileAssociation() void {
     // Create .desktop file for .md file association
-    const home = std.process.getEnvVarOwned(app.allocator, "HOME") catch {
+    const io = app.io;
+    const cwd = std.Io.Dir.cwd();
+    const home = app.environ.get("HOME") orelse {
         app.log("cannot get HOME for .desktop file");
         return;
     };
 
     // Get our own executable path
     var exe_buf: [4096]u8 = undefined;
-    const exe_path = std.fs.selfExePath(&exe_buf) catch {
+    const exe_len = std.process.executablePath(io, &exe_buf) catch {
         app.log("cannot get self exe path");
         return;
     };
+    const exe_path = exe_buf[0..exe_len];
 
     const desktop_dir = std.fmt.allocPrint(app.allocator, "{s}/.local/share/applications", .{home}) catch return;
-    std.fs.cwd().makePath(desktop_dir) catch {};
+    cwd.createDirPath(io, desktop_dir) catch {};
 
     const desktop_path = std.fmt.allocPrint(app.allocator, "{s}/mdview.desktop", .{desktop_dir}) catch return;
     const desktop_content = std.fmt.allocPrint(app.allocator,
@@ -233,30 +230,28 @@ pub fn registerFileAssociation() void {
         \\
     , .{exe_path}) catch return;
 
-    const f = std.fs.cwd().createFile(desktop_path, .{ .truncate = true }) catch {
+    const f = cwd.createFile(io, desktop_path, .{ .truncate = true }) catch {
         app.log("failed to create .desktop file");
         return;
     };
-    defer f.close();
-    f.writeAll(desktop_content) catch return;
+    defer f.close(io);
+    f.writeStreamingAll(io, desktop_content) catch return;
 
     // Also set the mime association
     const mimeapps_path = std.fmt.allocPrint(app.allocator, "{s}/.local/share/applications/mimeapps.list", .{home}) catch return;
 
     // Append to mimeapps.list
-    if (std.fs.cwd().openFile(mimeapps_path, .{ .mode = .read_write })) |mf| {
-        defer mf.close();
-        const end = mf.getEndPos() catch return;
-        mf.seekTo(end) catch return;
-        mf.writeAll("text/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n") catch return;
+    if (cwd.openFile(io, mimeapps_path, .{ .mode = .read_write })) |mf| {
+        defer mf.close(io);
+        const end = mf.length(io) catch return;
+        mf.writePositionalAll(io, "text/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n", end) catch return;
     } else |_| {
-        const mf = std.fs.cwd().createFile(mimeapps_path, .{ .truncate = true }) catch return;
-        defer mf.close();
-        mf.writeAll("[Default Applications]\ntext/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n") catch return;
+        const mf = cwd.createFile(io, mimeapps_path, .{ .truncate = true }) catch return;
+        defer mf.close(io);
+        mf.writeStreamingAll(io, "[Default Applications]\ntext/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n") catch return;
     }
 
-    const stdout = std.io.getStdOut().writer();
-    stdout.writeAll("mdview registered as default viewer for .md and .markdown files.\n") catch {};
+    std.Io.File.stdout().writeStreamingAll(io, "mdview registered as default viewer for .md and .markdown files.\n") catch {};
 }
 
 // ============================================================
@@ -347,13 +342,11 @@ fn render(dpy: *c.Display, win: c.Window) void {
     const max_width = @max(app.window_width - padding * 2, 100);
     var y: f32 = padding - app.scroll_y;
 
-    var i: usize = 0;
-    while (i < md.block_count) : (i += 1) {
-        const block = &md.blocks[i];
+    for (app.blocks) |*block| {
         switch (block.kind) {
             .h1 => {
                 y += 24;
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans Bold 24");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 24");
                 y += 8;
                 // Underline
                 setColor(cr, col_hr);
@@ -363,7 +356,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
             },
             .h2 => {
                 y += 20;
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans Bold 18");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 18");
                 y += 6;
                 setColor(cr, col_hr);
                 c.cairo_rectangle(cr, padding, y, max_width, 1);
@@ -372,11 +365,11 @@ fn render(dpy: *c.Display, win: c.Window) void {
             },
             .h3 => {
                 y += 16;
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans Bold 15");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 15");
                 y += 12;
             },
             .paragraph => {
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans 12");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans 12");
                 y += 16;
             },
             .list_item => {
@@ -384,7 +377,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 setColor(cr, col_text);
                 c.cairo_arc(cr, padding + 10, y + 9, 2.5, 0, 2.0 * std.math.pi);
                 c.cairo_fill(cr);
-                y += renderTextBlock(cr, pango_layout, block, padding + 24, y, max_width - 24, col_text, "Sans 12");
+                y += renderTextBlock(cr, pango_layout, block.content, padding + 24, y, max_width - 24, col_text, "Sans 12");
                 y += 8;
             },
             .blockquote => {
@@ -392,11 +385,15 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 setColor(cr, col_hr);
                 c.cairo_rectangle(cr, padding, y, 3, 24);
                 c.cairo_fill(cr);
-                y += renderTextBlock(cr, pango_layout, block, padding + 16, y, max_width - 16, col_quote, "Sans Italic 12");
+                y += renderTextBlock(cr, pango_layout, block.content, padding + 16, y, max_width - 16, col_quote, "Sans Italic 12");
                 y += 16;
             },
             .code_block => {
-                y += renderCodeBlock(cr, pango_layout, block, padding, y, max_width);
+                y += renderCodeBlock(cr, pango_layout, block.content.text, padding, y, max_width);
+                y += 16;
+            },
+            .table => {
+                y += renderTable(cr, pango_layout, block.table, padding, y, max_width);
                 y += 16;
             },
             .hr => {
@@ -425,68 +422,15 @@ fn setColor(cr: *c.cairo_t, col: Color) void {
 fn renderTextBlock(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
-    block: *const md.Block,
+    content: md.Inline,
     x: f32,
     y: f32,
     max_width: f32,
     color: Color,
     font_desc_str: [*:0]const u8,
 ) f32 {
-    if (block.text.len == 0) return 0;
-
-    const desc = c.pango_font_description_from_string(font_desc_str) orelse return 0;
-    defer c.pango_font_description_free(desc);
-
-    c.pango_layout_set_font_description(pango_layout, desc);
-    c.pango_layout_set_width(pango_layout, @intFromFloat(max_width * @as(f32, c.PANGO_SCALE)));
-    c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
-    c.pango_layout_set_text(pango_layout, block.text.ptr, @intCast(block.text.len));
-
-    // Apply bold/italic via Pango attributes
-    const attr_list = c.pango_attr_list_new() orelse return 0;
-    defer c.pango_attr_list_unref(attr_list);
-
-    var bi: u32 = 0;
-    while (bi < block.bold_count) : (bi += 1) {
-        const start = block.bold_ranges[bi][0];
-        const length = block.bold_ranges[bi][1];
-        const attr = c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD) orelse continue;
-        attr.*.start_index = start;
-        attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, attr);
-    }
-
-    var ii: u32 = 0;
-    while (ii < block.italic_count) : (ii += 1) {
-        const start = block.italic_ranges[ii][0];
-        const length = block.italic_ranges[ii][1];
-        const attr = c.pango_attr_style_new(c.PANGO_STYLE_ITALIC) orelse continue;
-        attr.*.start_index = start;
-        attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, attr);
-    }
-
-    // Inline code ranges: monospace + different color
-    var ci: u32 = 0;
-    while (ci < block.code_count) : (ci += 1) {
-        const start = block.code_ranges[ci][0];
-        const length = block.code_ranges[ci][1];
-        const attr = c.pango_attr_family_new("monospace") orelse continue;
-        attr.*.start_index = start;
-        attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, attr);
-        // Tint inline code slightly
-        const col_attr = c.pango_attr_foreground_new(
-            @intFromFloat(col_hl_string.r * 65535.0),
-            @intFromFloat(col_hl_string.g * 65535.0),
-            @intFromFloat(col_hl_string.b * 65535.0),
-        ) orelse continue;
-        col_attr.*.start_index = start;
-        col_attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, col_attr);
-    }
-
-    c.pango_layout_set_attributes(pango_layout, attr_list);
+    if (content.text.len == 0) return 0;
+    setInline(pango_layout, content, max_width, font_desc_str);
 
     setColor(cr, color);
     c.cairo_move_to(cr, x, y);
@@ -503,15 +447,144 @@ fn renderTextBlock(
     return @floatFromInt(ph);
 }
 
+fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
+    const desc = c.pango_font_description_from_string(font_desc_str) orelse return;
+    defer c.pango_font_description_free(desc);
+
+    c.pango_layout_set_font_description(pango_layout, desc);
+    c.pango_layout_set_width(pango_layout, if (max_width) |w| @intFromFloat(w * @as(f32, c.PANGO_SCALE)) else -1);
+    c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
+    c.pango_layout_set_text(pango_layout, content.text.ptr, @intCast(content.text.len));
+
+    // Apply bold/italic via Pango attributes
+    const attr_list = c.pango_attr_list_new() orelse return;
+    defer c.pango_attr_list_unref(attr_list);
+
+    for (content.bold) |span| {
+        const start = span[0];
+        const length = span[1];
+        const attr = c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD) orelse continue;
+        attr.*.start_index = start;
+        attr.*.end_index = start + length;
+        c.pango_attr_list_insert(attr_list, attr);
+    }
+
+    for (content.italic) |span| {
+        const start = span[0];
+        const length = span[1];
+        const attr = c.pango_attr_style_new(c.PANGO_STYLE_ITALIC) orelse continue;
+        attr.*.start_index = start;
+        attr.*.end_index = start + length;
+        c.pango_attr_list_insert(attr_list, attr);
+    }
+
+    // Inline code ranges: monospace + different color
+    for (content.code) |span| {
+        const start = span[0];
+        const length = span[1];
+        const attr = c.pango_attr_family_new("monospace") orelse continue;
+        attr.*.start_index = start;
+        attr.*.end_index = start + length;
+        c.pango_attr_list_insert(attr_list, attr);
+        // Tint inline code slightly
+        const col_attr = c.pango_attr_foreground_new(
+            @intFromFloat(col_hl_string.r * 65535.0),
+            @intFromFloat(col_hl_string.g * 65535.0),
+            @intFromFloat(col_hl_string.b * 65535.0),
+        ) orelse continue;
+        col_attr.*.start_index = start;
+        col_attr.*.end_index = start + length;
+        c.pango_attr_list_insert(attr_list, col_attr);
+    }
+
+    c.pango_layout_set_attributes(pango_layout, attr_list);
+}
+
+const cell_pad_x: f32 = 13;
+const cell_pad_y: f32 = 6;
+
+fn setCell(pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: ?f32) void {
+    setInline(pango_layout, t.cell(row, col), width, if (row == 0) "Sans Bold 12" else "Sans 12");
+    c.pango_layout_set_alignment(pango_layout, @intCast(switch (t.aligns[col]) {
+        .none, .left => c.PANGO_ALIGN_LEFT,
+        .center => c.PANGO_ALIGN_CENTER,
+        .right => c.PANGO_ALIGN_RIGHT,
+    }));
+}
+
+fn layoutPixelSize(pango_layout: *c.PangoLayout) [2]f32 {
+    var pw: c_int = 0;
+    var ph: c_int = 0;
+    c.pango_layout_get_pixel_size(pango_layout, &pw, &ph);
+    return .{ @floatFromInt(pw), @floatFromInt(ph) };
+}
+
+fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32) f32 {
+    const widths = app.gpa.alloc(f32, t.columns) catch return 0;
+    defer app.gpa.free(widths);
+
+    @memset(widths, 0);
+    for (0..t.rows()) |row| {
+        for (widths, 0..) |*w, col| {
+            setCell(pango_layout, t, row, col, null);
+            w.* = @max(w.*, layoutPixelSize(pango_layout)[0]);
+        }
+    }
+    for (widths) |*w| w.* += cell_pad_x * 2 + 1;
+    md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
+    var table_w: f32 = 0;
+    for (widths) |w| table_w += w;
+
+    var row_y = y;
+    for (0..t.rows()) |row| {
+        var text_h: f32 = 0;
+        for (widths, 0..) |w, col| {
+            setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
+            text_h = @max(text_h, layoutPixelSize(pango_layout)[1]);
+        }
+        const row_h = text_h + cell_pad_y * 2;
+        if (row == 0) {
+            setColor(cr, col_code_bg);
+            c.cairo_rectangle(cr, x, row_y, table_w, row_h);
+            c.cairo_fill(cr);
+        }
+        var cx = x;
+        for (widths, 0..) |w, col| {
+            setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
+            setColor(cr, col_text);
+            c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
+            c.pango_cairo_show_layout(cr, pango_layout);
+            cx += w;
+        }
+        setColor(cr, col_border);
+        c.cairo_rectangle(cr, x, row_y, table_w, 1);
+        c.cairo_fill(cr);
+        row_y += row_h;
+    }
+    c.pango_layout_set_attributes(pango_layout, null);
+    c.pango_layout_set_alignment(pango_layout, c.PANGO_ALIGN_LEFT);
+
+    setColor(cr, col_border);
+    c.cairo_rectangle(cr, x, row_y, table_w, 1);
+    c.cairo_rectangle(cr, x, y, 1, row_y + 1 - y);
+    var cx = x;
+    for (widths) |w| {
+        cx += w;
+        c.cairo_rectangle(cr, cx - 1, y, 1, row_y + 1 - y);
+    }
+    c.cairo_fill(cr);
+    return row_y + 1 - y;
+}
+
 fn renderCodeBlock(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
-    block: *const md.Block,
+    text: []const u8,
     x: f32,
     y: f32,
     max_width: f32,
 ) f32 {
-    if (block.text.len == 0) return 0;
+    if (text.len == 0) return 0;
 
     const desc = c.pango_font_description_from_string("Monospace 10") orelse return 0;
     defer c.pango_font_description_free(desc);
@@ -519,10 +592,10 @@ fn renderCodeBlock(
     c.pango_layout_set_font_description(pango_layout, desc);
     c.pango_layout_set_width(pango_layout, @intFromFloat((max_width - 32) * @as(f32, c.PANGO_SCALE)));
     c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
-    c.pango_layout_set_text(pango_layout, block.text.ptr, @intCast(block.text.len));
+    c.pango_layout_set_text(pango_layout, text.ptr, @intCast(text.len));
 
     // Apply syntax highlighting as Pango attributes
-    const attr_list = buildSyntaxAttributes(block.text);
+    const attr_list = buildSyntaxAttributes(text);
     c.pango_layout_set_attributes(pango_layout, attr_list);
     defer if (attr_list) |al| c.pango_attr_list_unref(al);
 
