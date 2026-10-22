@@ -35,6 +35,7 @@ jobs:
               - 'icon.ico'
               - 'icon.rc'
               - 'installer.iss'
+              - 'msix/**'
               - '.github/scripts/setup-zig.sh'
               - '.github/workflows/build.yml'
               - '.github/workflows/release.yml'

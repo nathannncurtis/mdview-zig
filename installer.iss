@@ -19,6 +19,10 @@ UninstallDisplayIcon={app}\mdview.exe
 PrivilegesRequiredOverridesAllowed=dialog
 PrivilegesRequired=lowest
 WizardStyle=dynamic
+#ifdef SIGN
+SignTool=azsign
+SignedUninstaller=yes
+#endif
 
 [Tasks]
 Name: "associate"; Description: "Associate .md and .markdown files with mdview"; GroupDescription: "File associations:"
