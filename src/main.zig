@@ -15,21 +15,25 @@ pub var scroll_y: f32 = 0;
 pub var content_height: f32 = 800;
 pub var window_height: f32 = 700;
 pub var window_width: f32 = 900;
-pub var markdown_text: []const u8 = "";
+pub var blocks: []const md.Block = &.{};
 pub var file_path: []const u8 = "";
 pub var file_mtime: std.Io.Timestamp = .zero;
 pub var allocator: std.mem.Allocator = undefined;
+pub var gpa: std.mem.Allocator = undefined;
 pub var io: std.Io = undefined;
 pub var environ: *std.process.Environ.Map = undefined;
 pub var log_file: ?std.Io.File = null;
+var doc: ?md.Document = null;
+var data_dir: ?[]const u8 = null;
+var scroll_path: ?[]const u8 = null;
 
 // ============================================================
 // Logging
 // ============================================================
 pub fn initLog() void {
-    const data_dir = getDataDir() orelse return;
-    std.Io.Dir.cwd().createDirPath(io, data_dir) catch {};
-    const log_path = std.fmt.allocPrint(allocator, "{s}/mdview-zig.log", .{data_dir}) catch return;
+    const dir = data_dir orelse return;
+    std.Io.Dir.cwd().createDirPath(io, dir) catch {};
+    const log_path = std.fmt.allocPrint(allocator, "{s}/mdview-zig.log", .{dir}) catch return;
     log_file = std.Io.Dir.cwd().createFile(io, log_path, .{ .truncate = true }) catch null;
 }
 
@@ -71,40 +75,46 @@ fn getDataDir() ?[]const u8 {
 // File operations
 // ============================================================
 pub fn loadFile() void {
-    const file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch return;
-    defer file.close(io);
-    const stat = file.stat(io) catch return;
-    file_mtime = stat.mtime;
-    var reader = file.reader(io, &.{});
-    markdown_text = reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024)) catch return;
-    md.parse(markdown_text);
+    const stat = std.Io.Dir.cwd().statFile(io, file_path, .{}) catch |err| {
+        logFmt("cannot open {s}: {t}", .{ file_path, err });
+        return;
+    };
+    _ = reload(stat.mtime);
 }
 
 pub fn checkFileChanged() void {
-    const file = std.Io.Dir.cwd().openFile(io, file_path, .{}) catch return;
-    defer file.close(io);
-    const stat = file.stat(io) catch return;
+    const stat = std.Io.Dir.cwd().statFile(io, file_path, .{}) catch return;
     if (stat.mtime.nanoseconds != file_mtime.nanoseconds) {
         log("file changed, reloading");
-        file_mtime = stat.mtime;
-        var reader = file.reader(io, &.{});
-        markdown_text = reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024)) catch return;
-        md.parse(markdown_text);
-        platform.invalidate();
+        if (reload(stat.mtime)) platform.invalidate();
     }
+}
+
+fn reload(mtime: std.Io.Timestamp) bool {
+    const text = std.Io.Dir.cwd().readFileAlloc(io, file_path, gpa, .unlimited) catch |err| {
+        logFmt("cannot read {s}: {t}", .{ file_path, err });
+        return false;
+    };
+    defer gpa.free(text);
+    const new_doc = md.parse(gpa, text) catch {
+        logFmt("out of memory parsing {s}", .{file_path});
+        return false;
+    };
+    if (doc) |*old| old.deinit();
+    doc = new_doc;
+    blocks = new_doc.blocks;
+    file_mtime = mtime;
+    logFmt("read {d} bytes, parsed {d} blocks", .{ text.len, blocks.len });
+    return true;
 }
 
 // ============================================================
 // Scroll persistence
 // ============================================================
-fn scrollDataPath() ?[]const u8 {
-    const dir = getDataDir() orelse return null;
-    return std.fmt.allocPrint(allocator, "{s}/scroll.dat", .{dir}) catch null;
-}
-
 pub fn loadScrollPosition() f32 {
-    const path = scrollDataPath() orelse return 0;
-    const data = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch return 0;
+    const path = scroll_path orelse return 0;
+    const data = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .unlimited) catch return 0;
+    defer gpa.free(data);
     var lines = std.mem.splitScalar(u8, data, '\n');
     while (lines.next()) |line| {
         const trimmed = std.mem.trimEnd(u8, line, "\r");
@@ -118,9 +128,11 @@ pub fn loadScrollPosition() f32 {
 }
 
 pub fn saveScrollPosition() void {
-    const path = scrollDataPath() orelse return;
+    const path = scroll_path orelse return;
     var entries: std.ArrayList(u8) = .empty;
-    if (std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024))) |data| {
+    defer entries.deinit(gpa);
+    if (std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .unlimited)) |data| {
+        defer gpa.free(data);
         var lines = std.mem.splitScalar(u8, data, '\n');
         while (lines.next()) |line| {
             const trimmed = std.mem.trimEnd(u8, line, "\r");
@@ -128,15 +140,14 @@ pub fn saveScrollPosition() void {
             if (std.mem.indexOf(u8, trimmed, "=")) |eq| {
                 if (std.mem.eql(u8, trimmed[0..eq], file_path)) continue;
             }
-            entries.appendSlice(allocator, trimmed) catch continue;
-            entries.append(allocator, '\n') catch continue;
+            entries.appendSlice(gpa, trimmed) catch return;
+            entries.append(gpa, '\n') catch return;
         }
     } else |_| {}
     if (scroll_y > 1) {
-        entries.print(allocator, "{s}={d:.0}\n", .{ file_path, scroll_y }) catch {};
+        entries.print(gpa, "{s}={d:.0}\n", .{ file_path, scroll_y }) catch return;
     }
-    const dir = getDataDir() orelse return;
-    std.Io.Dir.cwd().createDirPath(io, dir) catch {};
+    std.Io.Dir.cwd().createDirPath(io, data_dir.?) catch {};
     std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = entries.items }) catch {};
 }
 
@@ -145,11 +156,14 @@ pub fn saveScrollPosition() void {
 // ============================================================
 pub fn main(init: std.process.Init) !void {
     allocator = init.arena.allocator();
+    gpa = init.gpa;
     io = init.io;
     environ = init.environ_map;
     if (builtin.os.tag == .windows) {
         platform.hinstance = std.os.windows.peb().ImageBaseAddress;
     }
+    data_dir = getDataDir();
+    if (data_dir) |dir| scroll_path = try std.fmt.allocPrint(allocator, "{s}/scroll.dat", .{dir});
     initLog();
     log("starting mdview-zig");
 
@@ -167,7 +181,7 @@ pub fn main(init: std.process.Init) !void {
     logFmt("opening: {s}", .{file_path});
 
     loadFile();
-    logFmt("read {d} bytes, parsed {d} blocks", .{ markdown_text.len, md.block_count });
+    defer if (doc) |*d| d.deinit();
 
     scroll_y = loadScrollPosition();
 

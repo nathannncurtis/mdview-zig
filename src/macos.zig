@@ -265,63 +265,67 @@ fn drawPlainText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloa
     defer c.CFRelease(attr_str);
     c.CFAttributedStringReplaceString(attr_str, c.CFRange{ .location = 0, .length = 0 }, cf_str);
 
-    const len: c.CFIndex = @intCast(text.len);
+    const len = c.CFStringGetLength(cf_str);
     setAttrFont(attr_str, 0, len, font);
     setAttrColor(attr_str, 0, len, col);
 
     return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
 }
 
-fn drawRichText(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color) CGFloat {
-    const text = block.text;
-    if (text.len == 0) return 0;
+fn drawRichText(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color) CGFloat {
+    if (content.text.len == 0) return 0;
+    const attr_str = createRichAttrStr(content, base_font, base_color) orelse return 0;
+    defer c.CFRelease(attr_str);
+    return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
+}
 
-    const cf_str = cfString(text);
+fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Color) c.CFMutableAttributedStringRef {
+    const text = content.text;
+    const cf_str = cfString(text) orelse return null;
     defer c.CFRelease(cf_str);
 
-    const attr_str = c.CFAttributedStringCreateMutable(null, 0);
-    defer c.CFRelease(attr_str);
+    const attr_str = c.CFAttributedStringCreateMutable(null, 0) orelse return null;
     c.CFAttributedStringReplaceString(attr_str, c.CFRange{ .location = 0, .length = 0 }, cf_str);
 
-    const len: c.CFIndex = @intCast(text.len);
+    const len = c.CFStringGetLength(cf_str);
     setAttrFont(attr_str, 0, len, base_font);
     setAttrColor(attr_str, 0, len, base_color);
 
-    // Bold ranges
-    if (block.bold_count > 0) {
+    if (content.bold.len > 0) {
         const bold_font = createFont("Helvetica Neue", c.CTFontGetSize(base_font), true, false);
         defer c.CFRelease(bold_font);
-        for (0..block.bold_count) |i| {
-            const start: c.CFIndex = @intCast(block.bold_ranges[i][0]);
-            const blen: c.CFIndex = @intCast(block.bold_ranges[i][1]);
-            setAttrFont(attr_str, start, blen, bold_font);
+        for (content.bold) |span| {
+            const r = cfRange(text, span);
+            setAttrFont(attr_str, r.location, r.length, bold_font);
         }
     }
 
-    // Italic ranges
-    if (block.italic_count > 0) {
+    if (content.italic.len > 0) {
         const italic_font = createFont("Helvetica Neue", c.CTFontGetSize(base_font), false, true);
         defer c.CFRelease(italic_font);
-        for (0..block.italic_count) |i| {
-            const start: c.CFIndex = @intCast(block.italic_ranges[i][0]);
-            const ilen: c.CFIndex = @intCast(block.italic_ranges[i][1]);
-            setAttrFont(attr_str, start, ilen, italic_font);
+        for (content.italic) |span| {
+            const r = cfRange(text, span);
+            setAttrFont(attr_str, r.location, r.length, italic_font);
         }
     }
 
-    // Inline code ranges
-    if (block.code_count > 0) {
+    if (content.code.len > 0) {
         const code_font = createMonoFont(font_size_code);
         defer c.CFRelease(code_font);
-        for (0..block.code_count) |i| {
-            const start: c.CFIndex = @intCast(block.code_ranges[i][0]);
-            const clen: c.CFIndex = @intCast(block.code_ranges[i][1]);
-            setAttrFont(attr_str, start, clen, code_font);
-            setAttrColor(attr_str, start, clen, hexColor(0xe6edf3));
+        for (content.code) |span| {
+            const r = cfRange(text, span);
+            setAttrFont(attr_str, r.location, r.length, code_font);
+            setAttrColor(attr_str, r.location, r.length, hexColor(0xe6edf3));
         }
     }
 
-    return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
+    return attr_str;
+}
+
+fn cfRange(text: []const u8, span: md.Span) c.CFRange {
+    const start = md.utf16Offset(text, span[0]);
+    const end = md.utf16Offset(text, span[0] + span[1]);
+    return .{ .location = @intCast(start), .length = @intCast(end - start) };
 }
 
 fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloat, max_width: CGFloat) CGFloat {
@@ -334,7 +338,7 @@ fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloa
     defer c.CFRelease(attr_str);
     c.CFAttributedStringReplaceString(attr_str, c.CFRange{ .location = 0, .length = 0 }, cf_str);
 
-    const len: c.CFIndex = @intCast(text.len);
+    const len = c.CFStringGetLength(cf_str);
     const mono = createMonoFont(font_size_code);
     defer c.CFRelease(mono);
     setAttrFont(attr_str, 0, len, mono);
@@ -412,21 +416,27 @@ fn drawRoundedRect(ctx: c.CGContextRef, rect: CGRect, radius: CGFloat) void {
     c.CGContextClosePath(ctx);
 }
 
+fn synColor(attr_str: c.CFMutableAttributedStringRef, cursor: *md.Utf16Cursor, start: usize, end: usize, col: Color) void {
+    const lo = cursor.at(start);
+    setAttrColor(attr_str, @intCast(lo), @intCast(cursor.at(end) - lo), col);
+}
+
 fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []const u8) void {
+    var cursor: md.Utf16Cursor = .{ .text = text };
     var i: usize = 0;
     while (i < text.len) {
         // Line comments: //
         if (i + 1 < text.len and text[i] == '/' and text[i + 1] == '/') {
             const start = i;
             while (i < text.len and text[i] != '\n') i += 1;
-            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_comment);
+            synColor(attr_str, &cursor, start, i, syn_comment);
             continue;
         }
         // Hash comments at line start
         if (text[i] == '#' and (i == 0 or text[i - 1] == '\n')) {
             const start = i;
             while (i < text.len and text[i] != '\n') i += 1;
-            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_comment);
+            synColor(attr_str, &cursor, start, i, syn_comment);
             continue;
         }
         // Strings
@@ -439,7 +449,7 @@ fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []con
                 i += 1;
             }
             if (i < text.len and text[i] == quote) i += 1;
-            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_string);
+            synColor(attr_str, &cursor, start, i, syn_string);
             continue;
         }
         // Numbers
@@ -449,7 +459,7 @@ fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []con
                 text[i] == 'x' or text[i] == 'X' or
                 (text[i] >= 'a' and text[i] <= 'f') or
                 (text[i] >= 'A' and text[i] <= 'F'))) i += 1;
-            setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_number);
+            synColor(attr_str, &cursor, start, i, syn_number);
             continue;
         }
         // Identifiers and keywords
@@ -466,11 +476,11 @@ fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []con
                 }
             }
             if (is_kw) {
-                setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_keyword);
+                synColor(attr_str, &cursor, start, i, syn_keyword);
             } else if (word.len > 0 and word[0] >= 'A' and word[0] <= 'Z') {
-                setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_type);
+                synColor(attr_str, &cursor, start, i, syn_type);
             } else if (i < text.len and text[i] == '(') {
-                setAttrColor(attr_str, @intCast(start), @intCast(i - start), syn_func);
+                synColor(attr_str, &cursor, start, i, syn_func);
             }
             continue;
         }
@@ -506,8 +516,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
 
     var screen_y: CGFloat = padding_top - scroll;
 
-    for (0..md.block_count) |i| {
-        const block = &md.blocks[i];
+    for (app.blocks) |*block| {
 
         // Cull blocks far below the visible area
         if (screen_y > height + 200) break;
@@ -519,28 +528,28 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
 
         switch (block.kind) {
             .h1 => {
-                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, h1_font, h1_color);
+                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, h1_font, h1_color);
                 block_height += para_spacing;
             },
             .h2 => {
-                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, h2_font, h2_color);
+                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, h2_font, h2_color);
                 block_height += para_spacing;
             },
             .h3 => {
-                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, h3_font, h3_color);
+                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, h3_font, h3_color);
                 block_height += para_spacing;
             },
             .paragraph => {
-                block_height = drawRichText(ctx, block, padding_x, cg_y, max_text_width, body_font, text_color);
+                block_height = drawRichText(ctx, block.content, padding_x, cg_y, max_text_width, body_font, text_color);
                 block_height += para_spacing;
             },
             .code_block => {
-                block_height = drawCodeBlock(ctx, block.text, padding_x, cg_y, max_text_width);
+                block_height = drawCodeBlock(ctx, block.content.text, padding_x, cg_y, max_text_width);
                 block_height += para_spacing;
             },
             .blockquote => {
                 // Draw text indented
-                const text_h = drawRichText(ctx, block, padding_x + 16, cg_y, max_text_width - 16, body_font, blockquote_color);
+                const text_h = drawRichText(ctx, block.content, padding_x + 16, cg_y, max_text_width - 16, body_font, blockquote_color);
                 // Draw left border bar
                 c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
                 c.CGContextFillRect(ctx, cgRect(padding_x, cg_y - text_h, 3.0, text_h));
@@ -560,7 +569,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
                 const bullet_cg_y = cg_y - font_size_body * 0.7;
                 c.CGContextSetRGBFillColor(ctx, text_color.r, text_color.g, text_color.b, 1.0);
                 c.CGContextFillEllipseInRect(ctx, cgRect(padding_x + 4, bullet_cg_y, 5, 5));
-                block_height = drawRichText(ctx, block, padding_x + 20, cg_y, max_text_width - 20, body_font, text_color);
+                block_height = drawRichText(ctx, block.content, padding_x + 20, cg_y, max_text_width - 20, body_font, text_color);
                 block_height += line_spacing;
             },
             .blank => {

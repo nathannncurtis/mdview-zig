@@ -341,13 +341,11 @@ fn render(dpy: *c.Display, win: c.Window) void {
     const max_width = @max(app.window_width - padding * 2, 100);
     var y: f32 = padding - app.scroll_y;
 
-    var i: usize = 0;
-    while (i < md.block_count) : (i += 1) {
-        const block = &md.blocks[i];
+    for (app.blocks) |*block| {
         switch (block.kind) {
             .h1 => {
                 y += 24;
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans Bold 24");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 24");
                 y += 8;
                 // Underline
                 setColor(cr, col_hr);
@@ -357,7 +355,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
             },
             .h2 => {
                 y += 20;
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans Bold 18");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 18");
                 y += 6;
                 setColor(cr, col_hr);
                 c.cairo_rectangle(cr, padding, y, max_width, 1);
@@ -366,11 +364,11 @@ fn render(dpy: *c.Display, win: c.Window) void {
             },
             .h3 => {
                 y += 16;
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans Bold 15");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans Bold 15");
                 y += 12;
             },
             .paragraph => {
-                y += renderTextBlock(cr, pango_layout, block, padding, y, max_width, col_text, "Sans 12");
+                y += renderTextBlock(cr, pango_layout, block.content, padding, y, max_width, col_text, "Sans 12");
                 y += 16;
             },
             .list_item => {
@@ -378,7 +376,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 setColor(cr, col_text);
                 c.cairo_arc(cr, padding + 10, y + 9, 2.5, 0, 2.0 * std.math.pi);
                 c.cairo_fill(cr);
-                y += renderTextBlock(cr, pango_layout, block, padding + 24, y, max_width - 24, col_text, "Sans 12");
+                y += renderTextBlock(cr, pango_layout, block.content, padding + 24, y, max_width - 24, col_text, "Sans 12");
                 y += 8;
             },
             .blockquote => {
@@ -386,11 +384,11 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 setColor(cr, col_hr);
                 c.cairo_rectangle(cr, padding, y, 3, 24);
                 c.cairo_fill(cr);
-                y += renderTextBlock(cr, pango_layout, block, padding + 16, y, max_width - 16, col_quote, "Sans Italic 12");
+                y += renderTextBlock(cr, pango_layout, block.content, padding + 16, y, max_width - 16, col_quote, "Sans Italic 12");
                 y += 16;
             },
             .code_block => {
-                y += renderCodeBlock(cr, pango_layout, block, padding, y, max_width);
+                y += renderCodeBlock(cr, pango_layout, block.content.text, padding, y, max_width);
                 y += 16;
             },
             .hr => {
@@ -419,14 +417,14 @@ fn setColor(cr: *c.cairo_t, col: Color) void {
 fn renderTextBlock(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
-    block: *const md.Block,
+    content: md.Inline,
     x: f32,
     y: f32,
     max_width: f32,
     color: Color,
     font_desc_str: [*:0]const u8,
 ) f32 {
-    if (block.text.len == 0) return 0;
+    if (content.text.len == 0) return 0;
 
     const desc = c.pango_font_description_from_string(font_desc_str) orelse return 0;
     defer c.pango_font_description_free(desc);
@@ -434,26 +432,24 @@ fn renderTextBlock(
     c.pango_layout_set_font_description(pango_layout, desc);
     c.pango_layout_set_width(pango_layout, @intFromFloat(max_width * @as(f32, c.PANGO_SCALE)));
     c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
-    c.pango_layout_set_text(pango_layout, block.text.ptr, @intCast(block.text.len));
+    c.pango_layout_set_text(pango_layout, content.text.ptr, @intCast(content.text.len));
 
     // Apply bold/italic via Pango attributes
     const attr_list = c.pango_attr_list_new() orelse return 0;
     defer c.pango_attr_list_unref(attr_list);
 
-    var bi: u32 = 0;
-    while (bi < block.bold_count) : (bi += 1) {
-        const start = block.bold_ranges[bi][0];
-        const length = block.bold_ranges[bi][1];
+    for (content.bold) |span| {
+        const start = span[0];
+        const length = span[1];
         const attr = c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD) orelse continue;
         attr.*.start_index = start;
         attr.*.end_index = start + length;
         c.pango_attr_list_insert(attr_list, attr);
     }
 
-    var ii: u32 = 0;
-    while (ii < block.italic_count) : (ii += 1) {
-        const start = block.italic_ranges[ii][0];
-        const length = block.italic_ranges[ii][1];
+    for (content.italic) |span| {
+        const start = span[0];
+        const length = span[1];
         const attr = c.pango_attr_style_new(c.PANGO_STYLE_ITALIC) orelse continue;
         attr.*.start_index = start;
         attr.*.end_index = start + length;
@@ -461,10 +457,9 @@ fn renderTextBlock(
     }
 
     // Inline code ranges: monospace + different color
-    var ci: u32 = 0;
-    while (ci < block.code_count) : (ci += 1) {
-        const start = block.code_ranges[ci][0];
-        const length = block.code_ranges[ci][1];
+    for (content.code) |span| {
+        const start = span[0];
+        const length = span[1];
         const attr = c.pango_attr_family_new("monospace") orelse continue;
         attr.*.start_index = start;
         attr.*.end_index = start + length;
@@ -500,12 +495,12 @@ fn renderTextBlock(
 fn renderCodeBlock(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
-    block: *const md.Block,
+    text: []const u8,
     x: f32,
     y: f32,
     max_width: f32,
 ) f32 {
-    if (block.text.len == 0) return 0;
+    if (text.len == 0) return 0;
 
     const desc = c.pango_font_description_from_string("Monospace 10") orelse return 0;
     defer c.pango_font_description_free(desc);
@@ -513,10 +508,10 @@ fn renderCodeBlock(
     c.pango_layout_set_font_description(pango_layout, desc);
     c.pango_layout_set_width(pango_layout, @intFromFloat((max_width - 32) * @as(f32, c.PANGO_SCALE)));
     c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
-    c.pango_layout_set_text(pango_layout, block.text.ptr, @intCast(block.text.len));
+    c.pango_layout_set_text(pango_layout, text.ptr, @intCast(text.len));
 
     // Apply syntax highlighting as Pango attributes
-    const attr_list = buildSyntaxAttributes(block.text);
+    const attr_list = buildSyntaxAttributes(text);
     c.pango_layout_set_attributes(pango_layout, attr_list);
     defer if (attr_list) |al| c.pango_attr_list_unref(al);
 

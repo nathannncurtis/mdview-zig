@@ -306,45 +306,43 @@ fn render() void {
     const max_width = @max(app.window_width - padding * 2, 100);
     var y: f32 = padding;
 
-    var i: usize = 0;
-    while (i < md.block_count) : (i += 1) {
-        const block = &md.blocks[i];
+    for (app.blocks) |*block| {
         switch (block.kind) {
             .h1 => {
                 y += 24;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block, g_text_format_h1.?, padding, y, max_width, g_brush_heading.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h1.?, padding, y, max_width, g_brush_heading.?);
                 y += 8;
                 vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + max_width, .bottom = y + 1 }, g_brush_hr.?);
                 y += 16;
             },
             .h2 => {
                 y += 20;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block, g_text_format_h2.?, padding, y, max_width, g_brush_heading.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h2.?, padding, y, max_width, g_brush_heading.?);
                 y += 6;
                 vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + max_width, .bottom = y + 1 }, g_brush_hr.?);
                 y += 16;
             },
             .h3 => {
                 y += 16;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block, g_text_format_h3.?, padding, y, max_width, g_brush_heading.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h3.?, padding, y, max_width, g_brush_heading.?);
                 y += 12;
             },
             .paragraph => {
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block, g_text_format.?, padding, y, max_width, g_brush_text.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, padding, y, max_width, g_brush_text.?);
                 y += 16;
             },
             .list_item => {
                 vt_rt.FillRectangle(rt, &.{ .left = padding + 8, .top = y + 7, .right = padding + 12, .bottom = y + 11 }, g_brush_text.?);
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block, g_text_format.?, padding + 24, y, max_width - 24, g_brush_text.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, padding + 24, y, max_width - 24, g_brush_text.?);
                 y += 8;
             },
             .blockquote => {
                 vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + 3, .bottom = y + 24 }, g_brush_hr.?);
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block, g_text_format.?, padding + 16, y, max_width - 16, g_brush_quote.?);
+                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, padding + 16, y, max_width - 16, g_brush_quote.?);
                 y += 16;
             },
             .code_block => {
-                y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block, padding, y, max_width) + 16;
+                y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block.content.text, padding, y, max_width) + 16;
             },
             .hr => {
                 y += 12;
@@ -368,46 +366,51 @@ fn render() void {
     _ = vt_rt.EndDraw(rt, null, null);
 }
 
-fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, block: *const md.Block, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque) f32 {
-    if (block.text.len == 0) return 0;
-    var wide_buf: [8192]u16 = undefined;
-    const wide_len = std.unicode.utf8ToUtf16Le(&wide_buf, block.text) catch return 0;
-    if (wide_len == 0) return 0;
-
-    var layout: ?*anyopaque = null;
-    _ = vt_dw.CreateTextLayout(dwf, &wide_buf, @intCast(wide_len), text_format, max_width, 10000, &layout);
-    const lay = layout orelse return 0;
+fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque) f32 {
+    const lay = createLayout(vt_dw, dwf, content, text_format, max_width) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
-
-    const vt_layout = vtable(IDWriteTextLayout_VTable, lay);
-    var bi: u32 = 0;
-    while (bi < block.bold_count) : (bi += 1) {
-        _ = vt_layout.SetFontWeight(lay, 700, .{ .startPosition = block.bold_ranges[bi][0], .length = block.bold_ranges[bi][1] });
-    }
-    var ii: u32 = 0;
-    while (ii < block.italic_count) : (ii += 1) {
-        _ = vt_layout.SetFontStyle(lay, 2, .{ .startPosition = block.italic_ranges[ii][0], .length = block.italic_ranges[ii][1] });
-    }
-
     var metrics: DWRITE_TEXT_METRICS = undefined;
-    _ = vt_layout.GetMetrics(lay, &metrics);
+    _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
     vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, 0);
     return metrics.height;
 }
 
-fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, block: *const md.Block, x: f32, y: f32, max_width: f32) f32 {
-    if (block.text.len == 0) return 0;
-    var wide_buf: [8192]u16 = undefined;
-    const wide_len = std.unicode.utf8ToUtf16Le(&wide_buf, block.text) catch return 0;
-    if (wide_len == 0) return 0;
+fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, max_width: f32) ?*anyopaque {
+    if (content.text.len == 0) return null;
+    const wide = std.unicode.utf8ToUtf16LeAlloc(app.gpa, content.text) catch return null;
+    defer app.gpa.free(wide);
+
+    var layout: ?*anyopaque = null;
+    _ = vt_dw.CreateTextLayout(dwf, wide.ptr, @intCast(wide.len), text_format, max_width, 100000, &layout);
+    const lay = layout orelse return null;
+
+    const vt_layout = vtable(IDWriteTextLayout_VTable, lay);
+    for (content.bold) |span| {
+        _ = vt_layout.SetFontWeight(lay, 700, wideRange(content.text, span));
+    }
+    for (content.italic) |span| {
+        _ = vt_layout.SetFontStyle(lay, 2, wideRange(content.text, span));
+    }
+    return lay;
+}
+
+fn wideRange(text: []const u8, span: md.Span) DWRITE_TEXT_RANGE {
+    const start = md.utf16Offset(text, span[0]);
+    return .{ .startPosition = start, .length = md.utf16Offset(text, span[0] + span[1]) - start };
+}
+
+fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, text: []const u8, x: f32, y: f32, max_width: f32) f32 {
+    if (text.len == 0) return 0;
+    const wide = std.unicode.utf8ToUtf16LeAlloc(app.gpa, text) catch return 0;
+    defer app.gpa.free(wide);
 
     const fmt = g_text_format_code orelse return 0;
     var layout: ?*anyopaque = null;
-    _ = vt_dw.CreateTextLayout(dwf, &wide_buf, @intCast(wide_len), fmt, max_width - 32, 10000, &layout);
+    _ = vt_dw.CreateTextLayout(dwf, wide.ptr, @intCast(wide.len), fmt, max_width - 32, 100000, &layout);
     const lay = layout orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
 
-    applySyntaxHighlighting(lay, block.text);
+    applySyntaxHighlighting(lay, text);
 
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
@@ -425,8 +428,14 @@ fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
     return block_height;
 }
 
+fn synRange(cursor: *md.Utf16Cursor, start: u32, end: u32) DWRITE_TEXT_RANGE {
+    const lo = cursor.at(start);
+    return .{ .startPosition = lo, .length = cursor.at(end) - lo };
+}
+
 fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
     const vt = vtable(IDWriteTextLayout_VTable, lay);
+    var cursor: md.Utf16Cursor = .{ .text = text };
     var i: u32 = 0;
     const len: u32 = @intCast(text.len);
 
@@ -435,13 +444,13 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
         if (c == '/' and i + 1 < len and text[i + 1] == '/') {
             const start = i;
             while (i < len and text[i] != '\n') i += 1;
-            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
             continue;
         }
         if (c == '#') {
             const start = i;
             while (i < len and text[i] != '\n') i += 1;
-            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
             continue;
         }
         if (c == '/' and i + 1 < len and text[i + 1] == '*') {
@@ -449,7 +458,7 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
             i += 2;
             while (i + 1 < len and !(text[i] == '*' and text[i + 1] == '/')) i += 1;
             if (i + 1 < len) i += 2;
-            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            if (g_brush_hl_comment) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
             continue;
         }
         if (c == '"' or c == '\'') {
@@ -461,7 +470,7 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
                 i += 1;
             }
             if (i < len) i += 1;
-            if (g_brush_hl_string) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            if (g_brush_hl_string) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
             continue;
         }
         if (c >= '0' and c <= '9') {
@@ -469,7 +478,7 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
             while (i < len and ((text[i] >= '0' and text[i] <= '9') or text[i] == '.' or text[i] == 'x' or text[i] == 'b' or
                 (text[i] >= 'a' and text[i] <= 'f') or (text[i] >= 'A' and text[i] <= 'F') or text[i] == '_'))
                 i += 1;
-            if (g_brush_hl_number) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+            if (g_brush_hl_number) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
             continue;
         }
         if (md.isIdentStart(c)) {
@@ -479,17 +488,17 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
             var j = i;
             while (j < len and text[j] == ' ') j += 1;
             if (j < len and text[j] == '(') {
-                if (g_brush_hl_func) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+                if (g_brush_hl_func) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
                 continue;
             }
             for (md.hl_keywords) |kw| {
                 if (std.mem.eql(u8, word, kw)) {
-                    if (g_brush_hl_keyword) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+                    if (g_brush_hl_keyword) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
                     break;
                 }
             }
             if (c >= 'A' and c <= 'Z' and word.len > 1) {
-                if (g_brush_hl_type) |b| _ = vt.SetDrawingEffect(lay, b, .{ .startPosition = start, .length = i - start });
+                if (g_brush_hl_type) |b| _ = vt.SetDrawingEffect(lay, b, synRange(&cursor, start, i));
             }
             continue;
         }
