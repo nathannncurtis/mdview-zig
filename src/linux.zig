@@ -25,6 +25,7 @@ const col_text = Color{ .r = 201.0 / 255.0, .g = 209.0 / 255.0, .b = 217.0 / 255
 const col_code_bg = Color{ .r = 22.0 / 255.0, .g = 27.0 / 255.0, .b = 34.0 / 255.0 };
 const col_quote = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 const col_hr = Color{ .r = 33.0 / 255.0, .g = 38.0 / 255.0, .b = 45.0 / 255.0 };
+const col_border = Color{ .r = 48.0 / 255.0, .g = 54.0 / 255.0, .b = 61.0 / 255.0 };
 const col_close = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 
 const col_hl_keyword = Color{ .r = 255.0 / 255.0, .g = 123.0 / 255.0, .b = 114.0 / 255.0 };
@@ -391,6 +392,10 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 y += renderCodeBlock(cr, pango_layout, block.content.text, padding, y, max_width);
                 y += 16;
             },
+            .table => {
+                y += renderTable(cr, pango_layout, block.table, padding, y, max_width);
+                y += 16;
+            },
             .hr => {
                 y += 12;
                 setColor(cr, col_hr);
@@ -425,17 +430,34 @@ fn renderTextBlock(
     font_desc_str: [*:0]const u8,
 ) f32 {
     if (content.text.len == 0) return 0;
+    setInline(pango_layout, content, max_width, font_desc_str);
 
-    const desc = c.pango_font_description_from_string(font_desc_str) orelse return 0;
+    setColor(cr, color);
+    c.cairo_move_to(cr, x, y);
+    c.pango_cairo_show_layout(cr, pango_layout);
+
+    // Get height
+    var pw: c_int = 0;
+    var ph: c_int = 0;
+    c.pango_layout_get_pixel_size(pango_layout, &pw, &ph);
+
+    // Clean up layout state for next use
+    c.pango_layout_set_attributes(pango_layout, null);
+
+    return @floatFromInt(ph);
+}
+
+fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
+    const desc = c.pango_font_description_from_string(font_desc_str) orelse return;
     defer c.pango_font_description_free(desc);
 
     c.pango_layout_set_font_description(pango_layout, desc);
-    c.pango_layout_set_width(pango_layout, @intFromFloat(max_width * @as(f32, c.PANGO_SCALE)));
+    c.pango_layout_set_width(pango_layout, if (max_width) |w| @intFromFloat(w * @as(f32, c.PANGO_SCALE)) else -1);
     c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
     c.pango_layout_set_text(pango_layout, content.text.ptr, @intCast(content.text.len));
 
     // Apply bold/italic via Pango attributes
-    const attr_list = c.pango_attr_list_new() orelse return 0;
+    const attr_list = c.pango_attr_list_new() orelse return;
     defer c.pango_attr_list_unref(attr_list);
 
     for (content.bold) |span| {
@@ -476,20 +498,82 @@ fn renderTextBlock(
     }
 
     c.pango_layout_set_attributes(pango_layout, attr_list);
+}
 
-    setColor(cr, color);
-    c.cairo_move_to(cr, x, y);
-    c.pango_cairo_show_layout(cr, pango_layout);
+const cell_pad_x: f32 = 13;
+const cell_pad_y: f32 = 6;
 
-    // Get height
+fn setCell(pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: ?f32) void {
+    setInline(pango_layout, t.cell(row, col), width, if (row == 0) "Sans Bold 12" else "Sans 12");
+    c.pango_layout_set_alignment(pango_layout, @intCast(switch (t.aligns[col]) {
+        .none, .left => c.PANGO_ALIGN_LEFT,
+        .center => c.PANGO_ALIGN_CENTER,
+        .right => c.PANGO_ALIGN_RIGHT,
+    }));
+}
+
+fn layoutPixelSize(pango_layout: *c.PangoLayout) [2]f32 {
     var pw: c_int = 0;
     var ph: c_int = 0;
     c.pango_layout_get_pixel_size(pango_layout, &pw, &ph);
+    return .{ @floatFromInt(pw), @floatFromInt(ph) };
+}
 
-    // Clean up layout state for next use
+fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32) f32 {
+    const widths = app.gpa.alloc(f32, t.columns) catch return 0;
+    defer app.gpa.free(widths);
+
+    @memset(widths, 0);
+    for (0..t.rows()) |row| {
+        for (widths, 0..) |*w, col| {
+            setCell(pango_layout, t, row, col, null);
+            w.* = @max(w.*, layoutPixelSize(pango_layout)[0]);
+        }
+    }
+    for (widths) |*w| w.* += cell_pad_x * 2 + 1;
+    md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
+    var table_w: f32 = 0;
+    for (widths) |w| table_w += w;
+
+    var row_y = y;
+    for (0..t.rows()) |row| {
+        var text_h: f32 = 0;
+        for (widths, 0..) |w, col| {
+            setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
+            text_h = @max(text_h, layoutPixelSize(pango_layout)[1]);
+        }
+        const row_h = text_h + cell_pad_y * 2;
+        if (row == 0) {
+            setColor(cr, col_code_bg);
+            c.cairo_rectangle(cr, x, row_y, table_w, row_h);
+            c.cairo_fill(cr);
+        }
+        var cx = x;
+        for (widths, 0..) |w, col| {
+            setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
+            setColor(cr, col_text);
+            c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
+            c.pango_cairo_show_layout(cr, pango_layout);
+            cx += w;
+        }
+        setColor(cr, col_border);
+        c.cairo_rectangle(cr, x, row_y, table_w, 1);
+        c.cairo_fill(cr);
+        row_y += row_h;
+    }
     c.pango_layout_set_attributes(pango_layout, null);
+    c.pango_layout_set_alignment(pango_layout, c.PANGO_ALIGN_LEFT);
 
-    return @floatFromInt(ph);
+    setColor(cr, col_border);
+    c.cairo_rectangle(cr, x, row_y, table_w, 1);
+    c.cairo_rectangle(cr, x, y, 1, row_y + 1 - y);
+    var cx = x;
+    for (widths) |w| {
+        cx += w;
+        c.cairo_rectangle(cr, cx - 1, y, 1, row_y + 1 - y);
+    }
+    c.cairo_fill(cr);
+    return row_y + 1 - y;
 }
 
 fn renderCodeBlock(

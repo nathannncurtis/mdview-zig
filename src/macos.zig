@@ -322,6 +322,107 @@ fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Col
     return attr_str;
 }
 
+const cell_pad_x: CGFloat = 13.0;
+const cell_pad_y: CGFloat = 6.0;
+
+fn suggestSize(attr_str: c.CFAttributedStringRef, max_width: CGFloat) CGSize {
+    const framesetter = c.CTFramesetterCreateWithAttributedString(attr_str);
+    defer c.CFRelease(framesetter);
+    var fit_range = c.CFRange{ .location = 0, .length = 0 };
+    return c.CTFramesetterSuggestFrameSizeWithConstraints(
+        framesetter,
+        c.CFRange{ .location = 0, .length = 0 },
+        null,
+        CGSize{ .width = max_width, .height = 100000.0 },
+        &fit_range,
+    );
+}
+
+fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef, header_font: c.CTFontRef) c.CFMutableAttributedStringRef {
+    const attr_str = createRichAttrStr(t.cell(row, col), if (row == 0) header_font else body_font, text_color) orelse return null;
+    var alignment: c.CTTextAlignment = @intCast(switch (t.aligns[col]) {
+        .none, .left => c.kCTTextAlignmentLeft,
+        .center => c.kCTTextAlignmentCenter,
+        .right => c.kCTTextAlignmentRight,
+    });
+    const setting = c.CTParagraphStyleSetting{
+        .spec = @intCast(c.kCTParagraphStyleSpecifierAlignment),
+        .valueSize = @sizeOf(c.CTTextAlignment),
+        .value = &alignment,
+    };
+    const style = c.CTParagraphStyleCreate(&setting, 1);
+    defer c.CFRelease(style);
+    c.CFAttributedStringSetAttribute(
+        attr_str,
+        c.CFRange{ .location = 0, .length = c.CFAttributedStringGetLength(attr_str) },
+        c.kCTParagraphStyleAttributeName,
+        @ptrCast(style),
+    );
+    return attr_str;
+}
+
+/// y_cg is the top edge of the table in CG coordinates; returns the height used.
+fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, body_font: c.CTFontRef) CGFloat {
+    const header_font = createFont("Helvetica Neue", c.CTFontGetSize(body_font), true, false);
+    defer c.CFRelease(header_font);
+    const widths = app.gpa.alloc(f32, t.columns) catch return 0;
+    defer app.gpa.free(widths);
+    const cells = app.gpa.alloc(c.CFMutableAttributedStringRef, t.columns) catch return 0;
+    defer app.gpa.free(cells);
+
+    @memset(widths, 0);
+    for (0..t.rows()) |row| {
+        for (widths, 0..) |*w, col| {
+            const attr_str = createCellAttrStr(t, row, col, body_font, header_font) orelse continue;
+            defer c.CFRelease(attr_str);
+            w.* = @max(w.*, @as(f32, @floatCast(suggestSize(@ptrCast(attr_str), 100000.0).width)));
+        }
+    }
+    for (widths) |*w| w.* += @floatCast(cell_pad_x * 2 + 1);
+    md.fitColumns(widths, @floatCast(max_width), @floatCast(cell_pad_x * 2 + 24));
+    var table_w: CGFloat = 0;
+    for (widths) |w| table_w += w;
+
+    const min_text_h = c.CTFontGetSize(body_font) * 1.25;
+    var top = y_cg;
+    for (0..t.rows()) |row| {
+        var text_h = min_text_h;
+        for (cells, widths, 0..) |*cell, w, col| {
+            cell.* = createCellAttrStr(t, row, col, body_font, header_font);
+            if (cell.*) |attr_str| {
+                text_h = @max(text_h, suggestSize(@ptrCast(attr_str), w - cell_pad_x * 2).height);
+            }
+        }
+        const row_h = text_h + cell_pad_y * 2;
+        if (row == 0) {
+            c.CGContextSetRGBFillColor(ctx, code_bg_color.r, code_bg_color.g, code_bg_color.b, 1.0);
+            c.CGContextFillRect(ctx, cgRect(x, top - row_h, table_w, row_h));
+        }
+        var cx = x;
+        for (cells, widths) |cell, w| {
+            if (cell) |attr_str| {
+                _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2);
+                c.CFRelease(attr_str);
+            }
+            cx += w;
+        }
+        c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
+        c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
+        top -= row_h;
+    }
+
+    const height = y_cg - top + 1;
+    c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
+    c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
+    var cx = x;
+    c.CGContextFillRect(ctx, cgRect(cx, y_cg - height, 1, height));
+    for (widths) |w| {
+        cx += w;
+        c.CGContextFillRect(ctx, cgRect(cx - 1, y_cg - height, 1, height));
+    }
+    return height;
+}
+
 fn cfRange(text: []const u8, span: md.Span) c.CFRange {
     const start = md.utf16Offset(text, span[0]);
     const end = md.utf16Offset(text, span[0] + span[1]);
@@ -545,6 +646,10 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
             },
             .code_block => {
                 block_height = drawCodeBlock(ctx, block.content.text, padding_x, cg_y, max_text_width);
+                block_height += para_spacing;
+            },
+            .table => {
+                block_height = drawTable(ctx, block.table, padding_x, cg_y, max_text_width, body_font);
                 block_height += para_spacing;
             },
             .blockquote => {
