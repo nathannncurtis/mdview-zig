@@ -1,0 +1,135 @@
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: 0.0.0
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/setup-zig.sh
+      - run: zig build -Doptimize=ReleaseSmall
+      - name: Installer
+        env:
+          VERSION: ${{ inputs.version }}
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMDVIEW_VERSION=$($env:VERSION.TrimStart(''v''))" installer.iss'
+      - name: Stage
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item zig-out/bin/mdview.exe, Output/mdview-setup.exe dist/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mdview-windows
+          path: dist/
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev
+      - run: bash .github/scripts/setup-zig.sh
+      - run: zig build -Doptimize=ReleaseSmall
+      - name: Debian package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${VERSION#v}"
+          mkdir -p deb/DEBIAN deb/usr/bin deb/usr/share/applications
+          install -m 755 zig-out/bin/mdview deb/usr/bin/mdview
+          cat > deb/DEBIAN/control << EOT
+          Package: mdview
+          Version: ${VERSION}
+          Section: text
+          Priority: optional
+          Architecture: amd64
+          Depends: libx11-6, libcairo2, libpango-1.0-0, libpangocairo-1.0-0
+          Maintainer: nathannncurtis
+          Description: Fast, native markdown viewer
+           Dark-themed, borderless markdown viewer built with Zig and DirectWrite/Cairo/Pango.
+          EOT
+          cat > deb/usr/share/applications/mdview.desktop << EOT
+          [Desktop Entry]
+          Name=mdview
+          Comment=Markdown Viewer
+          Exec=mdview %f
+          Terminal=false
+          Type=Application
+          MimeType=text/markdown;text/x-markdown;
+          Categories=Utility;TextEditor;
+          EOT
+          dpkg-deb --build deb mdview-linux-x86_64.deb
+      - name: Stage
+        run: |
+          mkdir dist
+          cp zig-out/bin/mdview mdview-linux-x86_64.deb dist/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mdview-linux
+          path: dist/
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/setup-zig.sh
+      - run: zig build -Doptimize=ReleaseSmall
+      - name: App bundle and disk image
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${VERSION#v}"
+          mkdir -p mdview.app/Contents/MacOS mdview.app/Contents/Resources
+          install -m 755 zig-out/bin/mdview mdview.app/Contents/MacOS/mdview
+          cat > mdview.app/Contents/Info.plist << EOT
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>mdview</string>
+            <key>CFBundleDisplayName</key><string>mdview</string>
+            <key>CFBundleIdentifier</key><string>com.nathannncurtis.mdview</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleExecutable</key><string>mdview</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>CFBundleDocumentTypes</key>
+            <array>
+              <dict>
+                <key>CFBundleTypeExtensions</key>
+                <array><string>md</string><string>markdown</string></array>
+                <key>CFBundleTypeRole</key><string>Viewer</string>
+                <key>CFBundleTypeName</key><string>Markdown File</string>
+              </dict>
+            </array>
+          </dict>
+          </plist>
+          EOT
+          mkdir -p dmg_staging
+          cp -r mdview.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "mdview" -srcfolder dmg_staging -ov -format UDZO mdview-macos-arm64.dmg
+      - name: Stage
+        run: |
+          mkdir dist
+          cp mdview-macos-arm64.dmg dist/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mdview-macos
+          path: dist/
+          if-no-files-found: error
