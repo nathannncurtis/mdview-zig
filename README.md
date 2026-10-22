@@ -2,7 +2,7 @@
 
 A fast, native Markdown viewer built with Zig. Cross-platform — Windows, Linux, and macOS.
 
-Dark-themed, borderless floating window that renders Markdown with GitHub-dark styling. Rewrite of the [Rust version](https://github.com/nathannncurtis/mdview) — ~285 KB standalone binary, no webview, no runtime dependencies.
+Dark-themed, borderless floating window that renders Markdown with GitHub-dark styling. Rewrite of the [Rust version](https://github.com/nathannncurtis/mdview) — ~580 KB standalone binary, no webview, no runtime dependencies.
 
 ## Features
 
