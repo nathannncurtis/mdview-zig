@@ -1,0 +1,129 @@
+fn Mapping(comptime Len: type, comptime Stride: type, comptime Delta: type, comptime MultiLen: type, comptime MultiAt: type, comptime Pool: type) type {
+    return struct {
+        start_lo: []const u16,
+        start_hi: []const u8,
+        len: []const Len,
+        stride: []const Stride,
+        delta: []const Delta,
+        multi_lo: []const u16,
+        multi_hi: []const u8,
+        multi_len: []const MultiLen,
+        multi_at: []const MultiAt,
+        pool: []const Pool,
+
+        fn apply(m: @This(), cp: u21, out: *[max_mapping_len]u21) usize {
+            var lo: usize = 0;
+            var hi: usize = m.multi_lo.len;
+            while (lo < hi) {
+                const mid = (lo + hi) / 2;
+                const at = @as(u21, m.multi_hi[mid]) << 16 | m.multi_lo[mid];
+                if (at == cp) {
+                    const n: usize = m.multi_len[mid];
+                    for (0..n) |i| out[i] = m.pool[@as(usize, m.multi_at[mid]) + i];
+                    return n;
+                }
+                if (at < cp) lo = mid + 1 else hi = mid;
+            }
+
+            out[0] = cp;
+            if (m.start_lo.len == 0) return 1;
+            lo = 0;
+            hi = m.start_lo.len;
+            while (hi - lo > 1) {
+                const mid = (lo + hi) / 2;
+                const at = @as(u21, m.start_hi[mid]) << 16 | m.start_lo[mid];
+                if (at <= cp) lo = mid else hi = mid;
+            }
+            const start = @as(u21, m.start_hi[lo]) << 16 | m.start_lo[lo];
+            if (cp < start) return 1;
+            const offset: u64 = cp - start;
+            const stride: u64 = m.stride[lo];
+            if (offset % stride != 0 or offset / stride >= m.len[lo]) return 1;
+            out[0] = @intCast(@as(i64, cp) + m.delta[lo]);
+            return 1;
+        }
+    };
+}
+
+fn categoryKey(i: usize) u32 {
+    return @as(u32, category_key_hi[i]) << 16 | category_key_lo[i];
+}
+
+pub fn category(cp: u21) Category {
+    var lo: usize = 0;
+    var hi: usize = category_key_lo.len;
+    while (hi - lo > 1) {
+        const mid = (lo + hi) / 2;
+        if (categoryKey(mid) >> 3 <= cp) lo = mid else hi = mid;
+    }
+    return @enumFromInt(categoryKey(lo) & 7);
+}
+
+pub fn isLetter(cp: u21) bool {
+    return category(cp) == .letter;
+}
+
+pub fn isMark(cp: u21) bool {
+    return category(cp) == .mark;
+}
+
+pub fn isNumber(cp: u21) bool {
+    return category(cp) == .number;
+}
+
+pub fn isSpace(cp: u21) bool {
+    return switch (category(cp)) {
+        .space_separator, .other_separator => true,
+        else => false,
+    };
+}
+
+/// CommonMark punctuation: ASCII punctuation or a Unicode P or S character.
+pub fn isPunctuation(cp: u21) bool {
+    if (cp < 128) return std.ascii.isPrint(@intCast(cp)) and !std.ascii.isAlphanumeric(@intCast(cp)) and cp != ' ';
+    return switch (category(cp)) {
+        .punctuation, .symbol => true,
+        else => false,
+    };
+}
+
+/// CommonMark whitespace: tab, line feed, form feed, carriage return or a Unicode Zs character.
+pub fn isWhitespace(cp: u21) bool {
+    return cp == '\t' or cp == '\n' or cp == 0x0C or cp == '\r' or category(cp) == .space_separator;
+}
+
+/// Full Unicode lowercase; returns how many codepoints were written to `out`.
+pub fn lower(cp: u21, out: *[max_mapping_len]u21) usize {
+    return lower_map.apply(cp, out);
+}
+
+/// Full Unicode case folding (CaseFolding.txt statuses C and F).
+pub fn fold(cp: u21, out: *[max_mapping_len]u21) usize {
+    return fold_map.apply(cp, out);
+}
+
+fn mix(h: u64, value: u32) u64 {
+    var x = h;
+    const le = std.mem.nativeToLittle(u32, value);
+    for (std.mem.asBytes(&le)) |b| x = (x ^ b) *% 0x100000001b3;
+    return x;
+}
+
+test "category table reproduces UnicodeData" {
+    var h: u64 = 0xcbf29ce484222325;
+    for (0..0x110000) |cp| h = (h ^ @intFromEnum(category(@intCast(cp)))) *% 0x100000001b3;
+    try std.testing.expectEqual(category_hash, h);
+}
+
+test "lowercase and folding tables reproduce the Unicode data" {
+    inline for (.{ .{ lower_hash, lower }, .{ fold_hash, fold } }) |t| {
+        var h: u64 = 0xcbf29ce484222325;
+        for (0..0x110000) |cp| {
+            var out: [max_mapping_len]u21 = undefined;
+            const n = t[1](@intCast(cp), &out);
+            h = mix(h, @intCast(n));
+            for (out[0..n]) |x| h = mix(h, x);
+        }
+        try std.testing.expectEqual(t[0], h);
+    }
+}

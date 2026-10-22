@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const inl = @import("inline.zig");
 
 pub const BlockKind = enum { h1, h2, h3, paragraph, code_block, blockquote, hr, list_item, table, blank };
 
@@ -11,6 +12,8 @@ pub const Inline = struct {
     bold: []const Span = &.{},
     italic: []const Span = &.{},
     code: []const Span = &.{},
+    strike: []const Span = &.{},
+    emoji: []const Span = &.{},
 };
 
 pub const Align = enum { none, left, center, right };
@@ -49,7 +52,8 @@ pub const Document = struct {
 pub fn parse(gpa: Allocator, markdown: []const u8) Allocator.Error!Document {
     var doc: Document = .{ .arena = .init(gpa) };
     errdefer doc.arena.deinit();
-    var p: Parser = .{ .a = doc.arena.allocator() };
+    var p: Parser = .{ .a = doc.arena.allocator(), .tmp = .init(gpa) };
+    defer p.tmp.deinit();
     try p.run(markdown);
     doc.blocks = try p.finish();
     return doc;
@@ -62,6 +66,8 @@ const RawInline = struct {
     bold: Range,
     italic: Range,
     code: Range,
+    strike: Range,
+    emoji: Range,
 };
 
 const RawBlock = struct {
@@ -82,6 +88,9 @@ const Parser = struct {
     bold: std.ArrayList(Span) = .empty,
     italic: std.ArrayList(Span) = .empty,
     code: std.ArrayList(Span) = .empty,
+    strike: std.ArrayList(Span) = .empty,
+    emoji: std.ArrayList(Span) = .empty,
+    tmp: std.heap.ArenaAllocator,
     blocks: std.ArrayList(RawBlock) = .empty,
     aligns: std.ArrayList(Align) = .empty,
     cells: std.ArrayList(RawInline) = .empty,
@@ -164,6 +173,8 @@ const Parser = struct {
             .bold = p.bold.items[r.bold.lo..r.bold.hi],
             .italic = p.italic.items[r.italic.lo..r.italic.hi],
             .code = p.code.items[r.code.lo..r.code.hi],
+            .strike = p.strike.items[r.strike.lo..r.strike.hi],
+            .emoji = p.emoji.items[r.emoji.lo..r.emoji.hi],
         };
     }
 
@@ -175,11 +186,15 @@ const Parser = struct {
         const b: u32 = @intCast(p.bold.items.len);
         const i: u32 = @intCast(p.italic.items.len);
         const c: u32 = @intCast(p.code.items.len);
+        const st: u32 = @intCast(p.strike.items.len);
+        const em: u32 = @intCast(p.emoji.items.len);
         return .{
             .text = .{ .lo = start, .hi = p.textLen() },
             .bold = .{ .lo = b, .hi = b },
             .italic = .{ .lo = i, .hi = i },
             .code = .{ .lo = c, .hi = c },
+            .strike = .{ .lo = st, .hi = st },
+            .emoji = .{ .lo = em, .hi = em },
         };
     }
 
@@ -248,58 +263,55 @@ const Parser = struct {
     }
 
     fn parseInline(p: *Parser, raw: []const u8) Allocator.Error!RawInline {
+        _ = p.tmp.reset(.retain_capacity);
+        const parsed = try inl.parse(p.tmp.allocator(), raw, &legacy_hooks);
         var r = p.textFrom(p.textLen());
-        const start = r.text.lo;
-        var i: usize = 0;
-        while (i < raw.len) {
-            if (i + 1 < raw.len and raw[i] == '*' and raw[i + 1] == '*') {
-                if (std.mem.indexOf(u8, raw[i + 2 ..], "**")) |e| {
-                    try p.bold.append(p.a, .{ p.textLen() - start, @intCast(e) });
-                    try p.text.appendSlice(p.a, raw[i + 2 ..][0..e]);
-                    i += e + 4;
-                    continue;
+        try p.text.appendSlice(p.a, parsed.text);
+
+        const Open = struct { kind: inl.Kind, pos: u32 };
+        var stack: std.ArrayList(Open) = .empty;
+        for (parsed.events) |ev| switch (ev.tag) {
+            .open => try stack.append(p.tmp.allocator(), .{ .kind = ev.kind, .pos = ev.pos }),
+            .close => {
+                const open = stack.pop() orelse continue;
+                const span: Span = .{ open.pos, ev.pos - open.pos };
+                switch (open.kind) {
+                    .em => try p.italic.append(p.a, span),
+                    .strong => try p.bold.append(p.a, span),
+                    .strike => try p.strike.append(p.a, span),
+                    .code => try p.code.append(p.a, span),
+                    .emoji => try p.emoji.append(p.a, span),
+                    .link, .image => {},
                 }
-            }
-            if (raw[i] == '*' and (i + 1 >= raw.len or raw[i + 1] != '*')) {
-                if (std.mem.indexOfScalarPos(u8, raw, i + 1, '*')) |e| {
-                    try p.italic.append(p.a, .{ p.textLen() - start, @intCast(e - i - 1) });
-                    try p.text.appendSlice(p.a, raw[i + 1 .. e]);
-                    i = e + 1;
-                    continue;
-                }
-            }
-            if (raw[i] == '`') {
-                if (std.mem.indexOfScalarPos(u8, raw, i + 1, '`')) |e| {
-                    try p.code.append(p.a, .{ p.textLen() - start, @intCast(e - i - 1) });
-                    try p.text.appendSlice(p.a, raw[i + 1 .. e]);
-                    i = e + 1;
-                    continue;
-                }
-            }
-            if (raw[i] == '!' and i + 1 < raw.len and raw[i + 1] == '[') {
-                if (parseLinkOrImage(raw, i + 1)) |result| {
-                    try p.text.appendSlice(p.a, result.text);
-                    i = result.end;
-                    continue;
-                }
-            }
-            if (raw[i] == '[') {
-                if (parseLinkOrImage(raw, i)) |result| {
-                    try p.text.appendSlice(p.a, result.text);
-                    i = result.end;
-                    continue;
-                }
-            }
-            try p.text.append(p.a, raw[i]);
-            i += 1;
-        }
+            },
+            .html, .soft, .hard => {},
+        };
+
         r.text.hi = p.textLen();
         r.bold.hi = @intCast(p.bold.items.len);
         r.italic.hi = @intCast(p.italic.items.len);
         r.code.hi = @intCast(p.code.items.len);
+        r.strike.hi = @intCast(p.strike.items.len);
+        r.emoji.hi = @intCast(p.emoji.items.len);
         return r;
     }
 };
+
+const legacy_hooks: inl.Hooks = .{ .link = legacyLink };
+
+fn legacyLink(_: *const inl.Hooks, _: Allocator, src: []const u8, _: usize, close: usize, _: bool) Allocator.Error!?inl.LinkMatch {
+    if (close + 1 >= src.len or src[close + 1] != '(') return null;
+    var depth: i32 = 0;
+    var k = close + 1;
+    while (k < src.len) : (k += 1) {
+        if (src[k] == '(') depth += 1;
+        if (src[k] == ')') {
+            depth -= 1;
+            if (depth == 0) return .{ .end = k + 1 };
+        }
+    }
+    return null;
+}
 
 fn splitRow(a: Allocator, line: []const u8) Allocator.Error![]const []const u8 {
     var s = std.mem.trim(u8, line, " \t");
@@ -334,35 +346,6 @@ fn parseAlign(cell: []const u8) ?Align {
     if (left) return .left;
     if (right) return .right;
     return .none;
-}
-
-const LinkResult = struct { text: []const u8, end: usize };
-
-fn parseLinkOrImage(raw: []const u8, start: usize) ?LinkResult {
-    if (start >= raw.len or raw[start] != '[') return null;
-    var depth: i32 = 0;
-    var j = start;
-    while (j < raw.len) : (j += 1) {
-        if (raw[j] == '[') depth += 1;
-        if (raw[j] == ']') {
-            depth -= 1;
-            if (depth == 0) break;
-        }
-    }
-    if (j >= raw.len) return null;
-    const bracket_end = j;
-    if (bracket_end + 1 >= raw.len or raw[bracket_end + 1] != '(') return null;
-    var paren_depth: i32 = 0;
-    var k = bracket_end + 1;
-    while (k < raw.len) : (k += 1) {
-        if (raw[k] == '(') paren_depth += 1;
-        if (raw[k] == ')') {
-            paren_depth -= 1;
-            if (paren_depth == 0) break;
-        }
-    }
-    if (k >= raw.len) return null;
-    return .{ .text = raw[start + 1 .. bracket_end], .end = k + 1 };
 }
 
 /// Shrinks natural column widths to fit `available`: columns narrower than an even
@@ -433,6 +416,10 @@ pub fn isIdentChar(c: u8) bool {
 }
 
 const testing = std.testing;
+
+test {
+    _ = inl;
+}
 
 test "1500 paragraphs are all retained" {
     var src: std.ArrayList(u8) = .empty;
@@ -560,4 +547,18 @@ test "fitColumns keeps narrow columns and shrinks wide ones" {
     var fits = [_]f32{ 10, 20 };
     fitColumns(&fits, 100, 40);
     try testing.expectEqual(@as(f32, 20), fits[1]);
+}
+
+test "inline spans: nested emphasis, strikethrough, emoji, entities, escapes" {
+    var doc = try parse(testing.allocator, "x ***both*** ~~gone~~ :tada: &amp; \\*lit\\* `a*b`\n");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqualStrings("x both gone \u{1F389} & *lit* a*b", c.text);
+    try testing.expectEqual(@as(usize, 1), c.bold.len);
+    try testing.expectEqual(@as(usize, 1), c.italic.len);
+    try testing.expectEqual(Span{ 2, 4 }, c.bold[0]);
+    try testing.expectEqual(Span{ 2, 4 }, c.italic[0]);
+    try testing.expectEqualStrings("gone", c.text[c.strike[0][0]..][0..c.strike[0][1]]);
+    try testing.expectEqualStrings("\u{1F389}", c.text[c.emoji[0][0]..][0..c.emoji[0][1]]);
+    try testing.expectEqualStrings("a*b", c.text[c.code[0][0]..][0..c.code[0][1]]);
 }
