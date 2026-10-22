@@ -6,6 +6,17 @@ on:
       version:
         type: string
         default: 0.0.0
+      sign:
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        default: 0.0.0
+      sign:
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -19,10 +30,46 @@ jobs:
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall
+      - name: Sign mdview.exe
+        if: inputs.sign
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://wus2.codesigning.azure.net/
+          signing-account-name: nathancurtis-signing
+          certificate-profile-name: nathancurtis-signing
+          files: ${{ github.workspace }}\zig-out\bin\mdview.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
       - name: Installer
         env:
           VERSION: ${{ inputs.version }}
         run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMDVIEW_VERSION=$($env:VERSION.TrimStart(''v''))" installer.iss'
+      - name: Sign mdview-setup.exe
+        if: inputs.sign
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://wus2.codesigning.azure.net/
+          signing-account-name: nathancurtis-signing
+          certificate-profile-name: nathancurtis-signing
+          files: ${{ github.workspace }}\Output\mdview-setup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Signatures are valid
+        if: inputs.sign
+        run: |
+          foreach ($f in 'zig-out/bin/mdview.exe', 'Output/mdview-setup.exe') {
+            $sig = Get-AuthenticodeSignature $f
+            if ($sig.Status -ne 'Valid') { throw "$f signature: $($sig.Status)" }
+            "$f signed by $($sig.SignerCertificate.Subject)"
+          }
       - name: Stage
         run: |
           New-Item -ItemType Directory dist | Out-Null
