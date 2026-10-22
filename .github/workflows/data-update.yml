@@ -78,7 +78,8 @@ jobs:
           fi
       - name: Dry run stops here
         if: env.DRY_RUN == 'true'
-        run: echo "Dry run: nothing was pushed, merged or tagged." | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Dry run: nothing was pushed, merged or tagged." | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Open the pull request and merge it once its checks pass
         if: env.DRY_RUN == 'false' && steps.diff.outputs.changed == 'true'
         run: |
@@ -126,4 +127,5 @@ jobs:
           echo "Tagged $next; the Release workflow publishes it." >> "$GITHUB_STEP_SUMMARY"
       - name: Outcome
         if: always()
-        run: echo "Job status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Job status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
