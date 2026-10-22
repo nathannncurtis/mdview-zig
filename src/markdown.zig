@@ -1409,3 +1409,17 @@ test "reference links use definitions inside containers" {
     try testing.expectEqualStrings("/u", c.links[0].target);
     try testing.expectEqualStrings("/v", c.links[1].target);
 }
+
+test "back-arrows follow a footnote that ends in a list, code or quote on their own line" {
+    const src = "A[^1] B[^2] C[^3]\n\n[^1]: Intro\n\n    - one\n    - two\n\n[^2]: Text\n\n    ```\n    code\n    ```\n\n[^3]: Quote\n\n    > quoted\n";
+    var doc = try parse(testing.allocator, src);
+    defer doc.deinit();
+    var arrows: usize = 0;
+    for (doc.blocks, 0..) |b, i| {
+        if (b.kind != .paragraph or !std.mem.eql(u8, b.content.text, "\u{21a9}")) continue;
+        arrows += 1;
+        try testing.expectEqual(@as(usize, 1), b.frames.len);
+        try testing.expect(doc.blocks[i - 1].frames.len >= 1);
+    }
+    try testing.expectEqual(@as(usize, 3), arrows);
+}

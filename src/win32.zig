@@ -128,6 +128,11 @@ const DWRITE_GLYPH_RUN = extern struct {
     fontFace: ?*anyopaque, fontEmSize: f32, glyphCount: u32, glyphIndices: ?*const u16,
     glyphAdvances: ?*const f32, glyphOffsets: ?*const anyopaque, isSideways: BOOL, bidiLevel: u32,
 };
+const DWRITE_COLOR_F = extern struct { r: f32, g: f32, b: f32, a: f32 };
+const DWRITE_COLOR_GLYPH_RUN = extern struct {
+    glyphRun: DWRITE_GLYPH_RUN, glyphRunDescription: ?*const anyopaque, baselineOriginX: f32, baselineOriginY: f32,
+    runColor: DWRITE_COLOR_F, paletteIndex: u16,
+};
 const DWRITE_UNDERLINE = extern struct {
     width: f32, thickness: f32, offset: f32, runHeight: f32, readingDirection: u32, flowDirection: u32,
     localeName: ?*const u16, measuringMode: u32,
@@ -212,6 +217,29 @@ const IDWriteTextLayout_VTable = extern struct {
     HitTestTextRange: *const fn (*anyopaque, u32, u32, f32, f32, [*]DWRITE_HIT_TEST_METRICS, u32, *u32) callconv(.c) HRESULT, // 66
 };
 
+const IDWriteFactory2_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    _pad3_27: [25]*const anyopaque,
+    TranslateColorGlyphRun: *const fn (*anyopaque, f32, f32, *const DWRITE_GLYPH_RUN, ?*const anyopaque, u32, *const DWRITE_MATRIX, u32, *?*anyopaque) callconv(.c) HRESULT, // 28
+};
+
+const IDWriteColorGlyphRunEnumerator_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    MoveNext: *const fn (*anyopaque, *BOOL) callconv(.c) HRESULT, // 3
+    GetCurrentRun: *const fn (*anyopaque, *?*const DWRITE_COLOR_GLYPH_RUN) callconv(.c) HRESULT, // 4
+};
+
+const ID2D1SolidColorBrush_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    _pad3_7: [5]*const anyopaque,
+    SetColor: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 8
+};
+
+const IID_IDWriteFactory2 = GUID{ .Data1 = 0x0439fc60, .Data2 = 0xca44, .Data3 = 0x4994, .Data4 = .{ 0x8d, 0xee, 0x3a, 0x9a, 0xf7, 0xb7, 0x32, 0xec } };
+
 const IDWriteTextRenderer_VTable = extern struct {
     QueryInterface: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
     AddRef: *const fn (*anyopaque) callconv(.c) u32,
@@ -280,11 +308,44 @@ fn isSupBrush(effect: ?*anyopaque) bool {
     return e == g_brush_link_sup or e == g_brush_text_sup;
 }
 
-fn rendererGlyphRun(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, mode: u32, glyphs: *const DWRITE_GLYPH_RUN, _: ?*const anyopaque, effect: ?*anyopaque) callconv(.c) HRESULT {
+fn rendererGlyphRun(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, mode: u32, glyphs: *const DWRITE_GLYPH_RUN, desc: ?*const anyopaque, effect: ?*anyopaque) callconv(.c) HRESULT {
     const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
     const raise: f32 = if (isSupBrush(effect)) glyphs.fontEmSize * sup_raise else 0;
-    vtable(ID2D1RT_VTable, dc.rt).DrawGlyphRun(dc.rt, .{ .x = x, .y = y - raise }, glyphs, effect orelse dc.brush, mode);
+    drawGlyphRun(dc, x, y - raise, mode, glyphs, desc, effect orelse dc.brush);
     return 0;
+}
+
+// Colour fonts (emoji) come as layers, each with its own palette colour; plain runs draw as one.
+fn drawGlyphRun(dc: *const DrawContext, x: f32, y: f32, mode: u32, glyphs: *const DWRITE_GLYPH_RUN, desc: ?*const anyopaque, brush: *anyopaque) void {
+    const vt_rt = vtable(ID2D1RT_VTable, dc.rt);
+    if (g_dwrite_factory2) |f2| {
+        var layers: ?*anyopaque = null;
+        const identity = DWRITE_MATRIX{ .m11 = 1, .m12 = 0, .m21 = 0, .m22 = 1, .dx = 0, .dy = 0 };
+        if (vtable(IDWriteFactory2_VTable, f2).TranslateColorGlyphRun(f2, x, y, glyphs, desc, mode, &identity, 0, &layers) >= 0) {
+            if (layers) |en| {
+                defer _ = vtable(IDWriteColorGlyphRunEnumerator_VTable, en).Release(en);
+                const vt_en = vtable(IDWriteColorGlyphRunEnumerator_VTable, en);
+                var more: BOOL = 0;
+                while (vt_en.MoveNext(en, &more) >= 0 and more != 0) {
+                    var layer: ?*const DWRITE_COLOR_GLYPH_RUN = null;
+                    if (vt_en.GetCurrentRun(en, &layer) < 0) break;
+                    const l = layer orelse break;
+                    var use = brush;
+                    if (l.paletteIndex != 0xFFFF) if (g_brush_color_layer) |lb| {
+                        vtable(ID2D1SolidColorBrush_VTable, lb).SetColor(lb, &.{ .r = l.runColor.r, .g = l.runColor.g, .b = l.runColor.b, .a = l.runColor.a });
+                        use = lb;
+                    };
+                    vt_rt.DrawGlyphRun(dc.rt, .{ .x = l.baselineOriginX, .y = l.baselineOriginY }, &l.glyphRun, use, mode);
+                }
+                if (!g_color_logged) {
+                    g_color_logged = true;
+                    app.log("colour glyph run drawn");
+                }
+                return;
+            }
+        }
+    }
+    vt_rt.DrawGlyphRun(dc.rt, .{ .x = x, .y = y }, glyphs, brush, mode);
 }
 fn rendererUnderline(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, u: *const DWRITE_UNDERLINE, effect: ?*anyopaque) callconv(.c) HRESULT {
     const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
@@ -379,6 +440,9 @@ var g_alert_fg: [5]?*anyopaque = @splat(null);
 var g_brush_link: ?*anyopaque = null;
 var g_brush_link_sup: ?*anyopaque = null;
 var g_brush_text_sup: ?*anyopaque = null;
+var g_brush_color_layer: ?*anyopaque = null;
+var g_dwrite_factory2: ?*anyopaque = null;
+var g_color_logged = false;
 var g_cursor_hand: ?*anyopaque = null;
 var g_over_link = false;
 
@@ -423,6 +487,10 @@ pub fn run() void {
 pub fn initD2D() void {
     _ = D2D1CreateFactory(0, &IID_ID2D1Factory, null, &g_d2d_factory);
     _ = DWriteCreateFactory(0, &IID_IDWriteFactory, &g_dwrite_factory);
+    if (g_dwrite_factory) |dwf| {
+        const query: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = @ptrCast(vtable(IDWriteFactory_VTable, dwf).QueryInterface);
+        _ = query(dwf, &IID_IDWriteFactory2, &g_dwrite_factory2);
+    }
     if (g_d2d_factory) |f| createAlertGeometries(f);
     if (g_dwrite_factory) |dwf| {
         const vt = vtable(IDWriteFactory_VTable, dwf);
@@ -483,6 +551,7 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_link = solidBrush(rt, 0x4493f8);
     g_brush_link_sup = solidBrush(rt, 0x4493f8);
     g_brush_text_sup = solidBrush(rt, 0xc9d1d9);
+    g_brush_color_layer = solidBrush(rt, 0xffffff);
     for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
         g_alert_border[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).border);
         g_alert_fg[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).fg);
