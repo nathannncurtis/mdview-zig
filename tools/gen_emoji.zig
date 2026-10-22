@@ -23,11 +23,11 @@ pub fn main(init: std.process.Init) !void {
         for (aliases.array.items) |alias| {
             const name = alias.string;
             if ((try seen.getOrPut(arena, name)).found_existing) {
-                std.debug.print("duplicate alias: {s}\n", .{name});
+                files.say(init.io, "duplicate alias: {s}\n", .{name});
                 return error.DuplicateAlias;
             }
             for (name) |c| if (c >= 0x80) {
-                std.debug.print("non-ASCII alias: {s}\n", .{name});
+                files.say(init.io, "non-ASCII alias: {s}\n", .{name});
                 return error.NonAscii;
             };
             try entries.append(arena, .{ .name = name, .value = item.object.get("emoji").?.string });
@@ -35,5 +35,5 @@ pub fn main(init: std.process.Init) !void {
     }
     const r = try packed_table.source(arena, entries.items, header, tests, packed_table.block_size);
     try files.write(init.io, a[1], r.text);
-    std.debug.print("entries: {d} names: {d} values: {d}\n", .{ r.count, r.names_len, r.values_len });
+    files.say(init.io, "entries: {d} names: {d} values: {d}\n", .{ r.count, r.names_len, r.values_len });
 }

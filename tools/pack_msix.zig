@@ -47,7 +47,7 @@ fn exec(io: std.Io, argv: []const []const u8) !void {
     var child = try std.process.spawn(io, .{ .argv = argv });
     const term = try child.wait(io);
     if (!term.success()) {
-        std.debug.print("{s} failed\n", .{std.fs.path.basename(argv[0])});
+        files.say(io, "{s} failed\n", .{std.fs.path.basename(argv[0])});
         return error.ToolFailed;
     }
 }
@@ -59,7 +59,7 @@ pub fn main(init: std.process.Init) !void {
     const exe, const output, const work = .{ a[0], a[2], a[3] };
     const version = std.mem.trimStart(u8, a[1], "v");
     if (!validVersion(version)) {
-        std.debug.print("version must be three numeric parts up to 65535: {s}\n", .{version});
+        files.say(init.io, "version must be three numeric parts up to 65535: {s}\n", .{version});
         return error.BadVersion;
     }
     const bin = try sdkBin(arena, io, init.environ_map);

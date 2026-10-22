@@ -10,7 +10,7 @@ fn git(arena: Allocator, io: std.Io, argv: []const []const u8) ![]const u8 {
         .exited => |code| if (code == 0) return r.stdout,
         else => {},
     }
-    std.debug.print("{s}", .{r.stderr});
+    files.say(io, "{s}", .{r.stderr});
     return error.GitFailed;
 }
 
@@ -18,7 +18,7 @@ const Version = [3]u32;
 
 fn parseTag(tag: []const u8) ?Version {
     if (tag.len < 2 or tag[0] != 'v') return null;
-    var out: Version = undefined;
+    var out: Version = .{ 0, 0, 0 };
     var it = std.mem.splitScalar(u8, tag[1..], '.');
     for (&out) |*part| part.* = std.fmt.parseInt(u32, it.next() orelse return null, 10) catch return null;
     if (it.next() != null) return null;
@@ -117,7 +117,7 @@ pub fn main(init: std.process.Init) !void {
     const list = try changes(arena, init.io, a[0]);
     if (list.len == 0) return;
     const text = summarise(arena, init.io, init.environ_map, list) catch |e| {
-        std.debug.print("::warning::Release notes not written: {s}\n", .{@errorName(e)});
+        files.say(init.io, "::warning::Release notes not written: {s}\n", .{@errorName(e)});
         return;
     };
     const stripped = try std.mem.replaceOwned(u8, arena, text, "@", "");

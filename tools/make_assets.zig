@@ -155,7 +155,7 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const all = try init.minimal.args.toSlice(arena);
     if (all.len != 1 and all.len != 3) {
-        std.debug.print("usage: msix-assets [<icon.ico> <out dir>]\n", .{});
+        files.say(init.io, "usage: msix-assets [<icon.ico> <out dir>]\n", .{});
         return error.Usage;
     }
     const icon = if (all.len == 3) all[1] else "icon.ico";
@@ -178,6 +178,6 @@ pub fn main(init: std.process.Init) !void {
     for (assets.items) |asset| {
         const png = try encodePng(arena, try resize(arena, src, asset.size));
         try files.write(init.io, try std.fs.path.join(arena, &.{ out_dir, asset.name }), png);
-        std.debug.print("{s} {d}x{d}\n", .{ asset.name, asset.size, asset.size });
+        files.say(init.io, "{s} {d}x{d}\n", .{ asset.name, asset.size, asset.size });
     }
 }

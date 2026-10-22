@@ -375,7 +375,7 @@ pub fn main(init: std.process.Init) !void {
     const g = try generate(arena, ucd, special, folding);
     try files.write(init.io, a[1], g.text);
     const s = g.stats;
-    std.debug.print("category ranges: {d}, lower runs: {d} + {d} multi ({d} pool), fold runs: {d} + {d} multi ({d} pool)\n", .{
+    files.say(init.io, "category ranges: {d}, lower runs: {d} + {d} multi ({d} pool), fold runs: {d} + {d} multi ({d} pool)\n", .{
         s.category_ranges, s.lower_runs, s.lower_multi, s.lower_pool, s.fold_runs, s.fold_multi, s.fold_pool,
     });
 }

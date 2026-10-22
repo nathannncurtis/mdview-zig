@@ -21,7 +21,7 @@ pub fn main(init: std.process.Init) !void {
         if (!std.mem.startsWith(u8, key, prefix)) continue;
         const value = kv.value_ptr.object.get("value").?.string;
         if (!validColour(value)) {
-            std.debug.print("{s}: unsupported colour {s}\n", .{ key, value });
+            files.say(init.io, "{s}: unsupported colour {s}\n", .{ key, value });
             return error.BadColour;
         }
         const name = try arena.dupe(u8, key[prefix.len..]);

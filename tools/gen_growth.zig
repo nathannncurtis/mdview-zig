@@ -37,16 +37,16 @@ fn synthetic(arena: Allocator, count: usize, max_value_chars: usize, seed: u64) 
     return entries.items;
 }
 
-fn expectMarkers(text: []const u8, markers: []const []const u8) !void {
+fn expectMarkers(io: std.Io, text: []const u8, markers: []const []const u8) !void {
     for (markers) |m| if (std.mem.find(u8, text, m) == null) {
-        std.debug.print("generated code is missing: {s}\n", .{m});
+        files.say(io, "generated code is missing: {s}\n", .{m});
         return error.MissingMarker;
     };
 }
 
 fn writeTable(arena: Allocator, io: std.Io, dir: []const u8, name: []const u8, entries: []const packed_table.Entry, markers: []const []const u8) !void {
     const r = try packed_table.source(arena, entries, "//", "test \"smoke\" {}", packed_table.block_size);
-    try expectMarkers(r.text, markers);
+    try expectMarkers(io, r.text, markers);
     try files.write(io, try std.fs.path.join(arena, &.{ dir, name }), r.text);
 }
 
@@ -100,7 +100,7 @@ fn writeUnicode(arena: Allocator, io: std.Io, dir: []const u8) !void {
     }
 
     const g = try gen_unicode.generate(arena, data.items, special, folding.items);
-    try expectMarkers(g.text, &.{
+    try expectMarkers(io, g.text, &.{
         "pub const max_mapping_len = 5;",
         "const lower_len = [_]u16",
         "const lower_delta = [_]i32",

@@ -104,5 +104,5 @@ pub fn main(init: std.process.Init) !void {
     }
     try w.writeAll("};\n");
     try files.write(init.io, a[1], out.written());
-    std.debug.print("{d} cases\n", .{cases.items.len});
+    files.say(init.io, "{d} cases\n", .{cases.items.len});
 }

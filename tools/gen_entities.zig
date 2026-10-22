@@ -25,7 +25,7 @@ pub fn main(init: std.process.Init) !void {
         const name = key[1 .. key.len - 1];
         if (name.len == 0) return error.BadEntity;
         for (name) |c| if (!std.ascii.isAlphanumeric(c)) {
-            std.debug.print("unexpected entity name: {s}\n", .{key});
+            files.say(init.io, "unexpected entity name: {s}\n", .{key});
             return error.BadEntity;
         };
         var value: std.ArrayList(u8) = .empty;
@@ -38,5 +38,5 @@ pub fn main(init: std.process.Init) !void {
     }
     const r = try packed_table.source(arena, entries.items, header, tests, packed_table.block_size);
     try files.write(init.io, a[1], r.text);
-    std.debug.print("entries: {d} names: {d} values: {d}\n", .{ r.count, r.names_len, r.values_len });
+    files.say(init.io, "entries: {d} names: {d} values: {d}\n", .{ r.count, r.names_len, r.values_len });
 }

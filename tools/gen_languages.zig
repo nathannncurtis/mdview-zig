@@ -20,11 +20,11 @@ fn scalars(arena: Allocator, v: yaml.Value) ![]const []const u8 {
     return out.items;
 }
 
-fn parse(arena: Allocator, text: []const u8) ![]const Language {
+fn parse(arena: Allocator, io: std.Io, text: []const u8) ![]const Language {
     const root = switch (try yaml.parse(arena, text)) {
         .ok => |v| v,
         .err => |e| {
-            std.debug.print("{s}\n", .{e.message});
+            files.say(io, "{s}\n", .{e.message});
             return error.BadYaml;
         },
         .other => return error.BadYaml,
@@ -71,8 +71,8 @@ fn lit(w: *Writer, s: []const u8) Writer.Error!void {
     try w.writeByte('"');
 }
 
-pub fn generate(arena: Allocator, text: []const u8) ![]u8 {
-    const langs = try parse(arena, text);
+pub fn generate(arena: Allocator, io: std.Io, text: []const u8) ![]u8 {
+    const langs = try parse(arena, io, text);
     if (langs.len > 0xFFFF) return error.TooManyLanguages;
 
     var ids: std.StringHashMapUnmanaged(u16) = .empty;
@@ -152,7 +152,7 @@ pub fn generate(arena: Allocator, text: []const u8) ![]u8 {
         try w.writeAll(" },\n");
     }
     try w.writeAll(test_source);
-    std.debug.print("{d} keys, {d} languages\n", .{ rows.items.len, langs.len });
+    files.say(io, "{d} keys, {d} languages\n", .{ rows.items.len, langs.len });
     return aw.written();
 }
 
@@ -162,5 +162,5 @@ const test_source = @embedFile("languages_test.zig.in");
 pub fn main(init: std.process.Init) !void {
     const a = try files.args(init, 2, "gen-languages <languages.yml> <out.zig>");
     const arena = init.arena.allocator();
-    try files.write(init.io, a[1], try generate(arena, try files.read(init.io, arena, a[0])));
+    try files.write(init.io, a[1], try generate(arena, init.io, try files.read(init.io, arena, a[0])));
 }
