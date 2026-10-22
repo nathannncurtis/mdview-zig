@@ -65,7 +65,7 @@ jobs:
         run: |
           $opts = @("/DMDVIEW_VERSION=$($env:VERSION.TrimStart('v'))")
           if ('${{ inputs.sign }}' -eq 'true') { $opts += '/DSIGN=1', "/Sazsign=`$q$env:SIGNTOOL`$q $env:SIGN_ARGS `$f" }
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" @opts installer.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $opts installer.iss
           if ($LASTEXITCODE) { throw 'ISCC failed' }
       - name: MSIX
         env:
