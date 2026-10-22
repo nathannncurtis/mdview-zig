@@ -478,6 +478,20 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
         c.pango_attr_list_insert(attr_list, attr);
     }
 
+    for (content.strike) |span| {
+        const attr = c.pango_attr_strikethrough_new(1) orelse continue;
+        attr.*.start_index = span[0];
+        attr.*.end_index = span[0] + span[1];
+        c.pango_attr_list_insert(attr_list, attr);
+    }
+
+    for (content.emoji) |span| {
+        const attr = c.pango_attr_family_new("Noto Color Emoji,Twemoji,Emoji,Sans") orelse continue;
+        attr.*.start_index = span[0];
+        attr.*.end_index = span[0] + span[1];
+        c.pango_attr_list_insert(attr_list, attr);
+    }
+
     // Inline code ranges: monospace + different color
     for (content.code) |span| {
         const start = span[0];
