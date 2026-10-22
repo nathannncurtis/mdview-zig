@@ -30,7 +30,7 @@ pub fn parse(markdown: []const u8) void {
     var lines = std.mem.splitScalar(u8, markdown, '\n');
 
     while (lines.next()) |raw_line| {
-        const line = std.mem.trimRight(u8, raw_line, "\r");
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
 
         if (std.mem.startsWith(u8, line, "```")) {
             if (in_code) {

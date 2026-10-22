@@ -20,12 +20,23 @@ pub fn build(b: *std.Build) void {
         exe_mod.linkSystemLibrary("shell32", .{});
         exe_mod.linkSystemLibrary("advapi32", .{});
     } else if (resolved.os.tag == .linux) {
-        exe_mod.linkSystemLibrary("x11", .{});
-        exe_mod.linkSystemLibrary("cairo", .{});
-        exe_mod.linkSystemLibrary("pangocairo-1.0", .{});
-        exe_mod.linkSystemLibrary("pango-1.0", .{});
-        exe_mod.linkSystemLibrary("gobject-2.0", .{});
+        const c = b.addTranslateC(.{
+            .root_source_file = b.path("src/linux_c.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| {
+            c.linkSystemLibrary(lib, .{});
+            exe_mod.linkSystemLibrary(lib, .{});
+        }
+        exe_mod.addImport("c", c.createModule());
     } else if (resolved.os.tag == .macos) {
+        const c = b.addTranslateC(.{
+            .root_source_file = b.path("src/macos_c.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        exe_mod.addImport("c", c.createModule());
         exe_mod.linkFramework("Cocoa", .{});
         exe_mod.linkFramework("CoreText", .{});
         exe_mod.linkFramework("CoreGraphics", .{});
@@ -38,17 +49,15 @@ pub fn build(b: *std.Build) void {
     });
 
     if (resolved.os.tag == .windows) {
-        exe.subsystem = .Windows;
-        exe.addWin32ResourceFile(.{ .file = b.path("icon.rc") });
+        exe.subsystem = .windows;
+        exe_mod.addWin32ResourceFile(.{ .file = b.path("icon.rc") });
     }
 
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);

@@ -8,12 +8,12 @@ const L = std.unicode.utf8ToUtf16LeStringLiteral;
 const HWND = windows.HWND;
 const HINSTANCE = windows.HINSTANCE;
 const LPARAM = windows.LPARAM;
-const WPARAM = windows.WPARAM;
-const LRESULT = windows.LRESULT;
-const RECT = windows.RECT;
-const POINT = windows.POINT;
-const BOOL = windows.BOOL;
-const HRESULT = windows.HRESULT;
+const WPARAM = usize;
+const LRESULT = isize;
+const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
+const POINT = extern struct { x: i32, y: i32 };
+const BOOL = i32;
+const HRESULT = i32;
 const GUID = windows.GUID;
 
 // Constants
@@ -61,7 +61,7 @@ const TIMER_SCROLL_SAVE: usize = 2;
 const MSG = extern struct { hwnd: ?HWND, message: u32, wParam: WPARAM, lParam: LPARAM, time: u32, pt: POINT };
 const WNDCLASSEXW = extern struct {
     cbSize: u32 = @sizeOf(WNDCLASSEXW), style: u32 = 0,
-    lpfnWndProc: *const fn (HWND, u32, WPARAM, LPARAM) callconv(.C) LRESULT,
+    lpfnWndProc: *const fn (HWND, u32, WPARAM, LPARAM) callconv(.c) LRESULT,
     cbClsExtra: i32 = 0, cbWndExtra: i32 = 0, hInstance: ?HINSTANCE = null,
     hIcon: ?*anyopaque = null, hCursor: ?*anyopaque = null, hbrBackground: ?*anyopaque = null,
     lpszMenuName: ?[*:0]const u16 = null, lpszClassName: [*:0]const u16, hIconSm: ?*anyopaque = null,
@@ -69,30 +69,30 @@ const WNDCLASSEXW = extern struct {
 const PAINTSTRUCT = extern struct { hdc: ?*anyopaque, fErase: BOOL, rcPaint: RECT, fRestore: BOOL, fIncUpdate: BOOL, rgbReserved: [32]u8 };
 
 // Win32 externs
-extern "user32" fn CreateWindowExW(dwExStyle: u32, lpClassName: [*:0]const u16, lpWindowName: [*:0]const u16, dwStyle: u32, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWndParent: ?HWND, hMenu: ?*anyopaque, hInstance: ?HINSTANCE, lpParam: ?*anyopaque) callconv(.C) ?HWND;
-extern "user32" fn DefWindowProcW(hWnd: HWND, Msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.C) LRESULT;
-extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: u32) callconv(.C) BOOL;
-extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.C) BOOL;
-extern "user32" fn DispatchMessageW(lpMsg: *const MSG) callconv(.C) LRESULT;
-extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(.C) void;
-extern "user32" fn ShowWindow(hWnd: HWND, nCmdShow: i32) callconv(.C) BOOL;
-extern "user32" fn UpdateWindow(hWnd: HWND) callconv(.C) BOOL;
-extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.C) BOOL;
-extern "user32" fn InvalidateRect(hWnd: HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.C) BOOL;
-extern "user32" fn RegisterClassExW(lpwcx: *const WNDCLASSEXW) callconv(.C) u16;
-extern "user32" fn LoadCursorW(hInstance: ?HINSTANCE, lpCursorName: usize) callconv(.C) ?*anyopaque;
-extern "user32" fn GetKeyState(nVirtKey: i32) callconv(.C) i16;
-extern "user32" fn ScreenToClient(hWnd: HWND, lpPoint: *POINT) callconv(.C) BOOL;
-extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.C) ?*anyopaque;
-extern "user32" fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.C) BOOL;
-extern "user32" fn SetTimer(hWnd: ?HWND, nIDEvent: usize, uElapse: u32, lpTimerFunc: ?*anyopaque) callconv(.C) usize;
-extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: u32) callconv(.C) HRESULT;
-extern "shell32" fn DragQueryFileW(hDrop: *anyopaque, iFile: u32, lpszFile: ?[*]u16, cch: u32) callconv(.C) u32;
-extern "shell32" fn DragFinish(hDrop: *anyopaque) callconv(.C) void;
-extern "advapi32" fn RegCreateKeyExW(hKey: usize, lpSubKey: [*:0]const u16, Reserved: u32, lpClass: ?*anyopaque, dwOptions: u32, samDesired: u32, lpSecurityAttributes: ?*anyopaque, phkResult: *usize, lpdwDisposition: ?*u32) callconv(.C) i32;
-extern "advapi32" fn RegSetValueExW(hKey: usize, lpValueName: ?[*:0]const u16, Reserved: u32, dwType: u32, lpData: [*]const u8, cbData: u32) callconv(.C) i32;
-extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.C) i32;
-extern "kernel32" fn GetModuleFileNameW(hModule: ?*anyopaque, lpFilename: [*]u16, nSize: u32) callconv(.C) u32;
+extern "user32" fn CreateWindowExW(dwExStyle: u32, lpClassName: [*:0]const u16, lpWindowName: [*:0]const u16, dwStyle: u32, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWndParent: ?HWND, hMenu: ?*anyopaque, hInstance: ?HINSTANCE, lpParam: ?*anyopaque) callconv(.c) ?HWND;
+extern "user32" fn DefWindowProcW(hWnd: HWND, Msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LRESULT;
+extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: u32) callconv(.c) BOOL;
+extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.c) BOOL;
+extern "user32" fn DispatchMessageW(lpMsg: *const MSG) callconv(.c) LRESULT;
+extern "user32" fn PostQuitMessage(nExitCode: i32) callconv(.c) void;
+extern "user32" fn ShowWindow(hWnd: HWND, nCmdShow: i32) callconv(.c) BOOL;
+extern "user32" fn UpdateWindow(hWnd: HWND) callconv(.c) BOOL;
+extern "user32" fn GetClientRect(hWnd: HWND, lpRect: *RECT) callconv(.c) BOOL;
+extern "user32" fn InvalidateRect(hWnd: HWND, lpRect: ?*const RECT, bErase: BOOL) callconv(.c) BOOL;
+extern "user32" fn RegisterClassExW(lpwcx: *const WNDCLASSEXW) callconv(.c) u16;
+extern "user32" fn LoadCursorW(hInstance: ?HINSTANCE, lpCursorName: usize) callconv(.c) ?*anyopaque;
+extern "user32" fn GetKeyState(nVirtKey: i32) callconv(.c) i16;
+extern "user32" fn ScreenToClient(hWnd: HWND, lpPoint: *POINT) callconv(.c) BOOL;
+extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?*anyopaque;
+extern "user32" fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c) BOOL;
+extern "user32" fn SetTimer(hWnd: ?HWND, nIDEvent: usize, uElapse: u32, lpTimerFunc: ?*anyopaque) callconv(.c) usize;
+extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: u32) callconv(.c) HRESULT;
+extern "shell32" fn DragQueryFileW(hDrop: *anyopaque, iFile: u32, lpszFile: ?[*]u16, cch: u32) callconv(.c) u32;
+extern "shell32" fn DragFinish(hDrop: *anyopaque) callconv(.c) void;
+extern "advapi32" fn RegCreateKeyExW(hKey: usize, lpSubKey: [*:0]const u16, Reserved: u32, lpClass: ?*anyopaque, dwOptions: u32, samDesired: u32, lpSecurityAttributes: ?*anyopaque, phkResult: *usize, lpdwDisposition: ?*u32) callconv(.c) i32;
+extern "advapi32" fn RegSetValueExW(hKey: usize, lpValueName: ?[*:0]const u16, Reserved: u32, dwType: u32, lpData: [*]const u8, cbData: u32) callconv(.c) i32;
+extern "advapi32" fn RegCloseKey(hKey: usize) callconv(.c) i32;
+extern "kernel32" fn GetModuleFileNameW(hModule: ?*anyopaque, lpFilename: [*]u16, nSize: u32) callconv(.c) u32;
 
 // D2D/DWrite types
 const D2D1_COLOR_F = extern struct { r: f32, g: f32, b: f32, a: f32 };
@@ -112,68 +112,68 @@ const DWRITE_TEXT_METRICS = extern struct {
     height: f32, layoutWidth: f32, layoutHeight: f32, maxBidiReorderingDepth: u32, lineCount: u32,
 };
 
-extern "d2d1" fn D2D1CreateFactory(factoryType: u32, riid: *const GUID, pFactoryOptions: ?*const anyopaque, ppIFactory: *?*anyopaque) callconv(.C) HRESULT;
-extern "dwrite" fn DWriteCreateFactory(factoryType: u32, iid: *const GUID, factory: *?*anyopaque) callconv(.C) HRESULT;
+extern "d2d1" fn D2D1CreateFactory(factoryType: u32, riid: *const GUID, pFactoryOptions: ?*const anyopaque, ppIFactory: *?*anyopaque) callconv(.c) HRESULT;
+extern "dwrite" fn DWriteCreateFactory(factoryType: u32, iid: *const GUID, factory: *?*anyopaque) callconv(.c) HRESULT;
 
 // COM vtables
 const ID2D1Factory_VTable = extern struct {
     QueryInterface: *const anyopaque, AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.C) u32, _pad: [11]*const anyopaque,
-    CreateHwndRenderTarget: *const fn (*anyopaque, *const D2D1_RENDER_TARGET_PROPERTIES, *const D2D1_HWND_RENDER_TARGET_PROPERTIES, *?*anyopaque) callconv(.C) HRESULT,
+    Release: *const fn (*anyopaque) callconv(.c) u32, _pad: [11]*const anyopaque,
+    CreateHwndRenderTarget: *const fn (*anyopaque, *const D2D1_RENDER_TARGET_PROPERTIES, *const D2D1_HWND_RENDER_TARGET_PROPERTIES, *?*anyopaque) callconv(.c) HRESULT,
 };
 
 const ID2D1RT_VTable = extern struct {
     QueryInterface: *const anyopaque, AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.C) u32,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
     GetFactory: *const anyopaque,
     _pad4_7: [4]*const anyopaque,
-    CreateSolidColorBrush: *const fn (*anyopaque, *const D2D1_COLOR_F, ?*const anyopaque, *?*anyopaque) callconv(.C) HRESULT, // 8
+    CreateSolidColorBrush: *const fn (*anyopaque, *const D2D1_COLOR_F, ?*const anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 8
     _pad9_14: [6]*const anyopaque,
-    DrawLine: *const fn (*anyopaque, D2D1_POINT_2F, D2D1_POINT_2F, *anyopaque, f32, ?*anyopaque) callconv(.C) void, // 15
+    DrawLine: *const fn (*anyopaque, D2D1_POINT_2F, D2D1_POINT_2F, *anyopaque, f32, ?*anyopaque) callconv(.c) void, // 15
     _pad16: *const anyopaque,
-    FillRectangle: *const fn (*anyopaque, *const D2D1_RECT_F, *anyopaque) callconv(.C) void, // 17
+    FillRectangle: *const fn (*anyopaque, *const D2D1_RECT_F, *anyopaque) callconv(.c) void, // 17
     _pad18: *const anyopaque,
-    FillRoundedRectangle: *const fn (*anyopaque, *const D2D1_ROUNDED_RECT, *anyopaque) callconv(.C) void, // 19
+    FillRoundedRectangle: *const fn (*anyopaque, *const D2D1_ROUNDED_RECT, *anyopaque) callconv(.c) void, // 19
     _pad20_26: [7]*const anyopaque,
     _pad27: *const anyopaque,
-    DrawTextLayout: *const fn (*anyopaque, D2D1_POINT_2F, *anyopaque, *anyopaque, u32) callconv(.C) void, // 28
+    DrawTextLayout: *const fn (*anyopaque, D2D1_POINT_2F, *anyopaque, *anyopaque, u32) callconv(.c) void, // 28
     _pad29: *const anyopaque,
-    SetTransform: *const fn (*anyopaque, *const D2D1_MATRIX_3X2_F) callconv(.C) void, // 30
+    SetTransform: *const fn (*anyopaque, *const D2D1_MATRIX_3X2_F) callconv(.c) void, // 30
     _pad31_46: [16]*const anyopaque,
-    Clear: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.C) void, // 47
-    BeginDraw: *const fn (*anyopaque) callconv(.C) void, // 48
-    EndDraw: *const fn (*anyopaque, ?*u64, ?*u64) callconv(.C) HRESULT, // 49
+    Clear: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 47
+    BeginDraw: *const fn (*anyopaque) callconv(.c) void, // 48
+    EndDraw: *const fn (*anyopaque, ?*u64, ?*u64) callconv(.c) HRESULT, // 49
     _pad50_56: [7]*const anyopaque,
     _pad57: *const anyopaque,
-    Resize: *const fn (*anyopaque, *const D2D1_SIZE_U) callconv(.C) HRESULT, // 58
+    Resize: *const fn (*anyopaque, *const D2D1_SIZE_U) callconv(.c) HRESULT, // 58
 };
 
 const IDWriteFactory_VTable = extern struct {
     QueryInterface: *const anyopaque, AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.C) u32,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_14: [12]*const anyopaque,
-    CreateTextFormat: *const fn (*anyopaque, [*:0]const u16, ?*anyopaque, u32, u32, u32, f32, [*:0]const u16, *?*anyopaque) callconv(.C) HRESULT, // 15
+    CreateTextFormat: *const fn (*anyopaque, [*:0]const u16, ?*anyopaque, u32, u32, u32, f32, [*:0]const u16, *?*anyopaque) callconv(.c) HRESULT, // 15
     _pad16_17: [2]*const anyopaque,
-    CreateTextLayout: *const fn (*anyopaque, [*]const u16, u32, *anyopaque, f32, f32, *?*anyopaque) callconv(.C) HRESULT, // 18
+    CreateTextLayout: *const fn (*anyopaque, [*]const u16, u32, *anyopaque, f32, f32, *?*anyopaque) callconv(.c) HRESULT, // 18
 };
 
 const IDWriteTextLayout_VTable = extern struct {
     QueryInterface: *const anyopaque, AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.C) u32,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_27: [25]*const anyopaque,
-    SetMaxWidth: *const fn (*anyopaque, f32) callconv(.C) HRESULT, // 28
-    SetMaxHeight: *const fn (*anyopaque, f32) callconv(.C) HRESULT, // 29
+    SetMaxWidth: *const fn (*anyopaque, f32) callconv(.c) HRESULT, // 28
+    SetMaxHeight: *const fn (*anyopaque, f32) callconv(.c) HRESULT, // 29
     _pad30: *const anyopaque,
     _pad31: *const anyopaque,
-    SetFontWeight: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 32
-    SetFontStyle: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 33
+    SetFontWeight: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 32
+    SetFontStyle: *const fn (*anyopaque, u32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 33
     _pad34: *const anyopaque,
-    SetFontSize: *const fn (*anyopaque, f32, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 35
-    SetUnderline: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 36
-    SetStrikethrough: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 37
-    SetDrawingEffect: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.C) HRESULT, // 38
+    SetFontSize: *const fn (*anyopaque, f32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 35
+    SetUnderline: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 36
+    SetStrikethrough: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 37
+    SetDrawingEffect: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 38
     _pad39_59: [21]*const anyopaque,
-    GetMetrics: *const fn (*anyopaque, *DWRITE_TEXT_METRICS) callconv(.C) HRESULT, // 60
+    GetMetrics: *const fn (*anyopaque, *DWRITE_TEXT_METRICS) callconv(.c) HRESULT, // 60
 };
 
 fn vtable(comptime VT: type, obj: *anyopaque) *const VT {
@@ -500,7 +500,7 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8) void {
 // ============================================================
 // Window procedure
 // ============================================================
-fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.C) LRESULT {
+fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LRESULT {
     switch (msg) {
         WM_PAINT => {
             render();
@@ -614,8 +614,7 @@ pub fn registerFileAssociation() void {
     setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\mdview\\shell\\open\\command"), null, @ptrCast(&cmd_buf));
     setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\.md"), null, L("mdview"));
     setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\.markdown"), null, L("mdview"));
-    const stdout = std.io.getStdOut().writer();
-    stdout.writeAll("mdview registered as default viewer for .md and .markdown files.\n") catch {};
+    std.Io.File.stdout().writeStreamingAll(app.io, "mdview registered as default viewer for .md and .markdown files.\n") catch {};
 }
 
 fn setRegString(root: usize, subkey: [*:0]const u16, value_name: ?[*:0]const u16, data: [*:0]const u16) void {

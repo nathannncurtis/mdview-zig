@@ -3,13 +3,7 @@ const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
 
-const c = @cImport({
-    @cInclude("objc/runtime.h");
-    @cInclude("objc/message.h");
-    @cInclude("CoreGraphics/CoreGraphics.h");
-    @cInclude("CoreText/CoreText.h");
-    @cInclude("CoreFoundation/CoreFoundation.h");
-});
+const c = @import("c");
 
 // ============================================================
 // ObjC runtime helpers — cast objc_msgSend per call-site
@@ -31,40 +25,40 @@ fn cgRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) CGRect {
 }
 
 // Typed objc_msgSend wrappers
-const MsgSendFn = *const fn (id, SEL) callconv(.C) id;
+const MsgSendFn = *const fn (id, SEL) callconv(.c) id;
 const msgSend_id = @as(MsgSendFn, @ptrCast(&c.objc_msgSend));
 
-const msgSend_void_id = @as(*const fn (id, SEL, id) callconv(.C) void, @ptrCast(&c.objc_msgSend));
-const msgSend_void_bool = @as(*const fn (id, SEL, BOOL) callconv(.C) void, @ptrCast(&c.objc_msgSend));
-const msgSend_void_i64 = @as(*const fn (id, SEL, i64) callconv(.C) void, @ptrCast(&c.objc_msgSend));
-const msgSend_void = @as(*const fn (id, SEL) callconv(.C) void, @ptrCast(&c.objc_msgSend));
-const msgSend_bool = @as(*const fn (id, SEL) callconv(.C) BOOL, @ptrCast(&c.objc_msgSend));
-const msgSend_u16 = @as(*const fn (id, SEL) callconv(.C) u16, @ptrCast(&c.objc_msgSend));
-const msgSend_u64 = @as(*const fn (id, SEL) callconv(.C) u64, @ptrCast(&c.objc_msgSend));
-const msgSend_cgfloat = @as(*const fn (id, SEL) callconv(.C) CGFloat, @ptrCast(&c.objc_msgSend));
-const msgSend_id_id = @as(*const fn (id, SEL, id) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+const msgSend_void_id = @as(*const fn (id, SEL, id) callconv(.c) void, @ptrCast(&c.objc_msgSend));
+const msgSend_void_bool = @as(*const fn (id, SEL, BOOL) callconv(.c) void, @ptrCast(&c.objc_msgSend));
+const msgSend_void_i64 = @as(*const fn (id, SEL, i64) callconv(.c) void, @ptrCast(&c.objc_msgSend));
+const msgSend_void = @as(*const fn (id, SEL) callconv(.c) void, @ptrCast(&c.objc_msgSend));
+const msgSend_bool = @as(*const fn (id, SEL) callconv(.c) BOOL, @ptrCast(&c.objc_msgSend));
+const msgSend_u16 = @as(*const fn (id, SEL) callconv(.c) u16, @ptrCast(&c.objc_msgSend));
+const msgSend_u64 = @as(*const fn (id, SEL) callconv(.c) u64, @ptrCast(&c.objc_msgSend));
+const msgSend_cgfloat = @as(*const fn (id, SEL) callconv(.c) CGFloat, @ptrCast(&c.objc_msgSend));
+const msgSend_id_id = @as(*const fn (id, SEL, id) callconv(.c) id, @ptrCast(&c.objc_msgSend));
 
 // initWithContentRect:styleMask:backing:defer:
-const msgSend_initWindow = @as(*const fn (id, SEL, CGRect, NSUInteger, NSUInteger, BOOL) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+const msgSend_initWindow = @as(*const fn (id, SEL, CGRect, NSUInteger, NSUInteger, BOOL) callconv(.c) id, @ptrCast(&c.objc_msgSend));
 // initWithFrame:
-const msgSend_initFrame = @as(*const fn (id, SEL, CGRect) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+const msgSend_initFrame = @as(*const fn (id, SEL, CGRect) callconv(.c) id, @ptrCast(&c.objc_msgSend));
 // colorWithRed:green:blue:alpha:
-const msgSend_color4 = @as(*const fn (id, SEL, CGFloat, CGFloat, CGFloat, CGFloat) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+const msgSend_color4 = @as(*const fn (id, SEL, CGFloat, CGFloat, CGFloat, CGFloat) callconv(.c) id, @ptrCast(&c.objc_msgSend));
 // scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
-const msgSend_timer = @as(*const fn (id, SEL, f64, id, SEL, id, BOOL) callconv(.C) id, @ptrCast(&c.objc_msgSend));
+const msgSend_timer = @as(*const fn (id, SEL, f64, id, SEL, id, BOOL) callconv(.c) id, @ptrCast(&c.objc_msgSend));
 // convertPoint:fromView:
-const msgSend_convertPoint = @as(*const fn (id, SEL, CGPoint, id) callconv(.C) CGPoint, @ptrCast(&c.objc_msgSend));
+const msgSend_convertPoint = @as(*const fn (id, SEL, CGPoint, id) callconv(.c) CGPoint, @ptrCast(&c.objc_msgSend));
 // CGContext (returned as pointer)
-const msgSend_ctx = @as(*const fn (id, SEL) callconv(.C) c.CGContextRef, @ptrCast(&c.objc_msgSend));
+const msgSend_ctx = @as(*const fn (id, SEL) callconv(.c) c.CGContextRef, @ptrCast(&c.objc_msgSend));
 
 // For struct returns: on arm64 all go through objc_msgSend, on x86_64 large structs need objc_msgSend_stret
 const builtin_info = @import("builtin");
 const msgSend_rect = if (builtin_info.cpu.arch == .x86_64)
-    @as(*const fn (id, SEL) callconv(.C) CGRect, @ptrCast(@extern(*const anyopaque, .{ .name = "objc_msgSend_stret" })))
+    @as(*const fn (id, SEL) callconv(.c) CGRect, @ptrCast(@extern(*const anyopaque, .{ .name = "objc_msgSend_stret" })))
 else
-    @as(*const fn (id, SEL) callconv(.C) CGRect, @ptrCast(&c.objc_msgSend));
+    @as(*const fn (id, SEL) callconv(.c) CGRect, @ptrCast(&c.objc_msgSend));
 
-const msgSend_point = @as(*const fn (id, SEL) callconv(.C) CGPoint, @ptrCast(&c.objc_msgSend));
+const msgSend_point = @as(*const fn (id, SEL) callconv(.c) CGPoint, @ptrCast(&c.objc_msgSend));
 
 fn objcClass(name: [*:0]const u8) id {
     return c.objc_getClass(name);
@@ -606,7 +600,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
 // ObjC callback trampolines (called by the runtime)
 // ============================================================
 
-fn drawRectCallback(self: id, _sel: SEL, dirty_rect: CGRect) callconv(.C) void {
+fn drawRectCallback(self: id, _sel: SEL, dirty_rect: CGRect) callconv(.c) void {
     _ = _sel;
     _ = dirty_rect;
 
@@ -627,7 +621,7 @@ fn drawRectCallback(self: id, _sel: SEL, dirty_rect: CGRect) callconv(.C) void {
     drawContent(cg_ctx, bounds.size.width, bounds.size.height);
 }
 
-fn scrollWheelCallback(self: id, _sel: SEL, event: id) callconv(.C) void {
+fn scrollWheelCallback(self: id, _sel: SEL, event: id) callconv(.c) void {
     _ = _sel;
 
     // deltaY
@@ -644,7 +638,7 @@ fn scrollWheelCallback(self: id, _sel: SEL, event: id) callconv(.C) void {
     msgSend_void_bool(self, sel("setNeedsDisplay:"), 1);
 }
 
-fn keyDownCallback(_self: id, _sel: SEL, event: id) callconv(.C) void {
+fn keyDownCallback(_self: id, _sel: SEL, event: id) callconv(.c) void {
     _ = _self;
     _ = _sel;
 
@@ -662,7 +656,7 @@ fn keyDownCallback(_self: id, _sel: SEL, event: id) callconv(.C) void {
     }
 }
 
-fn mouseDownCallback(self: id, _sel: SEL, event: id) callconv(.C) void {
+fn mouseDownCallback(self: id, _sel: SEL, event: id) callconv(.c) void {
     _ = _sel;
 
     // Get click location in view coords
@@ -691,38 +685,38 @@ fn mouseDownCallback(self: id, _sel: SEL, event: id) callconv(.C) void {
     }
 }
 
-fn acceptsFirstResponderCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
+fn acceptsFirstResponderCallback(_self: id, _sel: SEL) callconv(.c) BOOL {
     _ = _self;
     _ = _sel;
     return 1; // YES
 }
 
-fn isFlippedCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
+fn isFlippedCallback(_self: id, _sel: SEL) callconv(.c) BOOL {
     _ = _self;
     _ = _sel;
     return 0; // NO — we work in native CG coordinates
 }
 
-fn canBecomeKeyWindowCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
+fn canBecomeKeyWindowCallback(_self: id, _sel: SEL) callconv(.c) BOOL {
     _ = _self;
     _ = _sel;
     return 1;
 }
 
-fn canBecomeMainWindowCallback(_self: id, _sel: SEL) callconv(.C) BOOL {
+fn canBecomeMainWindowCallback(_self: id, _sel: SEL) callconv(.c) BOOL {
     _ = _self;
     _ = _sel;
     return 1;
 }
 
-fn timerFireCallback(_self: id, _sel: SEL, _timer: id) callconv(.C) void {
+fn timerFireCallback(_self: id, _sel: SEL, _timer: id) callconv(.c) void {
     _ = _self;
     _ = _sel;
     _ = _timer;
     app.checkFileChanged();
 }
 
-fn applicationShouldTerminateCallback(_self: id, _sel: SEL, _sender: id) callconv(.C) NSUInteger {
+fn applicationShouldTerminateCallback(_self: id, _sel: SEL, _sender: id) callconv(.c) NSUInteger {
     _ = _self;
     _ = _sel;
     _ = _sender;
@@ -877,8 +871,7 @@ pub fn invalidate() void {
 }
 
 pub fn registerFileAssociation() void {
-    const stdout = std.io.getStdOut().writer();
-    stdout.writeAll(
+    std.Io.File.stdout().writeStreamingAll(app.io,
         \\To associate .md files with mdview on macOS:
         \\1. Add a CFBundleDocumentTypes entry to your app's Info.plist:
         \\   <key>CFBundleDocumentTypes</key>

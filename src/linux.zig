@@ -3,14 +3,7 @@ const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
 
-const c = @cImport({
-    @cInclude("X11/Xlib.h");
-    @cInclude("X11/Xutil.h");
-    @cInclude("X11/Xatom.h");
-    @cInclude("cairo/cairo.h");
-    @cInclude("cairo/cairo-xlib.h");
-    @cInclude("pango/pangocairo.h");
-});
+const c = @import("c");
 
 const posix = std.posix;
 
@@ -110,7 +103,7 @@ pub fn run() void {
 
     // Event loop with select()-based timeout
     const x11_fd = c.ConnectionNumber(dpy);
-    var last_save_time: i64 = std.time.milliTimestamp();
+    var last_save_time: i64 = std.Io.Timestamp.now(app.io, .awake).toMilliseconds();
     var running = true;
 
     while (running) {
@@ -184,7 +177,7 @@ pub fn run() void {
         }
 
         // Save scroll position periodically (every ~3 seconds)
-        const now = std.time.milliTimestamp();
+        const now = std.Io.Timestamp.now(app.io, .awake).toMilliseconds();
         if (now - last_save_time >= 3000) {
             app.saveScrollPosition();
             last_save_time = now;
@@ -205,20 +198,23 @@ pub fn run() void {
 
 pub fn registerFileAssociation() void {
     // Create .desktop file for .md file association
-    const home = std.process.getEnvVarOwned(app.allocator, "HOME") catch {
+    const io = app.io;
+    const cwd = std.Io.Dir.cwd();
+    const home = app.environ.get("HOME") orelse {
         app.log("cannot get HOME for .desktop file");
         return;
     };
 
     // Get our own executable path
     var exe_buf: [4096]u8 = undefined;
-    const exe_path = std.fs.selfExePath(&exe_buf) catch {
+    const exe_len = std.process.executablePath(io, &exe_buf) catch {
         app.log("cannot get self exe path");
         return;
     };
+    const exe_path = exe_buf[0..exe_len];
 
     const desktop_dir = std.fmt.allocPrint(app.allocator, "{s}/.local/share/applications", .{home}) catch return;
-    std.fs.cwd().makePath(desktop_dir) catch {};
+    cwd.createDirPath(io, desktop_dir) catch {};
 
     const desktop_path = std.fmt.allocPrint(app.allocator, "{s}/mdview.desktop", .{desktop_dir}) catch return;
     const desktop_content = std.fmt.allocPrint(app.allocator,
@@ -233,30 +229,28 @@ pub fn registerFileAssociation() void {
         \\
     , .{exe_path}) catch return;
 
-    const f = std.fs.cwd().createFile(desktop_path, .{ .truncate = true }) catch {
+    const f = cwd.createFile(io, desktop_path, .{ .truncate = true }) catch {
         app.log("failed to create .desktop file");
         return;
     };
-    defer f.close();
-    f.writeAll(desktop_content) catch return;
+    defer f.close(io);
+    f.writeStreamingAll(io, desktop_content) catch return;
 
     // Also set the mime association
     const mimeapps_path = std.fmt.allocPrint(app.allocator, "{s}/.local/share/applications/mimeapps.list", .{home}) catch return;
 
     // Append to mimeapps.list
-    if (std.fs.cwd().openFile(mimeapps_path, .{ .mode = .read_write })) |mf| {
-        defer mf.close();
-        const end = mf.getEndPos() catch return;
-        mf.seekTo(end) catch return;
-        mf.writeAll("text/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n") catch return;
+    if (cwd.openFile(io, mimeapps_path, .{ .mode = .read_write })) |mf| {
+        defer mf.close(io);
+        const end = mf.length(io) catch return;
+        mf.writePositionalAll(io, "text/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n", end) catch return;
     } else |_| {
-        const mf = std.fs.cwd().createFile(mimeapps_path, .{ .truncate = true }) catch return;
-        defer mf.close();
-        mf.writeAll("[Default Applications]\ntext/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n") catch return;
+        const mf = cwd.createFile(io, mimeapps_path, .{ .truncate = true }) catch return;
+        defer mf.close(io);
+        mf.writeStreamingAll(io, "[Default Applications]\ntext/markdown=mdview.desktop;\ntext/x-markdown=mdview.desktop;\n") catch return;
     }
 
-    const stdout = std.io.getStdOut().writer();
-    stdout.writeAll("mdview registered as default viewer for .md and .markdown files.\n") catch {};
+    std.Io.File.stdout().writeStreamingAll(io, "mdview registered as default viewer for .md and .markdown files.\n") catch {};
 }
 
 // ============================================================
