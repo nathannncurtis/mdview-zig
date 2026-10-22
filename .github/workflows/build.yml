@@ -49,9 +49,16 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
       - name: Smoke test
+        timeout-minutes: 5
         run: |
           bash .github/scripts/smoke.sh zig-out/bin/mdview.exe
           bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview.exe
+      - name: Smoke test on an older CPU
+        timeout-minutes: 5
+        run: |
+          bash .github/scripts/setup-sde.sh
+          bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview.exe
+          bash .github/scripts/emu-selftest.sh
       - name: Signing client
         if: inputs.sign
         run: |
@@ -76,6 +83,7 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $opts installer.iss
           if ($LASTEXITCODE) { throw 'ISCC failed' }
       - name: Installed smoke test
+        timeout-minutes: 5
         run: bash .github/scripts/smoke-installer-windows.sh Output/mdview-setup.exe
       - name: MSIX
         env:
@@ -134,7 +142,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb
+          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb qemu-user
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
@@ -143,9 +151,15 @@ jobs:
           bash .github/scripts/isa-check.sh zig-out/bin/mdview
           bash .github/scripts/isa-selftest.sh
       - name: Smoke test
+        timeout-minutes: 5
         run: |
           xvfb-run -a bash .github/scripts/smoke.sh zig-out/bin/mdview
           xvfb-run -a bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview
+      - name: Smoke test on an older CPU
+        timeout-minutes: 5
+        run: |
+          xvfb-run -a bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview
+          xvfb-run -a bash .github/scripts/emu-selftest.sh
       - name: Debian package
         env:
           VERSION: ${{ inputs.version }}
@@ -176,6 +190,7 @@ jobs:
           EOT
           dpkg-deb --build deb mdview-linux-x86_64.deb
       - name: Installed smoke test
+        timeout-minutes: 5
         run: |
           sudo dpkg -i mdview-linux-x86_64.deb
           xvfb-run -a bash .github/scripts/smoke.sh /usr/bin/mdview
@@ -202,6 +217,7 @@ jobs:
       - name: Instruction set
         run: bash .github/scripts/isa-check.sh zig-out/bin/mdview
       - name: Smoke test
+        timeout-minutes: 5
         run: |
           bash .github/scripts/smoke.sh zig-out/bin/mdview
           bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview

@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 # Runs the built viewer on a fixture, checks it stays alive and logs a clean start.
-# Usage: smoke.sh BINARY [FILE]. FILE "-" runs it with no argument, which makes it exit at once.
+# Usage: smoke.sh [--cpu] BINARY [FILE]. FILE "-" runs it with no argument, which makes it exit at once.
+# --cpu runs it on an emulated Nehalem CPU (SSE4.2, no AVX): Intel SDE on Windows ($SDE_EXE), qemu-user on Linux.
 set -o pipefail
+
+wrap=()
+if [ "$1" = --cpu ]; then
+  shift
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) wrap=("$SDE_EXE" -nhm --) ;;
+    Linux) wrap=(qemu-x86_64 -cpu Nehalem) ;;
+    *) echo "::error::no CPU emulator for $(uname -s)"; exit 2 ;;
+  esac
+fi
 
 bin=$1
 file=${2:-testdata/smoke.md}
@@ -13,9 +24,11 @@ case "$(uname -s)" in
 esac
 
 stop() {
-  if [ -n "$windows" ]; then taskkill //F //PID "$(cat "/proc/$pid/winpid")" > /dev/null 2>&1
-  else kill "$pid" 2> /dev/null; fi
-  wait "$pid" 2> /dev/null
+  if [ -n "$windows" ]; then taskkill //F //T //PID "$(cat "/proc/$pid/winpid")" || echo "taskkill failed"
+  else kill "$pid"; fi
+  for _ in $(seq 20); do kill -0 "$pid" 2> /dev/null || return 0; sleep 0.5; done
+  echo "::error::pid $pid did not stop"
+  return 1
 }
 
 fail() {
@@ -26,7 +39,7 @@ fail() {
   exit 1
 }
 
-if [ "$file" = - ]; then "$bin" & else "$bin" "$file" & fi
+if [ "$file" = - ]; then "${wrap[@]}" "$bin" & else "${wrap[@]}" "$bin" "$file" & fi
 pid=$!
 echo "started $bin as pid $pid"
 sleep 5
@@ -42,6 +55,6 @@ grep -Eq 'parsed [1-9][0-9]* blocks' "$log" || fail "log has no 'parsed N blocks
 grep -q "$backend" "$log" || fail "log has no '$backend' line"
 cat "$log"
 
-stop
+stop || exit 1
 echo "stopped pid $pid"
 echo "smoke test passed: $bin"
