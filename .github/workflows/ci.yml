@@ -80,6 +80,34 @@ jobs:
     if: needs.changes.outputs.app == 'true'
     uses: ./.github/workflows/build.yml
 
+  lint:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: ZLint
+        run: |
+          v=0.10.0
+          curl -sSfL -o zlint "https://github.com/DonIsaac/zlint/releases/download/v$v/zlint-linux-x86_64"
+          echo "0b331646d5e40bec3cfcb0694c5da0b13b9de8b10af12937a777ab3144b70b65  zlint" | sha256sum -c -
+          chmod +x zlint
+          git ls-files '*.zig' | ./zlint -S --deny-warnings
+
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/setup-zig.sh
+      - name: Fuzz the parser
+        run: |
+          zig build fuzz --fuzz=800K -Doptimize=ReleaseSafe --summary all 2>&1 | tee fuzz.log
+          ! grep -qE 'panic|run test failure|FAILED' fuzz.log
+
   docs:
     needs: changes
     if: needs.changes.outputs.docs == 'true'
@@ -93,7 +121,7 @@ jobs:
           fail: true
 
   ci-ok:
-    needs: [changes, rules, build, docs]
+    needs: [changes, rules, build, lint, fuzz, docs]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

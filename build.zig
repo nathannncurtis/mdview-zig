@@ -86,6 +86,17 @@ pub fn build(b: *std.Build) void {
         }
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
+
+    const fuzz_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_fuzz = b.addRunArtifact(fuzz_tests);
+    test_step.dependOn(&run_fuzz.step);
+    b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {

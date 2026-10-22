@@ -254,7 +254,7 @@ const Scanner = struct {
             if (j == start or j >= src.len or src[j] != ';') return null;
             const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
             const buf = try s.a.alloc(u8, 4);
-            const n = std.unicode.utf8Encode(cp, buf) catch unreachable;
+            const n = std.unicode.utf8Encode(cp, buf) catch return null;
             try s.text(buf[0..n]);
             return j + 1;
         }
@@ -528,6 +528,8 @@ pub fn isAsciiPunct(c: u8) bool {
 fn prevCp(src: []const u8, i: usize) u21 {
     var j = i - 1;
     while (j > 0 and src[j] & 0xC0 == 0x80) j -= 1;
+    const len = std.unicode.utf8ByteSequenceLength(src[j]) catch return 0xFFFD;
+    if (j + len != i) return 0xFFFD;
     return std.unicode.utf8Decode(src[j..i]) catch 0xFFFD;
 }
 
