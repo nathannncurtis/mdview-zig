@@ -2,6 +2,7 @@
 const std = @import("std");
 const app = @import("main.zig");
 const md = app.md;
+const hl = @import("highlight.zig");
 
 const c = @import("c");
 
@@ -77,7 +78,7 @@ fn alloc(class_id: id) id {
 // ============================================================
 const Color = struct { r: CGFloat, g: CGFloat, b: CGFloat };
 
-fn hexColor(comptime hex: u24) Color {
+fn hexColor(hex: u24) Color {
     return .{
         .r = @as(CGFloat, @floatFromInt((hex >> 16) & 0xFF)) / 255.0,
         .g = @as(CGFloat, @floatFromInt((hex >> 8) & 0xFF)) / 255.0,
@@ -96,12 +97,6 @@ const blockquote_color = hexColor(0x8b949e);
 const close_btn_color = hexColor(0x8b949e);
 
 // Syntax highlighting colors
-const syn_keyword = hexColor(0xff7b72);
-const syn_string = hexColor(0xa5d6ff);
-const syn_comment = hexColor(0x8b949e);
-const syn_number = hexColor(0x79c0ff);
-const syn_type = hexColor(0xffa657);
-const syn_func = hexColor(0xd2a8ff);
 
 // ============================================================
 // Layout constants
@@ -201,6 +196,18 @@ fn setAttrColor(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, leng
         c.CFRange{ .location = start, .length = length },
         c.kCTForegroundColorAttributeName,
         @ptrCast(cg_color),
+    );
+}
+
+fn setAttrUnderline(attr_str: c.CFMutableAttributedStringRef, start: c.CFIndex, length: c.CFIndex) void {
+    var single: i32 = c.kCTUnderlineStyleSingle;
+    const num = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &single);
+    defer c.CFRelease(num);
+    c.CFAttributedStringSetAttribute(
+        attr_str,
+        c.CFRange{ .location = start, .length = length },
+        c.kCTUnderlineStyleAttributeName,
+        @ptrCast(num),
     );
 }
 
@@ -495,7 +502,7 @@ fn cfRange(text: []const u8, span: md.Span) c.CFRange {
     return .{ .location = @intCast(start), .length = @intCast(end - start) };
 }
 
-fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloat, max_width: CGFloat) CGFloat {
+fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, toks: []const hl.Token, x: CGFloat, y_cg: CGFloat, max_width: CGFloat) CGFloat {
     if (text.len == 0) return code_padding * 2;
 
     const cf_str = cfString(text);
@@ -511,8 +518,9 @@ fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloa
     setAttrFont(attr_str, 0, len, mono);
     setAttrColor(attr_str, 0, len, text_color);
 
-    // Syntax highlighting
-    applySyntaxHighlighting(attr_str, text);
+    const mono_bold = createFont("Menlo", font_size_code, true, false);
+    defer c.CFRelease(mono_bold);
+    applySyntaxHighlighting(attr_str, text, toks, mono_bold);
 
     // Measure text
     const inner_width = max_width - code_padding * 2;
@@ -559,6 +567,8 @@ fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloa
     );
     defer c.CFRelease(frame);
 
+    drawLineBackgrounds(ctx, frame, text, toks, x, text_y_cg - suggested.height, max_width);
+
     c.CGContextSaveGState(ctx);
     c.CTFrameDraw(frame, ctx);
     c.CGContextRestoreGState(ctx);
@@ -588,70 +598,61 @@ fn synColor(attr_str: c.CFMutableAttributedStringRef, cursor: *md.Utf16Cursor, s
     setAttrColor(attr_str, @intCast(lo), @intCast(cursor.at(end) - lo), col);
 }
 
-fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []const u8) void {
+fn applySyntaxHighlighting(attr_str: c.CFMutableAttributedStringRef, text: []const u8, toks: []const hl.Token, bold: c.CTFontRef) void {
+    var cursor: md.Utf16Cursor = .{ .text = text };
+    for (toks) |tok| {
+        const st = hl.style(tok.kind);
+        const lo = cursor.at(tok.start);
+        const n = cursor.at(tok.end) - lo;
+        if (st.fg) |rgb| setAttrColor(attr_str, @intCast(lo), @intCast(n), hexColor(rgb));
+        if (st.bold) setAttrFont(attr_str, @intCast(lo), @intCast(n), bold);
+        if (st.underline) setAttrUnderline(attr_str, @intCast(lo), @intCast(n));
+    }
+}
+
+/// Fills the full block width behind each visual line that starts inside a token with a background.
+/// `left` and `bottom` are the CG coordinates of the frame's origin.
+fn drawLineBackgrounds(ctx: c.CGContextRef, frame: c.CTFrameRef, text: []const u8, toks: []const hl.Token, left: CGFloat, bottom: CGFloat, width: CGFloat) void {
+    const lines = c.CTFrameGetLines(frame);
+    const count: usize = @intCast(c.CFArrayGetCount(lines));
+    if (count == 0) return;
+    const origins = app.gpa.alloc(c.CGPoint, count) catch return;
+    defer app.gpa.free(origins);
+    c.CTFrameGetLineOrigins(frame, c.CFRange{ .location = 0, .length = 0 }, origins.ptr);
     var cursor: md.Utf16Cursor = .{ .text = text };
     var i: usize = 0;
-    while (i < text.len) {
-        // Line comments: //
-        if (i + 1 < text.len and text[i] == '/' and text[i + 1] == '/') {
-            const start = i;
-            while (i < text.len and text[i] != '\n') i += 1;
-            synColor(attr_str, &cursor, start, i, syn_comment);
-            continue;
-        }
-        // Hash comments at line start
-        if (text[i] == '#' and (i == 0 or text[i - 1] == '\n')) {
-            const start = i;
-            while (i < text.len and text[i] != '\n') i += 1;
-            synColor(attr_str, &cursor, start, i, syn_comment);
-            continue;
-        }
-        // Strings
-        if (text[i] == '"' or text[i] == '\'') {
-            const quote = text[i];
-            const start = i;
-            i += 1;
-            while (i < text.len and text[i] != quote and text[i] != '\n') {
-                if (text[i] == '\\' and i + 1 < text.len) i += 1;
+    var have = false;
+    var lo: u32 = 0;
+    var hi: u32 = 0;
+    for (0..count) |k| {
+        const line: c.CTLineRef = @ptrCast(c.CFArrayGetValueAtIndex(lines, @intCast(k)));
+        const loc: u32 = @intCast(c.CTLineGetStringRange(line).location);
+        while (i < toks.len) {
+            if (hl.style(toks[i].kind).bg == null) {
                 i += 1;
+                have = false;
+                continue;
             }
-            if (i < text.len and text[i] == quote) i += 1;
-            synColor(attr_str, &cursor, start, i, syn_string);
-            continue;
-        }
-        // Numbers
-        if (text[i] >= '0' and text[i] <= '9') {
-            const start = i;
-            while (i < text.len and ((text[i] >= '0' and text[i] <= '9') or text[i] == '.' or
-                text[i] == 'x' or text[i] == 'X' or
-                (text[i] >= 'a' and text[i] <= 'f') or
-                (text[i] >= 'A' and text[i] <= 'F'))) i += 1;
-            synColor(attr_str, &cursor, start, i, syn_number);
-            continue;
-        }
-        // Identifiers and keywords
-        if (md.isIdentStart(text[i])) {
-            const start = i;
-            while (i < text.len and md.isIdentChar(text[i])) i += 1;
-            const word = text[start..i];
-
-            var is_kw = false;
-            for (md.hl_keywords) |kw| {
-                if (std.mem.eql(u8, word, kw)) {
-                    is_kw = true;
-                    break;
-                }
+            if (!have) {
+                lo = cursor.at(toks[i].start);
+                hi = cursor.at(toks[i].end);
+                have = true;
             }
-            if (is_kw) {
-                synColor(attr_str, &cursor, start, i, syn_keyword);
-            } else if (word.len > 0 and word[0] >= 'A' and word[0] <= 'Z') {
-                synColor(attr_str, &cursor, start, i, syn_type);
-            } else if (i < text.len and text[i] == '(') {
-                synColor(attr_str, &cursor, start, i, syn_func);
+            if (hi <= loc) {
+                i += 1;
+                have = false;
+                continue;
             }
-            continue;
+            break;
         }
-        i += 1;
+        if (i >= toks.len or lo > loc) continue;
+        var ascent: CGFloat = 0;
+        var descent: CGFloat = 0;
+        var leading: CGFloat = 0;
+        _ = c.CTLineGetTypographicBounds(line, &ascent, &descent, &leading);
+        const col = hexColor(hl.style(toks[i].kind).bg.?);
+        c.CGContextSetRGBFillColor(ctx, col.r, col.g, col.b, 1.0);
+        c.CGContextFillRect(ctx, cgRect(left, bottom + origins[k].y - descent, width, ascent + descent + leading));
     }
 }
 
@@ -711,7 +712,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
                 block_height += para_spacing;
             },
             .code_block => {
-                block_height = drawCodeBlock(ctx, block.content.text, padding_x, cg_y, max_text_width);
+                block_height = drawCodeBlock(ctx, block.content.text, block.tokens, padding_x, cg_y, max_text_width);
                 block_height += para_spacing;
             },
             .table => {
