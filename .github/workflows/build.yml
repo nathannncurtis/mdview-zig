@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
-      - run: zig build -Doptimize=ReleaseSmall
+      - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
       - name: Sign mdview.exe
         if: inputs.sign
         uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
@@ -127,7 +127,7 @@ jobs:
           sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
-      - run: zig build -Doptimize=ReleaseSmall
+      - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
       - name: Debian package
         env:
           VERSION: ${{ inputs.version }}
@@ -174,7 +174,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
-      - run: zig build -Doptimize=ReleaseSmall
+      - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
       - name: App bundle and disk image
         env:
           VERSION: ${{ inputs.version }}
