@@ -1,0 +1,34 @@
+pub fn name(id: u16) []const u8 {
+    return name_blob[name_offsets[id]..name_offsets[id + 1]];
+}
+
+fn restartKey(i: usize) []const u8 {
+    const pos: usize = restarts[i];
+    return blob[pos + 2 ..][0..blob[pos + 1]];
+}
+
+/// `folded` must already be ASCII-lowercased.
+pub fn lookup(folded: []const u8) ?u16 {
+    var lo: usize = 0;
+    var hi: usize = restarts.len;
+    while (lo < hi) {
+        const mid = lo + (hi - lo) / 2;
+        if (std.mem.order(u8, restartKey(mid), folded) == .gt) hi = mid else lo = mid + 1;
+    }
+    if (lo == 0) return null;
+    var pos: usize = restarts[lo - 1];
+    const end: usize = if (lo < restarts.len) restarts[lo] else blob.len;
+    var key: [256]u8 = undefined;
+    while (pos < end) {
+        const keep = blob[pos];
+        const extra = blob[pos + 1];
+        @memcpy(key[keep..][0..extra], blob[pos + 2 ..][0..extra]);
+        pos += 2 + extra;
+        const id = @as(u16, blob[pos]) | @as(u16, blob[pos + 1]) << 8;
+        pos += 2;
+        if (std.mem.eql(u8, key[0 .. keep + extra], folded)) return id;
+    }
+    return null;
+}
+
+const expected = [_][2][]const u8{

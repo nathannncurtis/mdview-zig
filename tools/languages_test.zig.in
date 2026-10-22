@@ -1,0 +1,11 @@
+};
+
+test "every Linguist name, alias and extension resolves to the same language" {
+    for (expected) |e| {
+        const id = lookup(e[0]) orelse return error.TestUnexpectedResult;
+        try std.testing.expectEqualStrings(e[1], name(id));
+    }
+    try std.testing.expect(lookup("") == null);
+    try std.testing.expect(lookup("no such language") == null);
+    try std.testing.expect(lookup("zzzzzzzz") == null);
+}

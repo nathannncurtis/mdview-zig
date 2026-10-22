@@ -1,0 +1,44 @@
+pub fn lookup(key: []const u8) ?[]const u8 {
+    if (key.len == 0 or key.len > max_name) return null;
+    var buf: [max_name]u8 = undefined;
+    var lo: usize = 0;
+    var hi: usize = restarts.len;
+    while (hi - lo > 1) {
+        const mid = lo + (hi - lo) / 2;
+        var n: usize = 0;
+        var pos: usize = restarts[mid] + 1;
+        while (true) : (pos += 1) {
+            buf[n] = names[pos] & 0x7f;
+            n += 1;
+            if (names[pos] & 0x80 != 0) break;
+        }
+        if (std.mem.order(u8, buf[0..n], key) == .gt) hi = mid else lo = mid;
+    }
+    var pos: usize = restarts[lo];
+    var idx = lo * block;
+    const end = @min(idx + block, count);
+    while (idx < end) : (idx += 1) {
+        var n: usize = names[pos];
+        pos += 1;
+        while (true) : (pos += 1) {
+            buf[n] = names[pos] & 0x7f;
+            n += 1;
+            if (names[pos] & 0x80 != 0) break;
+        }
+        pos += 1;
+        switch (std.mem.order(u8, buf[0..n], key)) {
+            .eq => {
+                const bit = idx * ref_bits;
+                const at = bit / 8;
+                const raw = std.mem.readInt(Raw, refs[at..][0..@sizeOf(Raw)], .little);
+                const ref = (raw >> @intCast(bit % 8)) & ((1 << ref_bits) - 1);
+                const off: usize = @intCast(ref & ((1 << off_bits) - 1));
+                const len: usize = @intCast(ref >> off_bits);
+                return values[off..][0..len];
+            },
+            .gt => return null,
+            .lt => {},
+        }
+    }
+    return null;
+}

@@ -71,10 +71,7 @@ pub fn build(b: *std.Build) void {
     });
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
-
-    const python = if (@import("builtin").os.tag == .windows) "python" else "python3";
-    const generator_test = b.addSystemCommand(&.{ python, "tools/test_gen_unicode.py", b.graph.zig_exe });
-    test_step.dependOn(&generator_test.step);
+    addTools(b, test_step);
 
     if (resolved.os.tag == .windows) {
         const hit_tests = b.addTest(.{
@@ -88,5 +85,58 @@ pub fn build(b: *std.Build) void {
             hit_tests.root_module.linkSystemLibrary(lib, .{});
         }
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
+    }
+}
+
+fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
+    return b.addExecutable(.{
+        .name = name,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path(file),
+            .target = b.graph.host,
+            .optimize = .ReleaseSafe,
+        }),
+    });
+}
+
+fn toolStep(b: *std.Build, step_name: []const u8, description: []const u8, exe: *std.Build.Step.Compile) *std.Build.Step.Run {
+    const run = b.addRunArtifact(exe);
+    run.setCwd(b.path("."));
+    run.addPassthruArgs();
+    b.step(step_name, description).dependOn(&run.step);
+    return run;
+}
+
+fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
+    const generators = [_]struct { step: []const u8, file: []const u8, what: []const u8 }{
+        .{ .step = "gen-entities", .file = "tools/gen_entities.zig", .what = "Regenerate src/entities.zig: <entities.json> <out.zig>" },
+        .{ .step = "gen-emoji", .file = "tools/gen_emoji.zig", .what = "Regenerate src/emoji.zig: <emoji.json> <out.zig>" },
+        .{ .step = "gen-unicode", .file = "tools/gen_unicode.zig", .what = "Regenerate src/unicode.zig: <UnicodeData.txt> <out.zig>" },
+        .{ .step = "gen-highlight-colors", .file = "tools/gen_highlight_colors.zig", .what = "Regenerate src/highlight_colors.zig: <primer-dark.json> <out.zig>" },
+        .{ .step = "gen-spec-cases", .file = "tools/gen_spec_cases.zig", .what = "Regenerate src/spec_inline_cases.zig: <spec.txt> <out.zig>" },
+        .{ .step = "release-notes", .file = "tools/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
+        .{ .step = "msix-assets", .file = "tools/make_assets.zig", .what = "Write the MSIX PNG assets from icon.ico into msix/Assets" },
+        .{ .step = "pack-msix", .file = "tools/pack_msix.zig", .what = "Build the MSIX: <mdview.exe> <version> <output.msix> <work dir>" },
+    };
+    for (generators) |g| _ = toolStep(b, g.step, g.what, toolExe(b, g.step, g.file));
+
+    const languages = toolExe(b, "gen-languages", "tools/gen_languages.zig");
+    languages.root_module.addImport("yaml", b.createModule(.{
+        .root_source_file = b.path("src/yaml.zig"),
+        .target = b.graph.host,
+    }));
+    _ = toolStep(b, "gen-languages", "Regenerate src/languages.zig: <languages.yml> <out.zig>", languages);
+
+    const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen_growth.zig"));
+    const growth_dir = growth.addOutputDirectoryArg("growth");
+    for ([_][]const u8{ "packed_four_times", "packed_u32_restarts", "packed_u64_refs", "unicode_wide" }) |name| {
+        const t = b.addTest(.{
+            .name = name,
+            .root_module = b.createModule(.{
+                .root_source_file = growth_dir.path(b, b.fmt("{s}.zig", .{name})),
+                .target = b.graph.host,
+            }),
+        });
+        test_step.dependOn(&b.addRunArtifact(t).step);
     }
 }

@@ -1,12 +1,12 @@
 name: codeql
 
-# CodeQL has no Zig support, so this scans the workflows and the Python tooling.
+# CodeQL has no Zig support, so this scans the workflows.
 on:
   pull_request:
-    paths: ['.github/workflows/**', '.github/scripts/**', '**/*.py']
+    paths: ['.github/workflows/**', '.github/scripts/**']
   push:
     branches: [master]
-    paths: ['.github/workflows/**', '.github/scripts/**', '**/*.py']
+    paths: ['.github/workflows/**', '.github/scripts/**']
   schedule:
     - cron: "23 5 * * 1"
 
@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [actions, python]
+        language: [actions]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
