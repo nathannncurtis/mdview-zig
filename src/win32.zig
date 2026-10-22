@@ -160,7 +160,8 @@ const IDWriteFactory_VTable = extern struct {
 const IDWriteTextLayout_VTable = extern struct {
     QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
-    _pad3_27: [25]*const anyopaque,
+    SetTextAlignment: *const fn (*anyopaque, u32) callconv(.c) HRESULT, // 3
+    _pad4_27: [24]*const anyopaque,
     SetMaxWidth: *const fn (*anyopaque, f32) callconv(.c) HRESULT, // 28
     SetMaxHeight: *const fn (*anyopaque, f32) callconv(.c) HRESULT, // 29
     _pad30: *const anyopaque,
@@ -201,6 +202,7 @@ var g_brush_code_bg: ?*anyopaque = null;
 var g_brush_code_text: ?*anyopaque = null;
 var g_brush_quote: ?*anyopaque = null;
 var g_brush_hr: ?*anyopaque = null;
+var g_brush_table_border: ?*anyopaque = null;
 var g_brush_close: ?*anyopaque = null;
 var g_brush_hl_keyword: ?*anyopaque = null;
 var g_brush_hl_string: ?*anyopaque = null;
@@ -280,6 +282,7 @@ fn createBrushes(rt: *anyopaque) void {
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_code_text);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_quote);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.129, .g = 0.149, .b = 0.176, .a = 1 }, null, &g_brush_hr);
+    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.188, .g = 0.212, .b = 0.239, .a = 1 }, null, &g_brush_table_border);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 1.0, .g = 0.482, .b = 0.447, .a = 1 }, null, &g_brush_hl_keyword);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.647, .g = 0.839, .b = 1.0, .a = 1 }, null, &g_brush_hl_string);
@@ -344,6 +347,9 @@ fn render() void {
             .code_block => {
                 y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block.content.text, padding, y, max_width) + 16;
             },
+            .table => {
+                y += renderTable(vt_rt, vt_dw, rt, dwf, block.table, padding, y, max_width) + 16;
+            },
             .hr => {
                 y += 12;
                 vt_rt.FillRectangle(rt, &.{ .left = padding, .top = y, .right = padding + max_width, .bottom = y + 2 }, g_brush_hr.?);
@@ -392,6 +398,80 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
         _ = vt_layout.SetFontStyle(lay, 2, wideRange(content.text, span));
     }
     return lay;
+}
+
+const cell_pad_x: f32 = 13;
+const cell_pad_y: f32 = 6;
+
+fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table, row: usize, col: usize, width: f32) ?*anyopaque {
+    const content = t.cell(row, col);
+    const lay = createLayout(vt_dw, dwf, content, g_text_format orelse return null, width) orelse return null;
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    if (row == 0) _ = vt.SetFontWeight(lay, 700, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
+    _ = vt.SetTextAlignment(lay, switch (t.aligns[col]) {
+        .none, .left => 0,
+        .right => 1,
+        .center => 2,
+    });
+    return lay;
+}
+
+fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: md.Table, x: f32, y: f32, max_width: f32) f32 {
+    const border = g_brush_table_border orelse return 0;
+    const widths = app.gpa.alloc(f32, t.columns) catch return 0;
+    defer app.gpa.free(widths);
+    const layouts = app.gpa.alloc(?*anyopaque, t.columns) catch return 0;
+    defer app.gpa.free(layouts);
+
+    @memset(widths, 0);
+    for (0..t.rows()) |row| {
+        for (widths, 0..) |*w, col| {
+            const lay = cellLayout(vt_dw, dwf, t, row, col, 100000) orelse continue;
+            defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+            var m: DWRITE_TEXT_METRICS = undefined;
+            _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
+            w.* = @max(w.*, m.widthIncludingTrailingWhitespace);
+        }
+    }
+    var table_w: f32 = 0;
+    for (widths) |*w| w.* += cell_pad_x * 2 + 1;
+    md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
+    for (widths) |w| table_w += w;
+
+    var row_y = y;
+    for (0..t.rows()) |row| {
+        var text_h: f32 = 21;
+        for (layouts, 0..) |*lay, col| {
+            lay.* = cellLayout(vt_dw, dwf, t, row, col, widths[col] - cell_pad_x * 2);
+            if (lay.*) |l| {
+                var m: DWRITE_TEXT_METRICS = undefined;
+                _ = vtable(IDWriteTextLayout_VTable, l).GetMetrics(l, &m);
+                text_h = @max(text_h, m.height);
+            }
+        }
+        const row_h = text_h + cell_pad_y * 2;
+        if (row == 0) {
+            if (g_brush_code_bg) |bg| vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + row_h }, bg);
+        }
+        var cx = x;
+        for (layouts, widths) |lay, w| {
+            if (lay) |l| {
+                vt_rt.DrawTextLayout(rt, .{ .x = cx + cell_pad_x, .y = row_y + cell_pad_y }, l, g_brush_text.?, 0);
+                _ = vtable(IDWriteTextLayout_VTable, l).Release(l);
+            }
+            cx += w;
+        }
+        vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
+        row_y += row_h;
+    }
+    vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
+    var cx = x;
+    vt_rt.FillRectangle(rt, &.{ .left = cx, .top = y, .right = cx + 1, .bottom = row_y + 1 }, border);
+    for (widths) |w| {
+        cx += w;
+        vt_rt.FillRectangle(rt, &.{ .left = cx - 1, .top = y, .right = cx, .bottom = row_y + 1 }, border);
+    }
+    return row_y + 1 - y;
 }
 
 fn wideRange(text: []const u8, span: md.Span) DWRITE_TEXT_RANGE {

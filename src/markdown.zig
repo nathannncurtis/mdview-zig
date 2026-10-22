@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const BlockKind = enum { h1, h2, h3, paragraph, code_block, blockquote, hr, list_item, blank };
+pub const BlockKind = enum { h1, h2, h3, paragraph, code_block, blockquote, hr, list_item, table, blank };
 
 /// Byte offset and length within `Inline.text`.
 pub const Span = [2]u32;
@@ -13,9 +13,27 @@ pub const Inline = struct {
     code: []const Span = &.{},
 };
 
+pub const Align = enum { none, left, center, right };
+
+pub const Table = struct {
+    columns: usize = 0,
+    aligns: []const Align = &.{},
+    /// Row-major; row 0 is the header. Every row has exactly `columns` cells.
+    cells: []const Inline = &.{},
+
+    pub fn rows(t: Table) usize {
+        return if (t.columns == 0) 0 else t.cells.len / t.columns;
+    }
+
+    pub fn cell(t: Table, row: usize, col: usize) Inline {
+        return t.cells[row * t.columns + col];
+    }
+};
+
 pub const Block = struct {
     kind: BlockKind,
     content: Inline = .{},
+    table: Table = .{},
 };
 
 pub const Document = struct {
@@ -49,7 +67,12 @@ const RawInline = struct {
 const RawBlock = struct {
     kind: BlockKind,
     content: RawInline,
+    columns: u32 = 0,
+    aligns: Range = .{ .lo = 0, .hi = 0 },
+    cells: Range = .{ .lo = 0, .hi = 0 },
 };
+
+const LineIterator = std.mem.SplitIterator(u8, .scalar);
 
 // Everything is stored as offsets while parsing, because the lists reallocate;
 // slices are only built in finish().
@@ -60,6 +83,9 @@ const Parser = struct {
     italic: std.ArrayList(Span) = .empty,
     code: std.ArrayList(Span) = .empty,
     blocks: std.ArrayList(RawBlock) = .empty,
+    aligns: std.ArrayList(Align) = .empty,
+    cells: std.ArrayList(RawInline) = .empty,
+    scratch: std.ArrayList(u8) = .empty,
 
     fn run(p: *Parser, markdown: []const u8) Allocator.Error!void {
         var in_code = false;
@@ -108,16 +134,26 @@ const Parser = struct {
                 try p.addInlineBlock(.list_item, line[dot + 2 ..]);
             } else if (std.mem.startsWith(u8, line, "<")) {
                 continue;
-            } else {
+            } else if (!try p.tryTable(line, &lines)) {
                 try p.addInlineBlock(.paragraph, line);
             }
         }
     }
 
     fn finish(p: *Parser) Allocator.Error![]const Block {
+        const cells = try p.a.alloc(Inline, p.cells.items.len);
+        for (cells, p.cells.items) |*c, raw| c.* = p.resolve(raw);
         const out = try p.a.alloc(Block, p.blocks.items.len);
         for (out, p.blocks.items) |*b, raw| {
-            b.* = .{ .kind = raw.kind, .content = p.resolve(raw.content) };
+            b.* = .{
+                .kind = raw.kind,
+                .content = p.resolve(raw.content),
+                .table = .{
+                    .columns = raw.columns,
+                    .aligns = p.aligns.items[raw.aligns.lo..raw.aligns.hi],
+                    .cells = cells[raw.cells.lo..raw.cells.hi],
+                },
+            };
         }
         return out;
     }
@@ -153,6 +189,62 @@ const Parser = struct {
 
     fn addInlineBlock(p: *Parser, kind: BlockKind, raw: []const u8) Allocator.Error!void {
         try p.addBlock(kind, try p.parseInline(raw));
+    }
+
+    fn tryTable(p: *Parser, header_line: []const u8, lines: *LineIterator) Allocator.Error!bool {
+        if (std.mem.indexOfScalar(u8, header_line, '|') == null) return false;
+        const delim_line = std.mem.trimEnd(u8, lines.peek() orelse return false, "\r");
+        if (std.mem.indexOfScalar(u8, delim_line, '|') == null) return false;
+
+        const header = try splitRow(p.a, header_line);
+        const delims = try splitRow(p.a, delim_line);
+        if (header.len != delims.len) return false;
+        const aligns_lo: u32 = @intCast(p.aligns.items.len);
+        for (delims) |d| {
+            const a = parseAlign(d) orelse {
+                p.aligns.shrinkRetainingCapacity(aligns_lo);
+                return false;
+            };
+            try p.aligns.append(p.a, a);
+        }
+        _ = lines.next();
+
+        const columns: u32 = @intCast(header.len);
+        const cells_lo: u32 = @intCast(p.cells.items.len);
+        try p.addRow(header, columns);
+        while (lines.peek()) |raw| {
+            const row = std.mem.trimEnd(u8, raw, "\r");
+            if (std.mem.trim(u8, row, " \t").len == 0 or std.mem.indexOfScalar(u8, row, '|') == null) break;
+            _ = lines.next();
+            try p.addRow(try splitRow(p.a, row), columns);
+        }
+
+        try p.blocks.append(p.a, .{
+            .kind = .table,
+            .content = p.textFrom(p.textLen()),
+            .columns = columns,
+            .aligns = .{ .lo = aligns_lo, .hi = @intCast(p.aligns.items.len) },
+            .cells = .{ .lo = cells_lo, .hi = @intCast(p.cells.items.len) },
+        });
+        return true;
+    }
+
+    // GFM pads short rows with empty cells and ignores cells past the header's count.
+    fn addRow(p: *Parser, cells: []const []const u8, columns: u32) Allocator.Error!void {
+        for (0..columns) |col| {
+            if (col >= cells.len) {
+                try p.cells.append(p.a, p.textFrom(p.textLen()));
+                continue;
+            }
+            p.scratch.clearRetainingCapacity();
+            const raw = cells[col];
+            var i: usize = 0;
+            while (i < raw.len) : (i += 1) {
+                if (raw[i] == '\\' and i + 1 < raw.len and raw[i + 1] == '|') i += 1;
+                try p.scratch.append(p.a, raw[i]);
+            }
+            try p.cells.append(p.a, try p.parseInline(p.scratch.items));
+        }
     }
 
     fn parseInline(p: *Parser, raw: []const u8) Allocator.Error!RawInline {
@@ -209,6 +301,41 @@ const Parser = struct {
     }
 };
 
+fn splitRow(a: Allocator, line: []const u8) Allocator.Error![]const []const u8 {
+    var s = std.mem.trim(u8, line, " \t");
+    if (s.len > 0 and s[0] == '|') s = s[1..];
+    if (s.len > 0 and s[s.len - 1] == '|' and !(s.len > 1 and s[s.len - 2] == '\\')) s = s[0 .. s.len - 1];
+
+    var cells: std.ArrayList([]const u8) = .empty;
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        if (s[i] == '\\') {
+            i += 1;
+        } else if (s[i] == '|') {
+            try cells.append(a, std.mem.trim(u8, s[start..i], " \t"));
+            start = i + 1;
+        }
+    }
+    try cells.append(a, std.mem.trim(u8, s[@min(start, s.len)..], " \t"));
+    return cells.items;
+}
+
+fn parseAlign(cell: []const u8) ?Align {
+    if (cell.len == 0) return null;
+    const left = cell[0] == ':';
+    const right = cell[cell.len - 1] == ':';
+    var dashes = cell;
+    if (left) dashes = dashes[1..];
+    if (right and dashes.len > 0) dashes = dashes[0 .. dashes.len - 1];
+    if (dashes.len == 0) return null;
+    for (dashes) |ch| if (ch != '-') return null;
+    if (left and right) return .center;
+    if (left) return .left;
+    if (right) return .right;
+    return .none;
+}
+
 const LinkResult = struct { text: []const u8, end: usize };
 
 fn parseLinkOrImage(raw: []const u8, start: usize) ?LinkResult {
@@ -236,6 +363,23 @@ fn parseLinkOrImage(raw: []const u8, start: usize) ?LinkResult {
     }
     if (k >= raw.len) return null;
     return .{ .text = raw[start + 1 .. bracket_end], .end = k + 1 };
+}
+
+/// Shrinks natural column widths to fit `available`: columns narrower than an even
+/// share keep their width, wider ones split what is left in proportion.
+pub fn fitColumns(widths: []f32, available: f32, min_width: f32) void {
+    var total: f32 = 0;
+    for (widths) |w| total += w;
+    if (widths.len == 0 or total <= available) return;
+    const fair = available / @as(f32, @floatFromInt(widths.len));
+    var narrow: f32 = 0;
+    for (widths) |w| {
+        if (w <= fair) narrow += w;
+    }
+    const scale = (available - narrow) / (total - narrow);
+    for (widths) |*w| {
+        if (w.* > fair) w.* = @max(min_width, w.* * scale);
+    }
 }
 
 /// UTF-16 code unit count of `text[0..byte_offset]`, for APIs that index text in UTF-16.
@@ -353,4 +497,67 @@ test "utf16 offsets count surrogate pairs" {
     var cursor: Utf16Cursor = .{ .text = text };
     try testing.expectEqual(@as(u32, 4), cursor.at(7));
     try testing.expectEqual(@as(u32, 1), cursor.at(1));
+}
+
+test "table with alignment, escaped pipes and ragged rows" {
+    const src =
+        \\| Left | Center | Right | None |
+        \\|:-----|:------:|------:|------|
+        \\| a \| b | **c** | `d` |
+        \\| 1 | 2 | 3 | 4 | 5 |
+        \\
+        \\after
+    ;
+    var doc = try parse(testing.allocator, src);
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 2), doc.blocks.len);
+    try testing.expectEqual(BlockKind.table, doc.blocks[0].kind);
+
+    const t = doc.blocks[0].table;
+    try testing.expectEqual(@as(usize, 4), t.columns);
+    try testing.expectEqualSlices(Align, &.{ .left, .center, .right, .none }, t.aligns);
+    try testing.expectEqual(@as(usize, 3), t.rows());
+    try testing.expectEqualStrings("Center", t.cell(0, 1).text);
+    try testing.expectEqualStrings("a | b", t.cell(1, 0).text);
+    try testing.expectEqualStrings("c", t.cell(1, 1).text);
+    try testing.expectEqual(@as(usize, 1), t.cell(1, 1).bold.len);
+    try testing.expectEqualStrings("d", t.cell(1, 2).text);
+    try testing.expectEqual(@as(usize, 1), t.cell(1, 2).code.len);
+    try testing.expectEqualStrings("", t.cell(1, 3).text);
+    try testing.expectEqualStrings("4", t.cell(2, 3).text);
+    try testing.expectEqualStrings("after", doc.blocks[1].content.text);
+}
+
+test "table without outer pipes" {
+    var doc = try parse(testing.allocator, "a | *b*\n--- | :---\n1 | 2\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 1), doc.blocks.len);
+    const t = doc.blocks[0].table;
+    try testing.expectEqual(@as(usize, 2), t.columns);
+    try testing.expectEqual(@as(usize, 2), t.rows());
+    try testing.expectEqualSlices(Align, &.{ .none, .left }, t.aligns);
+    try testing.expectEqual(@as(usize, 1), t.cell(0, 1).italic.len);
+    try testing.expectEqualStrings("2", t.cell(1, 1).text);
+}
+
+test "pipe lines without a delimiter row stay paragraphs" {
+    var doc = try parse(testing.allocator, "a | b\nc | d\n\n| x | y |\n|---|\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 4), doc.blocks.len);
+    for (doc.blocks) |b| try testing.expectEqual(BlockKind.paragraph, b.kind);
+    try testing.expectEqualStrings("a | b", doc.blocks[0].content.text);
+    try testing.expectEqualStrings("| x | y |", doc.blocks[2].content.text);
+    try testing.expectEqualStrings("|---|", doc.blocks[3].content.text);
+}
+
+test "fitColumns keeps narrow columns and shrinks wide ones" {
+    var widths = [_]f32{ 50, 400, 600 };
+    fitColumns(&widths, 550, 40);
+    try testing.expectEqual(@as(f32, 50), widths[0]);
+    try testing.expectApproxEqAbs(@as(f32, 500), widths[1] + widths[2], 0.01);
+    try testing.expect(widths[2] > widths[1]);
+
+    var fits = [_]f32{ 10, 20 };
+    fitColumns(&fits, 100, 40);
+    try testing.expectEqual(@as(f32, 20), fits[1]);
 }
