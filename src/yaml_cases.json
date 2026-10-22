@@ -1,0 +1,1394 @@
+[
+{
+"src": "\n\na: 1",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "  a: 1\n  b: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": " - a\n- b",
+"want": "OTHER"
+},
+{
+"src": "!!map {a: 1}",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "!!str <<: {a: 1}",
+"want": "<table><tbody><tr><th>&lt;&lt;</th><td><table><thead><tr><th>a</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "!!str k: v",
+"want": "<table><tbody><tr><th>k</th><td>v</td></tr></tbody></table>"
+},
+{
+"src": "!ruby/hash:Foo\na: 1",
+"want": "ERR Error in user YAML: Tried to load unspecified class: Foo"
+},
+{
+"src": "\"<<\": {a: 1}\nb: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "\"a",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 1"
+},
+{
+"src": "\"a\" b: c",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "\"a\": 1\n'b': 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "# c\na: 1",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "# only a comment",
+"want": "OTHER"
+},
+{
+"src": "%TAG ! tag:example.com:\n--- a: 1",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 2 column 6"
+},
+{
+"src": "%YAML 1.1\na: 1",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected <document start> at line 1 column 1"
+},
+{
+"src": "%a: 1",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected non-alphabetical character while scanning a directive at line 1 column 1"
+},
+{
+"src": "&",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected alphabetic or numeric character while scanning an anchor at line 1 column 1"
+},
+{
+"src": "&x !!str",
+"want": "OTHER"
+},
+{
+"src": "&x a: &y b",
+"want": "<table><tbody><tr><th>a</th><td>b</td></tr></tbody></table>"
+},
+{
+"src": "&x a: 1",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "*x",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "-\n  a",
+"want": "OTHER"
+},
+{
+"src": "-\n- b",
+"want": "OTHER"
+},
+{
+"src": "- \n  - x",
+"want": "OTHER"
+},
+{
+"src": "- - - a",
+"want": "OTHER"
+},
+{
+"src": "- - a\n   - b",
+"want": "OTHER"
+},
+{
+"src": "- - a\n  - b",
+"want": "OTHER"
+},
+{
+"src": "- ? a\n  : b",
+"want": "OTHER"
+},
+{
+"src": "- a\n\t- b",
+"want": "ERR Error in user YAML: (<unknown>): found a tab character that violates indentation while scanning a plain scalar at line 1 column 3"
+},
+{
+"src": "- a\n  b: c",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 2 column 4"
+},
+{
+"src": "- a\n - b",
+"want": "OTHER"
+},
+{
+"src": "- a\n -b",
+"want": "OTHER"
+},
+{
+"src": "- a\n- b",
+"want": "OTHER"
+},
+{
+"src": "- a\n- b: 1\n  c: 2\n- - d",
+"want": "OTHER"
+},
+{
+"src": "- a\nb: 1",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected '-' indicator while parsing a block collection at line 1 column 1"
+},
+{
+"src": "- a: 1\n   b: 2",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 2 column 5"
+},
+{
+"src": "- a: 1\n b: 2",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected '-' indicator while parsing a block collection at line 1 column 1"
+},
+{
+"src": "- {a: 1}\n- {b: 2}",
+"want": "OTHER"
+},
+{
+"src": "1: a\n\"1\": b\n1.0: c",
+"want": "<table><tbody><tr><th>1</th><td>a</td></tr><tr><th>1</th><td>b</td></tr><tr><th>1.0</th><td>c</td></tr></tbody></table>"
+},
+{
+"src": "42",
+"want": "OTHER"
+},
+{
+"src": ": v",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": ":a: 1\n:b: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "<<: [1, 2]",
+"want": "<table><tbody><tr><th>&lt;&lt;</th><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "<<: [{a: 1}, 2]",
+"want": "<table><tbody><tr><th>&lt;&lt;</th><td><table><tbody><tr><td><table><thead><tr><th>a</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "<<: scalar\nb: 1",
+"want": "<table><tbody><tr><th>&lt;&lt;</th><td>scalar</td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "<<: {a: 1}\na: 2",
+"want": "<table><tbody><tr><th>a</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "? \n: b",
+"want": "<table><tbody><tr><th></th><td>b</td></tr></tbody></table>"
+},
+{
+"src": "? - a\n: b",
+"want": "<table><tbody><tr><th>[\"a\"]</th><td>b</td></tr></tbody></table>"
+},
+{
+"src": "? <<\n: {a: 1}",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "? [a, b]\n: c",
+"want": "<table><tbody><tr><th>[\"a\", \"b\"]</th><td>c</td></tr></tbody></table>"
+},
+{
+"src": "? a\n b: c",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 2 column 3"
+},
+{
+"src": "? a\n: b",
+"want": "<table><tbody><tr><th>a</th><td>b</td></tr></tbody></table>"
+},
+{
+"src": "? a\n? b\n: c",
+"want": "<table><tbody><tr><th>a</th><td></td></tr><tr><th>b</th><td>c</td></tr></tbody></table>"
+},
+{
+"src": "? {a: 1}\n: v",
+"want": "<table><tbody><tr><th>{\"a\" =&gt; 1}</th><td>v</td></tr></tbody></table>"
+},
+{
+"src": "@a: 1",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 1"
+},
+{
+"src": "[",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 2 column 1"
+},
+{
+"src": "[a, b]",
+"want": "OTHER"
+},
+{
+"src": "[a]\nb: 2",
+"want": "OTHER"
+},
+{
+"src": "]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a block node at line 1 column 1"
+},
+{
+"src": "a\n: b",
+"want": "OTHER"
+},
+{
+"src": "a b c: d e f",
+"want": "<table><tbody><tr><th>a b c</th><td>d e f</td></tr></tbody></table>"
+},
+{
+"src": "a b: c\n d: e",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 2 column 3"
+},
+{
+"src": "a:\t1",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a:\n\t- b",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 2 column 1"
+},
+{
+"src": "a:\n\tb: 1",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 2 column 1"
+},
+{
+"src": "a:\n\n\n  b: 1",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n\n  x",
+"want": "<table><tbody><tr><th>a</th><td>x</td></tr></tbody></table>"
+},
+{
+"src": "a:\n   b: 1\n  c: 2",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a:\n  - *x",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "a:\n  - - 1\n    - 2\n  - - 3",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td><td><table><tbody><tr><td>3</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n  - b\n  - c:\n d: 1",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a:\n  - b\n c: d",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a:\n  - b:\n      c: 1\n    d: 2\n  - e",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><thead><tr><th>b</th><th>d</th></tr></thead><tbody><tr><td><table><thead><tr><th>c</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td><td>2</td></tr></tbody></table></td><td>e</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n  - ~\n  - \"\"\n  - x",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td></td><td></td><td>x</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n  ? b\n  : c",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td>c</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n  b\n  c",
+"want": "<table><tbody><tr><th>a</th><td>b c</td></tr></tbody></table>"
+},
+{
+"src": "a:\n  b:\n    c: 1\n  d: 2",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th><th>d</th></tr></thead><tbody><tr><td><table><thead><tr><th>c</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n  b: 1\n   c: 2",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 3 column 5"
+},
+{
+"src": "a:\n  b: 1\n c: 2",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a:\n  b: c\n  d",
+"want": "ERR Error in user YAML: (<unknown>): could not find expected ':' while scanning a simple key at line 3 column 3"
+},
+{
+"src": "a:\n  x:\n  y:",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th><th>y</th></tr></thead><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n  x:\n  y: 1",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th><th>y</th></tr></thead><tbody><tr><td></td><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n- b\n-\n- c",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>b</td><td></td><td>c</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\n- x\n b: 1",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 3 column 3"
+},
+{
+"src": "a:\n- x\n- y",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>x</td><td>y</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a:\nb: ~\n? c",
+"want": "<table><tbody><tr><th>a</th><td></td></tr><tr><th>b</th><td></td></tr><tr><th>c</th><td></td></tr></tbody></table>"
+},
+{
+"src": "a:    spaced   value  ",
+"want": "<table><tbody><tr><th>a</th><td>spaced value</td></tr></tbody></table>"
+},
+{
+"src": "a: !",
+"want": "<table><tbody><tr><th>a</th><td></td></tr></tbody></table>"
+},
+{
+"src": "a: !!",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected tag URI while parsing a tag at line 1 column 4"
+},
+{
+"src": "a: !!",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected tag URI while parsing a tag at line 1 column 4"
+},
+{
+"src": "a: !!binary %%%",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 13"
+},
+{
+"src": "a: !!binary aGk=",
+"want": "<table><tbody><tr><th>a</th><td>hi</td></tr></tbody></table>"
+},
+{
+"src": "a: !!binary |\n  aGVs\n  bG8=",
+"want": "<table><tbody><tr><th>a</th><td>hello</td></tr></tbody></table>"
+},
+{
+"src": "a: !!bogus x",
+"want": "<table><tbody><tr><th>a</th><td>x</td></tr></tbody></table>"
+},
+{
+"src": "a: !!bool maybe",
+"want": "<table><tbody><tr><th>a</th><td>maybe</td></tr></tbody></table>"
+},
+{
+"src": "a: !!bool yes",
+"want": "<table><tbody><tr><th>a</th><td>true</td></tr></tbody></table>"
+},
+{
+"src": "a: !!float \"1.5\"",
+"want": "<table><tbody><tr><th>a</th><td>1.5</td></tr></tbody></table>"
+},
+{
+"src": "a: !!float 1",
+"want": "<table><tbody><tr><th>a</th><td>1.0</td></tr></tbody></table>"
+},
+{
+"src": "a: !!float 1_000",
+"want": "<table><tbody><tr><th>a</th><td>1000.0</td></tr></tbody></table>"
+},
+{
+"src": "a: !!float 1e3",
+"want": "<table><tbody><tr><th>a</th><td>1000.0</td></tr></tbody></table>"
+},
+{
+"src": "a: !!float true",
+"want": "ERR Error in parsing user YAML"
+},
+{
+"src": "a: !!float x",
+"want": "ERR Error in parsing user YAML"
+},
+{
+"src": "a: !!float ~",
+"want": "ERR Error in parsing user YAML"
+},
+{
+"src": "a: !!int \"5\"",
+"want": "<table><tbody><tr><th>a</th><td>5</td></tr></tbody></table>"
+},
+{
+"src": "a: !!int 1.5\nb: !!int 0x10",
+"want": "<table><tbody><tr><th>a</th><td>1.5</td></tr><tr><th>b</th><td>16</td></tr></tbody></table>"
+},
+{
+"src": "a: !!int abc",
+"want": "<table><tbody><tr><th>a</th><td>abc</td></tr></tbody></table>"
+},
+{
+"src": "a: !!map {x: 1}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: !!null ''",
+"want": "<table><tbody><tr><th>a</th><td></td></tr></tbody></table>"
+},
+{
+"src": "a: !!omap\n  - x: 1",
+"want": "ERR Error in parsing user YAML"
+},
+{
+"src": "a: !!omap\n  - x: 1",
+"want": "ERR Error in parsing user YAML"
+},
+{
+"src": "a: !!pairs\n  - x: 1",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: !!ruby/object:Foo {}",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: !!seq [1, 2]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: !!set\n  ? x",
+"want": "ERR Error in user YAML: Tried to load unspecified class: Psych::Set"
+},
+{
+"src": "a: !!set {x, y}",
+"want": "ERR Error in user YAML: Tried to load unspecified class: Psych::Set"
+},
+{
+"src": "a: !!str\n  - x",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>x</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: !!str\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td></td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: !!str &x v",
+"want": "<table><tbody><tr><th>a</th><td>v</td></tr></tbody></table>"
+},
+{
+"src": "a: !!str 123",
+"want": "<table><tbody><tr><th>a</th><td>123</td></tr></tbody></table>"
+},
+{
+"src": "a: !!timestamp 2024-01-15",
+"want": "<table><tbody><tr><th>a</th><td>2024-01-15</td></tr></tbody></table>"
+},
+{
+"src": "a: !<>",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected tag URI while parsing a tag at line 1 column 4"
+},
+{
+"src": "a: !<abc",
+"want": "ERR Error in user YAML: (<unknown>): did not find the expected '>' while scanning a tag at line 1 column 4"
+},
+{
+"src": "a: !<tag:yaml.org,2002:str> x",
+"want": "<table><tbody><tr><th>a</th><td>x</td></tr></tbody></table>"
+},
+{
+"src": "a: !<x",
+"want": "ERR Error in user YAML: (<unknown>): did not find the expected '>' while scanning a tag at line 1 column 4"
+},
+{
+"src": "a: !a !b c",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: !a!b c",
+"want": "ERR Error in user YAML: (<unknown>): found undefined tag handle while parsing a node at line 1 column 4"
+},
+{
+"src": "a: !custom foo",
+"want": "<table><tbody><tr><th>a</th><td>foo</td></tr></tbody></table>"
+},
+{
+"src": "a: !foo\n  k: v",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>k</th></tr></thead><tbody><tr><td>v</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: !ruby/object:Foo\n  x: 1",
+"want": "ERR Error in user YAML: Tried to load unspecified class: Foo"
+},
+{
+"src": "a: !ruby/range 1..2",
+"want": "ERR Error in user YAML: Tried to load unspecified class: Range"
+},
+{
+"src": "a: !ruby/regexp /x/",
+"want": "ERR Error in user YAML: Tried to load unspecified class: Regexp"
+},
+{
+"src": "a: !ruby/sym :x",
+"want": "<table><tbody><tr><th>a</th><td>:x</td></tr></tbody></table>"
+},
+{
+"src": "a: !ruby/symbol\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td></td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: !ruby/symbol foo",
+"want": "<table><tbody><tr><th>a</th><td>foo</td></tr></tbody></table>"
+},
+{
+"src": "a: \"",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"\\",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"\\U00110000\"",
+"want": "ERR Error in user YAML: (<unknown>): found invalid Unicode character escape code while parsing a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"\\u00e9\\x41\\N\\_\\e\"",
+"want": "<table><tbody><tr><th>a</th><td>éA� �</td></tr></tbody></table>"
+},
+{
+"src": "a: \"\\uD800\"",
+"want": "ERR Error in user YAML: (<unknown>): found invalid Unicode character escape code while parsing a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"\\xZZ\"",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected hexdecimal number while parsing a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"multi\n\n  para\"",
+"want": "<table><tbody><tr><th>a</th><td>multi para</td></tr></tbody></table>"
+},
+{
+"src": "a: \"one\n  two\"",
+"want": "<table><tbody><tr><th>a</th><td>one two</td></tr></tbody></table>"
+},
+{
+"src": "a: \"unterminated\nb: 1",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"x",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"x\ty\"",
+"want": "<table><tbody><tr><th>a</th><td>x y</td></tr></tbody></table>"
+},
+{
+"src": "a: \"x\ny\"\nb: z",
+"want": "<table><tbody><tr><th>a</th><td>x y</td></tr><tr><th>b</th><td>z</td></tr></tbody></table>"
+},
+{
+"src": "a: \"x \\\n   y\"",
+"want": "<table><tbody><tr><th>a</th><td>x y</td></tr></tbody></table>"
+},
+{
+"src": "a: \"x\" \"y\"",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: \"x\" # c\n  y",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: \"x\" # c\nb: 'y' # c",
+"want": "<table><tbody><tr><th>a</th><td>x</td></tr><tr><th>b</th><td>y</td></tr></tbody></table>"
+},
+{
+"src": "a: \"x\"y",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: \"x\\\ny\"",
+"want": "<table><tbody><tr><th>a</th><td>xy</td></tr></tbody></table>"
+},
+{
+"src": "a: \"x\\qy\"",
+"want": "ERR Error in user YAML: (<unknown>): found unknown escape character while parsing a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: \"x\\x4\"",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected hexdecimal number while parsing a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: # comment",
+"want": "<table><tbody><tr><th>a</th><td></td></tr></tbody></table>"
+},
+{
+"src": "a: %",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 4"
+},
+{
+"src": "a: %x\nb: ?x\nc: ? x\nd: b'c\ne: x\"y",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 4"
+},
+{
+"src": "a: &",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected alphabetic or numeric character while scanning an anchor at line 1 column 4"
+},
+{
+"src": "a: &a\n  k: old\nc:\n  <<: *a\n  k: new",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "a: &a\n  x: 1\nb: &b\n  y: 2\nc:\n  <<: [*a, *b]\n  z: 3",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "a: &x",
+"want": "<table><tbody><tr><th>a</th><td></td></tr></tbody></table>"
+},
+{
+"src": "a: &x\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td></td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: &x !!str v",
+"want": "<table><tbody><tr><th>a</th><td>v</td></tr></tbody></table>"
+},
+{
+"src": "a: &x &y z",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: &x 1",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: &x 1\nb: *x",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "a: &x [1, *x]",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "a: &x:y z",
+"want": "<table><tbody><tr><th>a</th><td>y z</td></tr></tbody></table>"
+},
+{
+"src": "a: '''",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: 'it''s'\nb: \"tab\\there\"\nc: \"uni\\u00e9\"\nd: \"nl\\nx\"\ne: 'a\\nb'",
+"want": "<table><tbody><tr><th>a</th><td>it's</td></tr><tr><th>b</th><td>tab here</td></tr><tr><th>c</th><td>unié</td></tr><tr><th>d</th><td>nl x</td></tr><tr><th>e</th><td>a\\nb</td></tr></tbody></table>"
+},
+{
+"src": "a: 'multi\n  line'",
+"want": "<table><tbody><tr><th>a</th><td>multi line</td></tr></tbody></table>"
+},
+{
+"src": "a: 'unterminated\nb: 1",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: 'x",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: 'x\n\n  y'",
+"want": "<table><tbody><tr><th>a</th><td>x y</td></tr></tbody></table>"
+},
+{
+"src": "a: 'x\n...\n'",
+"want": "ERR Error in user YAML: (<unknown>): found unexpected document indicator while scanning a quoted scalar at line 1 column 4"
+},
+{
+"src": "a: 'x' 'y'",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: 'x'y",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: *",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected alphabetic or numeric character while scanning an alias at line 1 column 4"
+},
+{
+"src": "a: *x\n:",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: *x\nb: &x 1",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "a: *x\nb: *y",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "a: *x\nb: [",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 3 column 1"
+},
+{
+"src": "a: *x*",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected alphabetic or numeric character while scanning an alias at line 1 column 4"
+},
+{
+"src": "a: ,x",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a block node at line 1 column 4"
+},
+{
+"src": "a: - b",
+"want": "ERR Error in user YAML: (<unknown>): block sequence entries are not allowed in this context at line 1 column 4"
+},
+{
+"src": "a: ---",
+"want": "<table><tbody><tr><th>a</th><td>---</td></tr></tbody></table>"
+},
+{
+"src": "a: --- b",
+"want": "<table><tbody><tr><th>a</th><td>--- b</td></tr></tbody></table>"
+},
+{
+"src": "a: -1\nb: - x",
+"want": "ERR Error in user YAML: (<unknown>): block sequence entries are not allowed in this context at line 2 column 4"
+},
+{
+"src": "a: ...",
+"want": "<table><tbody><tr><th>a</th><td>...</td></tr></tbody></table>"
+},
+{
+"src": "a: 0o17\nb: 017\nc: 08\nd: 0x\ne: 0b\nf: 1e\ng: -\nh: +\ni: --\nj: 1__0\nk: 1,00\nl: 1,0,0\nm: .e1\nn: 1.e+3",
+"want": "ERR Error in user YAML: (<unknown>): block sequence entries are not allowed in this context at line 7 column 4"
+},
+{
+"src": "a: 1\t# c",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n\n\nb: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n  # indented comment\nb: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n b",
+"want": "<table><tbody><tr><th>a</th><td>1 b</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n b: 2",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 2 column 3"
+},
+{
+"src": "a: 1\n# c",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n%b",
+"want": "ERR Error in user YAML: (<unknown>): found unknown directive name while scanning a directive at line 2 column 1"
+},
+{
+"src": "a: 1\n- b",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: 1\n...",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n...\nb: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n...\nb: [",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n... \nb: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n... x\nb: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n<<: {a: 2, b: 3}",
+"want": "<table><tbody><tr><th>a</th><td>2</td></tr><tr><th>b</th><td>3</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n<<: {a: 9}\na: 2",
+"want": "<table><tbody><tr><th>a</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\n[b]",
+"want": "ERR Error in user YAML: (<unknown>): could not find expected ':' while scanning a simple key at line 2 column 1"
+},
+{
+"src": "a: 1\na: 2",
+"want": "<table><tbody><tr><th>a</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "a: 1\nnope",
+"want": "ERR Error in user YAML: (<unknown>): could not find expected ':' while scanning a simple key at line 2 column 1"
+},
+{
+"src": "a: 1 # comment\nb: \"x # y\"",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>x # y</td></tr></tbody></table>"
+},
+{
+"src": "a: 1 &x",
+"want": "<table><tbody><tr><th>a</th><td>1 &amp;x</td></tr></tbody></table>"
+},
+{
+"src": "a: 12345678901234567890\nb: 1_0.5\nc: 0.\nd: 1.\ne: .\nf: -.\ng: +.5\nh: -0\ni: 1e5\nj: 1.0e+5\nk: 1E-2",
+"want": "<table><tbody><tr><th>a</th><td>12345678901234567890</td></tr><tr><th>b</th><td>10.5</td></tr><tr><th>c</th><td>0.0</td></tr><tr><th>d</th><td>1.0</td></tr><tr><th>e</th><td>.</td></tr><tr><th>f</th><td>-.</td></tr><tr><th>g</th><td>0.5</td></tr><tr><th>h</th><td>0</td></tr><tr><th>i</th><td>1e5</td></tr><tr><th>j</th><td>100000.0</td></tr><tr><th>k</th><td>1E-2</td></tr></tbody></table>"
+},
+{
+"src": "a: 12:60\nb: 1:2:3:4\nc: 0:0\nd: -0:30\ne: 1_0:30\nf: 1:30\ng: 1:30.5",
+"want": "<table><tbody><tr><th>a</th><td>12:60</td></tr><tr><th>b</th><td>1:2:3:4</td></tr><tr><th>c</th><td>0</td></tr><tr><th>d</th><td>1800</td></tr><tr><th>e</th><td>37800</td></tr><tr><th>f</th><td>5400</td></tr><tr><th>g</th><td>5430.0</td></tr></tbody></table>"
+},
+{
+"src": "a: 2024-01-15 10:00:00 +05:30\nb: 2024-01-15T10:00:00.123Z\nc: 2024-13-45\nd: 2024-1-5\ne: 2024-07-15 10:00:00\nf: 2024-01-15T10:00:00-08:00",
+"want": "<table><tbody><tr><th>a</th><td>2024-01-15 10:00:00 +0530</td></tr><tr><th>b</th><td>2024-01-15 10:00:00 UTC</td></tr><tr><th>c</th><td>2024-13-45</td></tr><tr><th>d</th><td>2024-01-05</td></tr><tr><th>e</th><td>2024-07-15 03:00:00 -0700</td></tr><tr><th>f</th><td>2024-01-15 10:00:00 -0800</td></tr></tbody></table>"
+},
+{
+"src": "a: 2024-02-30\nb: 2024-2-3 4:5:6\nc: 2024-01-15 25:00:00\nd: 2024-01-15T10:00:00+0530\ne: 2024-01-15 10:00:00 -8\nf: 10:00:00\ng: 0001-01-01\nh: 9999-12-31 23:59:59",
+"want": "<table><tbody><tr><th>a</th><td>2024-02-30</td></tr><tr><th>b</th><td>2024-2-3 4:5:6</td></tr><tr><th>c</th><td>2024-01-15 25:00:00</td></tr><tr><th>d</th><td>2024-01-15 10:00:00 +0530</td></tr><tr><th>e</th><td>2024-01-15 10:00:00 -0800</td></tr><tr><th>f</th><td>36000</td></tr><tr><th>g</th><td>0001-01-01</td></tr><tr><th>h</th><td>9999-12-31 15:59:59 -0800</td></tr></tbody></table>"
+},
+{
+"src": "a: :\"quoted sym\"",
+"want": "<table><tbody><tr><th>a</th><td>quoted sym</td></tr></tbody></table>"
+},
+{
+"src": "a: :sym",
+"want": "<table><tbody><tr><th>a</th><td>sym</td></tr></tbody></table>"
+},
+{
+"src": "a: >\n  x",
+"want": "<table><tbody><tr><th>a</th><td>x </td></tr></tbody></table>"
+},
+{
+"src": "a: >\n  x\n   y\n  z",
+"want": "<table><tbody><tr><th>a</th><td>x y z </td></tr></tbody></table>"
+},
+{
+"src": "a: >\n x\n  y\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td>x y </td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: > # c\n  x",
+"want": "<table><tbody><tr><th>a</th><td>x </td></tr></tbody></table>"
+},
+{
+"src": "a: >+\n  x\n\n\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td>x </td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: >-\n  folded\n  text\n\n  para",
+"want": "<table><tbody><tr><th>a</th><td>folded text para</td></tr></tbody></table>"
+},
+{
+"src": "a: >>",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected comment or line break while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: ? b",
+"want": "ERR Error in user YAML: (<unknown>): mapping keys are not allowed in this context at line 1 column 4"
+},
+{
+"src": "a: @",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 4"
+},
+{
+"src": "a: @x",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 4"
+},
+{
+"src": "a: Yes\nb: NO\nc: on\nd: Off\ne: y\nf: n\ng: True\nh: tRUE\ni: ~\nj: null\nk: Null\nl: NULL\nm: nUll\nn: =\no: <<",
+"want": "<table><tbody><tr><th>a</th><td>true</td></tr><tr><th>b</th><td>false</td></tr><tr><th>c</th><td>true</td></tr><tr><th>d</th><td>false</td></tr><tr><th>e</th><td>y</td></tr><tr><th>f</th><td>n</td></tr><tr><th>g</th><td>true</td></tr><tr><th>h</th><td>true</td></tr><tr><th>i</th><td></td></tr><tr><th>j</th><td></td></tr><tr><th>k</th><td></td></tr><tr><th>l</th><td></td></tr><tr><th>m</th><td></td></tr><tr><th>n</th><td>=</td></tr><tr><th>o</th><td>&lt;&lt;</td></tr></tbody></table>"
+},
+{
+"src": "a: [",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 2 column 1"
+},
+{
+"src": "a: [ ]\nb: { }\nc: []",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody></tbody></table></td></tr><tr><th>b</th><td><table><tbody></tbody></table></td></tr><tr><th>c</th><td><table><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [\"x\" \"y\"]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or ']' while parsing a flow sequence at line 1 column 4"
+},
+{
+"src": "a: [\"x\":1]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [,]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 1 column 5"
+},
+{
+"src": "a: [1,\n  2]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [1,\n2]\nb: [3,\n4",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or ']' while parsing a flow sequence at line 3 column 4"
+},
+{
+"src": "a: [1, 2",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or ']' while parsing a flow sequence at line 1 column 4"
+},
+{
+"src": "a: [1, 2\nb: 3",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or ']' while parsing a flow sequence at line 1 column 4"
+},
+{
+"src": "a: [1, 2,]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [1, 2]\nb: [a, b, c]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td></tr><tr><th>b</th><td><table><tbody><tr><td>a</td><td>b</td><td>c</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [1, 2] x",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: [1, 2]]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: [1,, 2]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 1 column 7"
+},
+{
+"src": "a: [? a]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><thead><tr><th>a</th></tr></thead><tbody></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [[ ]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or ']' while parsing a flow sequence at line 1 column 4"
+},
+{
+"src": "a: [[1, 2], [3]]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td><td><table><tbody><tr><td>3</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [[]]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><tbody></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [a b]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>a b</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [a, @b]",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 8"
+},
+{
+"src": "a: [a,]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>a</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [a: b: c]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or ']' while parsing a flow sequence at line 1 column 4"
+},
+{
+"src": "a: [x, ]\nb: {y: 1, }",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>x</td></tr></tbody></table></td></tr><tr><th>b</th><td><table><thead><tr><th>y</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [x: 1]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [x]\n # c\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>x</td></tr></tbody></table></td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: [x] # c\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td>x</td></tr></tbody></table></td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: [{b: 1}, {c: 2}]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td><td><table><thead><tr><th>c</th></tr></thead><tbody><tr><td>2</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [{x: ~}]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><thead><tr><th>x</th></tr></thead><tbody></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [{}]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody><tr><td><table><tbody></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [~, ~]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: [~]",
+"want": "<table><tbody><tr><th>a</th><td><table><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: ]",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a block node at line 1 column 4"
+},
+{
+"src": "a: `x`",
+"want": "ERR Error in user YAML: (<unknown>): found character that cannot start any token while scanning for the next token at line 1 column 4"
+},
+{
+"src": "a: b\n c",
+"want": "<table><tbody><tr><th>a</th><td>b c</td></tr></tbody></table>"
+},
+{
+"src": "a: b\nc\n d: e",
+"want": "ERR Error in user YAML: (<unknown>): could not find expected ':' while scanning a simple key at line 2 column 1"
+},
+{
+"src": "a: b:",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 1 column 5"
+},
+{
+"src": "a: b: c",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 1 column 5"
+},
+{
+"src": "a: one\n  two\n  three",
+"want": "<table><tbody><tr><th>a</th><td>one two three</td></tr></tbody></table>"
+},
+{
+"src": "a: x\n\ty",
+"want": "ERR Error in user YAML: (<unknown>): found a tab character that violates indentation while scanning a plain scalar at line 1 column 4"
+},
+{
+"src": "a: x\n\n  y",
+"want": "<table><tbody><tr><th>a</th><td>x y</td></tr></tbody></table>"
+},
+{
+"src": "a: x\n\n  y\n\n  z",
+"want": "<table><tbody><tr><th>a</th><td>x y z</td></tr></tbody></table>"
+},
+{
+"src": "a: x # c\n  y",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: x ... y",
+"want": "<table><tbody><tr><th>a</th><td>x ... y</td></tr></tbody></table>"
+},
+{
+"src": "a: x:y\nb: http://u\nc: a #b\nd: a#b",
+"want": "<table><tbody><tr><th>a</th><td>x:y</td></tr><tr><th>b</th><td>http://u</td></tr><tr><th>c</th><td>a</td></tr><tr><th>d</th><td>a#b</td></tr></tbody></table>"
+},
+{
+"src": "a: yes please\nb: Y\nc: ON\nd: no\ne: !!bool NO",
+"want": "<table><tbody><tr><th>a</th><td>yes please</td></tr><tr><th>b</th><td>Y</td></tr><tr><th>c</th><td>true</td></tr><tr><th>d</th><td>false</td></tr><tr><th>e</th><td>false</td></tr></tbody></table>"
+},
+{
+"src": "a: {",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 2 column 1"
+},
+{
+"src": "a: {\"b\": 1}\nc: [ \"d\":1 ]",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr><tr><th>c</th><td><table><tbody><tr><td><table><thead><tr><th>d</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {\"x\":1, y: 2}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th><th>y</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {,}",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 1 column 5"
+},
+{
+"src": "a: {: b}",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 1 column 5"
+},
+{
+"src": "a: {? b : c}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td>c</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {a: [}",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 1 column 9"
+},
+{
+"src": "a: {a: b: c}",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or '}' while parsing a flow mapping at line 1 column 4"
+},
+{
+"src": "a: {a: }",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>a</th></tr></thead><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {a}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>a</th></tr></thead><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {b, c: 1}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th><th>c</th></tr></thead><tbody><tr><td></td><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {b: 1",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or '}' while parsing a flow mapping at line 1 column 4"
+},
+{
+"src": "a: {b: 1, }",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {b: 1}\n}",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: {b: 1} x",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: {b: 1}}",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: {b: [1, 2], c: {d: 3}}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th><th>c</th></tr></thead><tbody><tr><td><table><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td><td><table><thead><tr><th>d</th></tr></thead><tbody><tr><td>3</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {b: [1, {c: 2}]}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td><table><tbody><tr><td>1</td><td><table><thead><tr><th>c</th></tr></thead><tbody><tr><td>2</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {b: {c: {d: 1}}}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b</th></tr></thead><tbody><tr><td><table><thead><tr><th>c</th></tr></thead><tbody><tr><td><table><thead><tr><th>d</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {b:1}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>b:1</th></tr></thead><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x:\n  1}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: \"\"}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: 0}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td>0</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: 1\nb: 3",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected ',' or '}' while parsing a flow mapping at line 1 column 4"
+},
+{
+"src": "a: {x: 1}\nb:\n  <<: [{y: 2}, {x: 3}]\n  z: 4",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table></td></tr><tr><th>b</th><td><table><thead><tr><th>x</th><th>y</th><th>z</th></tr></thead><tbody><tr><td>3</td><td>2</td><td>4</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: [], y: 1}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th><th>y</th></tr></thead><tbody><tr><td><table><tbody></tbody></table></td><td>1</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: [~]}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td><table><tbody></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: false}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: {}}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody><tr><td><table><tbody></tbody></table></td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: ~, y: ~}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th><th>y</th></tr></thead><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: {x: ~}",
+"want": "<table><tbody><tr><th>a</th><td><table><thead><tr><th>x</th></tr></thead><tbody></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "a: |",
+"want": "<table><tbody><tr><th>a</th><td></td></tr></tbody></table>"
+},
+{
+"src": "a: |\n\ttab",
+"want": "ERR Error in user YAML: (<unknown>): found a tab character where an indentation space is expected while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: |\n\tx",
+"want": "ERR Error in user YAML: (<unknown>): found a tab character where an indentation space is expected while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: |\n  line1\n  line2\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td>line1 line2 </td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: |\n  x\n\ty",
+"want": "ERR Error in user YAML: (<unknown>): found a tab character where an indentation space is expected while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: |\n  x\n   y\n  z",
+"want": "<table><tbody><tr><th>a</th><td>x y z </td></tr></tbody></table>"
+},
+{
+"src": "a: |\n  x\n b: 1",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: |\n  x\n y",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "a: |+\n  x\n\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td>x </td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: |+-\n  x",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected comment or line break while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: |-\n",
+"want": "<table><tbody><tr><th>a</th><td></td></tr></tbody></table>"
+},
+{
+"src": "a: |-\n  x\n\n\nb: 1",
+"want": "<table><tbody><tr><th>a</th><td>x</td></tr><tr><th>b</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "a: |0\n  x",
+"want": "ERR Error in user YAML: (<unknown>): found an indentation indicator equal to 0 while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: |10\n          x",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected comment or line break while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: |2\n    x\n   y",
+"want": "<table><tbody><tr><th>a</th><td> x y </td></tr></tbody></table>"
+},
+{
+"src": "a: |a",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected comment or line break while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: |x",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected comment or line break while scanning a block scalar at line 1 column 4"
+},
+{
+"src": "a: }",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a block node at line 1 column 4"
+},
+{
+"src": "a: x",
+"want": "ERR Error in user YAML: (<unknown>): could not find expected ':' while scanning a simple key at line 2 column 1"
+},
+{
+"src": "a: é\nb: 中\nc: 😀",
+"want": "<table><tbody><tr><th>a</th><td>é</td></tr><tr><th>b</th><td>中</td></tr><tr><th>c</th><td>😀</td></tr></tbody></table>"
+},
+{
+"src": "b: *nope",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "base:\n  <<: {x: 1}\n  y: 2",
+"want": "<table><tbody><tr><th>base</th><td><table><thead><tr><th>x</th><th>y</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "base: &b\n  k: v\nderived:\n  <<: *b\n  z: 1",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "i: 0x1F\nj: 010\nk: 1_000\nl: 1e3\nm: .5\nn: .inf\no: -.INF\np: .nan\nq: 0b101\nr: 0o14\ns: +5\nt: 1.0\nu: 1,000\nv: 12:30:45\nw: 2024-01-15\nx: 2024-01-15 10:00:00\ny: 2024-01-15T10:00:00Z\nz: 1.5e-3",
+"want": "<table><tbody><tr><th>i</th><td>31</td></tr><tr><th>j</th><td>8</td></tr><tr><th>k</th><td>1000</td></tr><tr><th>l</th><td>1e3</td></tr><tr><th>m</th><td>0.5</td></tr><tr><th>n</th><td>Infinity</td></tr><tr><th>o</th><td>-Infinity</td></tr><tr><th>p</th><td>NaN</td></tr><tr><th>q</th><td>5</td></tr><tr><th>r</th><td>0o14</td></tr><tr><th>s</th><td>5</td></tr><tr><th>t</th><td>1.0</td></tr><tr><th>u</th><td>1000</td></tr><tr><th>v</th><td>45045</td></tr><tr><th>w</th><td>2024-01-15</td></tr><tr><th>x</th><td>2024-01-15 02:00:00 -0800</td></tr><tr><th>y</th><td>2024-01-15 10:00:00 UTC</td></tr><tr><th>z</th><td>0.0015</td></tr></tbody></table>"
+},
+{
+"src": "just a string",
+"want": "OTHER"
+},
+{
+"src": "k: v\n\n\n",
+"want": "<table><tbody><tr><th>k</th><td>v</td></tr></tbody></table>"
+},
+{
+"src": "key with: colon: more",
+"want": "ERR Error in user YAML: (<unknown>): mapping values are not allowed in this context at line 1 column 16"
+},
+{
+"src": "key:\n  - a\n  - b\n -c",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected key while parsing a block mapping at line 1 column 1"
+},
+{
+"src": "l:\n  - &i one\n  - *i",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "list: &l\n  - 1\n  - 2\ncopy: *l",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "m:\n  <<: [{x: 1}, {y: 2}]\n  z: 3",
+"want": "<table><tbody><tr><th>m</th><td><table><thead><tr><th>y</th><th>x</th><th>z</th></tr></thead><tbody><tr><td>2</td><td>1</td><td>3</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "m: &m\n  k: v\nn: *m",
+"want": "ERR Error in user YAML: Alias parsing is not enabled."
+},
+{
+"src": "m: &x\n  k: v\n",
+"want": "<table><tbody><tr><th>m</th><td><table><thead><tr><th>k</th></tr></thead><tbody><tr><td>v</td></tr></tbody></table></td></tr></tbody></table>"
+},
+{
+"src": "null",
+"want": "OTHER"
+},
+{
+"src": "title: 📖 é",
+"want": "<table><tbody><tr><th>title</th><td>📖 é</td></tr></tbody></table>"
+},
+{
+"src": "{",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a flow node at line 2 column 1"
+},
+{
+"src": "{a: 1, b: 2}",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr><tr><th>b</th><td>2</td></tr></tbody></table>"
+},
+{
+"src": "{a: 1}\nb: 2",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "{x: 1}",
+"want": "<table><tbody><tr><th>x</th><td>1</td></tr></tbody></table>"
+},
+{
+"src": "{x: ~}",
+"want": "<table><tbody><tr><th>x</th><td></td></tr></tbody></table>"
+},
+{
+"src": "{}",
+"want": "<table><tbody></tbody></table>"
+},
+{
+"src": "}",
+"want": "ERR Error in user YAML: (<unknown>): did not find expected node content while parsing a block node at line 1 column 1"
+},
+{
+"src": "~",
+"want": "OTHER"
+},
+{
+"src": "~: v\n1: a\n1.5: b\ntrue: c",
+"want": "<table><tbody><tr><th></th><td>v</td></tr><tr><th>1</th><td>a</td></tr><tr><th>1.5</th><td>b</td></tr><tr><th>true</th><td>c</td></tr></tbody></table>"
+},
+{
+"src": "﻿a: 1",
+"want": "<table><tbody><tr><th>a</th><td>1</td></tr></tbody></table>"
+}
+]

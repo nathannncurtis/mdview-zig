@@ -28,6 +28,8 @@ const col_code_bg = Color{ .r = 22.0 / 255.0, .g = 27.0 / 255.0, .b = 34.0 / 255
 const col_quote = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 const col_hr = Color{ .r = 33.0 / 255.0, .g = 38.0 / 255.0, .b = 45.0 / 255.0 };
 const col_border = Color{ .r = 48.0 / 255.0, .g = 54.0 / 255.0, .b = 61.0 / 255.0 };
+const col_table_border = hexColor(0x3d444d);
+const col_stripe = hexColor(0x151b23);
 const col_close = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 
 const col_hl_string = Color{ .r = 165.0 / 255.0, .g = 214.0 / 255.0, .b = 255.0 / 255.0 };
@@ -556,6 +558,8 @@ fn layoutPixelSize(pango_layout: *c.PangoLayout) [2]f32 {
 }
 
 fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
+    if (out_width) |o| o.* = 0;
+    if (t.rows() == 0) return 0;
     const widths = app.gpa.alloc(f32, t.columns) catch return 0;
     defer app.gpa.free(widths);
 
@@ -583,7 +587,7 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
         var text_h: f32 = 0;
         for (widths, 0..) |w, col| {
             if (t.nestedAt(row, col)) |nt| {
-                text_h = @max(text_h, renderTable(cr, pango_layout, nt, 0, 0, w - cell_pad_x * 2, false, null));
+                text_h = @max(text_h, renderTable(cr, pango_layout, nt, 0, 0, w - cell_pad_x * 2, false, null) + md.nested_table_margin);
                 continue;
             }
             setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
@@ -591,13 +595,9 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
         }
         const row_h = text_h + cell_pad_y * 2;
         if (draw) {
-            if (row == 0 and t.header_row) {
-                setColor(cr, col_code_bg);
+            if (md.Table.striped(t, row)) {
+                setColor(cr, col_stripe);
                 c.cairo_rectangle(cr, x, row_y, table_w, row_h);
-                c.cairo_fill(cr);
-            } else if (t.header_col) {
-                setColor(cr, col_code_bg);
-                c.cairo_rectangle(cr, x, row_y, widths[0], row_h);
                 c.cairo_fill(cr);
             }
             var cx = x;
@@ -612,7 +612,7 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
                 }
                 cx += w;
             }
-            setColor(cr, col_border);
+            setColor(cr, col_table_border);
             c.cairo_rectangle(cr, x, row_y, table_w, 1);
             c.cairo_fill(cr);
         }
@@ -622,7 +622,7 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
     c.pango_layout_set_alignment(pango_layout, c.PANGO_ALIGN_LEFT);
 
     if (draw) {
-        setColor(cr, col_border);
+        setColor(cr, col_table_border);
         c.cairo_rectangle(cr, x, row_y, table_w, 1);
         c.cairo_rectangle(cr, x, y, 1, row_y + 1 - y);
         var cx = x;

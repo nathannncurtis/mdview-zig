@@ -94,6 +94,8 @@ const h2_color = hexColor(0xe6edf3);
 const h3_color = hexColor(0xd2d8de);
 const code_bg_color = hexColor(0x161b22);
 const border_color = hexColor(0x30363d);
+const table_border_color = hexColor(0x3d444d);
+const stripe_color = hexColor(0x151b23);
 const blockquote_color = hexColor(0x8b949e);
 const close_btn_color = hexColor(0x8b949e);
 
@@ -437,6 +439,8 @@ fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef
 
 /// y_cg is the top edge of the table in CG coordinates; returns the height used.
 fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, body_font: c.CTFontRef, draw: bool, out_width: ?*CGFloat) CGFloat {
+    if (out_width) |o| o.* = 0;
+    if (t.rows() == 0) return 0;
     const header_font = createFont("Helvetica Neue", c.CTFontGetSize(body_font), true, false);
     defer c.CFRelease(header_font);
     const widths = app.gpa.alloc(f32, t.columns) catch return 0;
@@ -471,7 +475,7 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
         for (cells, widths, 0..) |*cell, w, col| {
             cell.* = null;
             if (t.nestedAt(row, col)) |nt| {
-                text_h = @max(text_h, drawTable(ctx, nt, 0, 0, w - cell_pad_x * 2, body_font, false, null));
+                text_h = @max(text_h, drawTable(ctx, nt, 0, 0, w - cell_pad_x * 2, body_font, false, null) + md.nested_table_margin);
                 continue;
             }
             cell.* = createCellAttrStr(t, row, col, body_font, header_font);
@@ -481,11 +485,9 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
         }
         const row_h = text_h + cell_pad_y * 2;
         if (draw) {
-            c.CGContextSetRGBFillColor(ctx, code_bg_color.r, code_bg_color.g, code_bg_color.b, 1.0);
-            if (row == 0 and t.header_row) {
+            if (md.Table.striped(t, row)) {
+                c.CGContextSetRGBFillColor(ctx, stripe_color.r, stripe_color.g, stripe_color.b, 1.0);
                 c.CGContextFillRect(ctx, cgRect(x, top - row_h, table_w, row_h));
-            } else if (t.header_col) {
-                c.CGContextFillRect(ctx, cgRect(x, top - row_h, widths[0], row_h));
             }
         }
         var cx = x;
@@ -501,7 +503,7 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
             cx += w;
         }
         if (draw) {
-            c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
+            c.CGContextSetRGBFillColor(ctx, table_border_color.r, table_border_color.g, table_border_color.b, 1.0);
             c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
         }
         top -= row_h;
@@ -509,7 +511,7 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
 
     const height = y_cg - top + 1;
     if (draw) {
-        c.CGContextSetRGBFillColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
+        c.CGContextSetRGBFillColor(ctx, table_border_color.r, table_border_color.g, table_border_color.b, 1.0);
         c.CGContextFillRect(ctx, cgRect(x, top - 1, table_w, 1));
         var cx = x;
         c.CGContextFillRect(ctx, cgRect(cx, y_cg - height, 1, height));

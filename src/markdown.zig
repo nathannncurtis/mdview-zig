@@ -42,6 +42,13 @@ pub const Table = struct {
         return t.cells[row * t.columns + col];
     }
 
+    /// GitHub shades every second row of the header and of the body groups.
+    pub fn striped(t: Table, row: usize) bool {
+        if (t.header_row and row == 0) return false;
+        const index = if (t.header_row) row else row + 1;
+        return index % 2 == 0;
+    }
+
     pub fn nestedAt(t: Table, row: usize, col: usize) ?Table {
         if (t.nested.len == 0) return null;
         const n = t.nested[row * t.columns + col];
@@ -84,6 +91,8 @@ pub const Frame = struct {
 pub const quote_inset: f32 = 20;
 pub const list_inset: f32 = 32;
 pub const quote_bar: f32 = 4;
+/// A table inside a cell keeps its bottom margin.
+pub const nested_table_margin: f32 = 16;
 
 pub const Block = struct {
     kind: BlockKind,
@@ -421,61 +430,78 @@ const Parser = struct {
 
     fn cellInline(p: *Parser, v: yaml.Value) Allocator.Error!Inline {
         return switch (v) {
-            .scalar => |s| .{ .text = try p.a.dupe(u8, s) },
+            .scalar => |s| .{ .text = try p.a.dupe(u8, s.text) },
             else => .{},
         };
     }
 
-    fn yamlTable(p: *Parser, v: yaml.Value, top: bool) Allocator.Error!Table {
-        var cells: std.ArrayList(Inline) = .empty;
-        var kids: std.ArrayList(Table) = .empty;
-        var any = false;
-        var t: Table = .{};
-        switch (v) {
-            .scalar => return .{},
-            .seq => |items| {
-                if (items.len == 0) return .{};
-                for (items) |it| {
-                    try cells.append(p.a, try p.cellInline(it));
-                    const k = try p.yamlTable(it, false);
-                    any = any or k.columns > 0;
-                    try kids.append(p.a, k);
-                }
-                t = .{ .columns = items.len, .header_row = false };
-            },
-            .map => |pairs| {
-                if (pairs.len == 0) return .{};
-                if (top) {
-                    for (pairs) |pr| {
-                        try cells.append(p.a, .{ .text = try p.a.dupe(u8, pr.key) });
-                        try kids.append(p.a, .{});
-                        try cells.append(p.a, try p.cellInline(pr.value));
-                        const k = try p.yamlTable(pr.value, false);
-                        any = any or k.columns > 0;
-                        try kids.append(p.a, k);
-                    }
-                    t = .{ .columns = 2, .header_row = false, .header_col = true };
-                } else {
-                    for (pairs) |pr| {
-                        try cells.append(p.a, .{ .text = try p.a.dupe(u8, pr.key) });
-                        try kids.append(p.a, .{});
-                    }
-                    for (pairs) |pr| {
-                        try cells.append(p.a, try p.cellInline(pr.value));
-                        const k = try p.yamlTable(pr.value, false);
-                        any = any or k.columns > 0;
-                        try kids.append(p.a, k);
-                    }
-                    t = .{ .columns = pairs.len };
-                }
-            },
+    // GitHub draws a row of values only when at least one is neither nil nor false.
+    fn truthy(v: yaml.Value) bool {
+        return switch (v) {
+            .scalar => |s| !s.falsy,
+            else => true,
+        };
+    }
+
+    const NestedCells = struct { cells: std.ArrayList(Inline) = .empty, kids: std.ArrayList(Table) = .empty, any: bool = false };
+
+    fn addCell(p: *Parser, out: *NestedCells, text: ?[]const u8, v: yaml.Value) Allocator.Error!void {
+        if (text) |t| {
+            try out.cells.append(p.a, .{ .text = try p.a.dupe(u8, t) });
+            try out.kids.append(p.a, .{});
+            return;
         }
+        try out.cells.append(p.a, try p.cellInline(v));
+        const k = try p.yamlTable(v, false);
+        out.any = out.any or k.columns > 0;
+        try out.kids.append(p.a, k);
+    }
+
+    fn finishTable(p: *Parser, t_in: Table, out: *NestedCells) Allocator.Error!Table {
+        var t = t_in;
         const aligns = try p.a.alloc(Align, t.columns);
         @memset(aligns, .none);
         t.aligns = aligns;
-        t.cells = cells.items;
-        if (any) t.nested = kids.items;
+        t.cells = out.cells.items;
+        if (out.any) t.nested = out.kids.items;
         return t;
+    }
+
+    fn yamlTable(p: *Parser, v: yaml.Value, top: bool) Allocator.Error!Table {
+        var out: NestedCells = .{};
+        switch (v) {
+            .scalar => return .{},
+            .seq => |items| {
+                if (items.len == 0) return .{ .columns = 1, .header_row = false };
+                var shown = false;
+                for (items) |it| shown = shown or truthy(it);
+                if (shown) {
+                    for (items) |it| try p.addCell(&out, null, it);
+                }
+                return p.finishTable(.{ .columns = items.len, .header_row = false }, &out);
+            },
+            .map => |pairs| {
+                if (top) {
+                    for (pairs) |pr| {
+                        try p.addCell(&out, pr.key, pr.value);
+                        try p.addCell(&out, null, pr.value);
+                    }
+                    return p.finishTable(.{ .columns = 2, .header_row = false, .header_col = true }, &out);
+                }
+                if (pairs.len == 0) return .{ .columns = 1, .header_row = false };
+                var shown = false;
+                for (pairs) |pr| {
+                    try p.addCell(&out, pr.key, pr.value);
+                    shown = shown or truthy(pr.value);
+                }
+                if (shown) {
+                    for (pairs) |pr| try p.addCell(&out, null, pr.value);
+                } else {
+                    out.any = false;
+                }
+                return p.finishTable(.{ .columns = pairs.len }, &out);
+            },
+        }
     }
 
     fn frontMatter(p: *Parser, md: []const u8) Allocator.Error!usize {
@@ -487,7 +513,7 @@ const Parser = struct {
         var body_end: ?usize = null;
         while (lines.next()) |raw| {
             const line = std.mem.trimEnd(u8, raw, " \t\r");
-            if (std.mem.eql(u8, line, "---") or std.mem.eql(u8, line, "...")) {
+            if (std.mem.eql(u8, line, "---")) {
                 body_end = pos;
                 pos += raw.len + 1;
                 break;
@@ -500,13 +526,10 @@ const Parser = struct {
         if (std.mem.trim(u8, body, " \t\r\n").len == 0) return 0;
 
         switch (try yaml.parse(p.a, body)) {
-            .ok => |v| {
-                if (v != .map or v.map.len == 0) return 0;
-                try p.emit(.{ .kind = .table, .content = p.textFrom(p.textLen()), .ytable = try p.yamlTable(v, true) });
-            },
+            .other => return 0,
+            .ok => |v| try p.emit(.{ .kind = .table, .content = p.textFrom(p.textLen()), .ytable = try p.yamlTable(v, true) }),
             .err => |e| {
-                const message = try std.fmt.allocPrint(p.a, "Error in user YAML: (<unknown>): {s} at line {d} column {d}", .{ e.message, e.line, e.col });
-                try p.emit(.{ .kind = .error_box, .content = try p.plain(message) });
+                try p.emit(.{ .kind = .error_box, .content = try p.plain(e.message) });
                 const start = p.textLen();
                 try p.text.appendSlice(p.a, "---\n");
                 try p.text.appendSlice(p.a, body);
@@ -1085,6 +1108,7 @@ test "invalid front matter shows GitHub's error box and the yaml" {
 
 test "yaml is built" {
     _ = @import("yaml.zig");
+    _ = @import("yaml_test.zig");
 }
 
 test "inline spans: nested emphasis, strikethrough, emoji, entities, escapes" {
@@ -1099,4 +1123,51 @@ test "inline spans: nested emphasis, strikethrough, emoji, entities, escapes" {
     try testing.expectEqualStrings("gone", c.text[c.strike[0][0]..][0..c.strike[0][1]]);
     try testing.expectEqualStrings("\u{1F389}", c.text[c.emoji[0][0]..][0..c.emoji[0][1]]);
     try testing.expectEqualStrings("a*b", c.text[c.code[0][0]..][0..c.code[0][1]]);
+}
+
+test "front matter ends at the first --- line only" {
+    var doc = try parse(testing.allocator, "---\na: 1\n...\nb: 2\n---\n\nbody\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 2), doc.blocks.len);
+    try testing.expectEqual(@as(usize, 1), doc.blocks[0].table.rows());
+    try testing.expectEqualStrings("body", doc.blocks[1].content.text);
+}
+
+test "aliases are not enabled in front matter" {
+    var doc = try parse(testing.allocator, "---\na: &x 1\nb: *x\n---\n\nbody\n");
+    defer doc.deinit();
+    try testing.expectEqual(BlockKind.error_box, doc.blocks[0].kind);
+    try testing.expectEqualStrings("Error in user YAML: Alias parsing is not enabled.", doc.blocks[0].content.text);
+    try testing.expectEqualStrings("---\na: &x 1\nb: *x\n---\n", doc.blocks[1].content.text);
+}
+
+test "front matter that is not a mapping is ordinary markdown" {
+    var doc = try parse(testing.allocator, "---\n[a, b]\n---\n\nbody\n");
+    defer doc.deinit();
+    try testing.expectEqual(BlockKind.hr, doc.blocks[0].kind);
+    try testing.expectEqual(BlockKind.h2, doc.blocks[1].kind);
+}
+
+test "an empty front matter mapping draws no rows" {
+    var doc = try parse(testing.allocator, "---\n{}\n---\n\nbody\n");
+    defer doc.deinit();
+    try testing.expectEqual(BlockKind.table, doc.blocks[0].kind);
+    try testing.expectEqual(@as(usize, 0), doc.blocks[0].table.rows());
+}
+
+test "tables stripe every second row of a group" {
+    const t: Table = .{ .columns = 1 };
+    try testing.expect(!t.striped(0) and !t.striped(1) and t.striped(2) and t.striped(4));
+    const kv: Table = .{ .columns = 2, .header_row = false, .header_col = true };
+    try testing.expect(!kv.striped(0) and kv.striped(1) and !kv.striped(2) and kv.striped(3));
+}
+
+test "a map whose values are all nil or false has no value row" {
+    var doc = try parse(testing.allocator, "---\na: {x: ~, y: false}\nb: {x: 0}\nc: [~]\nd: []\n---\n");
+    defer doc.deinit();
+    const t = doc.blocks[0].table;
+    try testing.expectEqual(@as(usize, 1), t.nestedAt(0, 1).?.rows());
+    try testing.expectEqual(@as(usize, 2), t.nestedAt(1, 1).?.rows());
+    try testing.expectEqual(@as(usize, 0), t.nestedAt(2, 1).?.rows());
+    try testing.expectEqual(@as(usize, 0), t.nestedAt(3, 1).?.rows());
 }

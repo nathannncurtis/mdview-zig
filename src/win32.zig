@@ -216,6 +216,7 @@ var g_brush_code_text: ?*anyopaque = null;
 var g_brush_quote: ?*anyopaque = null;
 var g_brush_hr: ?*anyopaque = null;
 var g_brush_table_border: ?*anyopaque = null;
+var g_brush_stripe: ?*anyopaque = null;
 var g_brush_close: ?*anyopaque = null;
 var g_brush_hl: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
 var g_brush_hl_bg: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
@@ -312,7 +313,8 @@ fn createBrushes(rt: *anyopaque) void {
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_code_text);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_quote);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.129, .g = 0.149, .b = 0.176, .a = 1 }, null, &g_brush_hr);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.188, .g = 0.212, .b = 0.239, .a = 1 }, null, &g_brush_table_border);
+    g_brush_table_border = solidBrush(rt, 0x3d444d);
+    g_brush_stripe = solidBrush(rt, 0x151b23);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
     for (0..g_brush_hl.len) |n| {
         const st = hl.style(@enumFromInt(n));
@@ -634,6 +636,7 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
 }
 
 const cell_pad_x: f32 = 13;
+const nested_margin: f32 = md.nested_table_margin;
 const cell_pad_y: f32 = 6;
 
 fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table, row: usize, col: usize, width: f32) ?*anyopaque {
@@ -651,6 +654,8 @@ fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table,
 
 fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
     const border = g_brush_table_border orelse return 0;
+    if (out_width) |o| o.* = 0;
+    if (t.rows() == 0) return 0;
     const widths = app.gpa.alloc(f32, t.columns) catch return 0;
     defer app.gpa.free(widths);
     const layouts = app.gpa.alloc(?*anyopaque, t.columns) catch return 0;
@@ -684,7 +689,7 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
         for (layouts, 0..) |*lay, col| {
             lay.* = null;
             if (t.nestedAt(row, col)) |nt| {
-                text_h = @max(text_h, renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, widths[col] - cell_pad_x * 2, false, null));
+                text_h = @max(text_h, renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, widths[col] - cell_pad_x * 2, false, null) + nested_margin);
                 continue;
             }
             lay.* = cellLayout(vt_dw, dwf, t, row, col, widths[col] - cell_pad_x * 2);
@@ -696,12 +701,8 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
         }
         const row_h = text_h + cell_pad_y * 2;
         if (draw) {
-            if (g_brush_code_bg) |bg| {
-                if (row == 0 and t.header_row) {
-                    vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + row_h }, bg);
-                } else if (t.header_col) {
-                    vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + widths[0], .bottom = row_y + row_h }, bg);
-                }
+            if (md.Table.striped(t, row)) {
+                vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + row_h }, g_brush_stripe.?);
             }
         }
         var cx = x;
