@@ -48,6 +48,18 @@ const corpus = [_][]const u8{
     seed(rep("# ", 100) ++ "\n" ++ rep("#", 300) ++ "\n"),
     seed(rep("\n", 3000)),
     seed(rep(" ", 4000) ++ "x\n"),
+    seed("> - a\n>   > 1. b\n>   >    - [ ] c\n>   > \x60\x60\x60\n>   > code\n- > - > - > x\n"),
+    seed("---\na: &x [1, *x]\nb: !!str &y !<tag:yaml.org,2002:int> 5\nc: *y\n? [k]\n: v\n---\ntext\n"),
+    seed("---\na: &a1 *a1\n%TAG ! tag:x,2000:\nk: !e!t \"unterminated\n"),
+    seed("---\n" ++ rep("- ", 300) ++ "x"),
+    seed("Text[^1] and [^2] and [^1]\n\n[^1]: note\n    more [^2]\n\n[^2]: [^1]\n"),
+    seed("[a][b] [b][] [b] ![i][b]\n\n[b]: <u> \"t\"\n[c]: u\n[B]: dup\n"),
+    seed(rep("[a][a]", 300) ++ "\n\n[a]: ["),
+    seed("- | a | b |\n  |---|---|\n  | 1 | 2 |\n  - | x |\n    |---|\n    | | a | b | |\n"),
+    seed("> [!NOTE]\n> text\n> [!WARNING]\n> - [!TIP]\n\n[!CAUTION]\n> [!IMPORTANT]\n"),
+    seed("> [!NOTE" ++ rep("> ", 200) ++ "[!TIP]\n"),
+    seed("&amp; &#0; &#x110000; &#xD800; &#99999999999; &bogus; &"),
+    seed(":smile: :+1: :nope: ::: :a"),
 };
 
 fn parseOne(_: void, smith: *std.testing.Smith) anyerror!void {

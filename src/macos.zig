@@ -12,11 +12,9 @@ const c = @import("c");
 // ============================================================
 const id = ?*anyopaque;
 const SEL = c.SEL;
-const Class = ?*anyopaque;
 const BOOL = i8;
 const CGFloat = f64;
 const NSUInteger = u64;
-const NSInteger = i64;
 
 const CGPoint = c.CGPoint;
 const CGSize = c.CGSize;
@@ -28,31 +26,30 @@ fn cgRect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) CGRect {
 
 // Typed objc_msgSend wrappers
 const MsgSendFn = *const fn (id, SEL) callconv(.c) id;
-const msgSend_id = @as(MsgSendFn, @ptrCast(&c.objc_msgSend));
+const msgSend_id: MsgSendFn = @ptrCast(&c.objc_msgSend);
 
-const msgSend_void_id = @as(*const fn (id, SEL, id) callconv(.c) void, @ptrCast(&c.objc_msgSend));
-const msgSend_void_bool = @as(*const fn (id, SEL, BOOL) callconv(.c) void, @ptrCast(&c.objc_msgSend));
-const msgSend_void_i64 = @as(*const fn (id, SEL, i64) callconv(.c) void, @ptrCast(&c.objc_msgSend));
-const msgSend_void = @as(*const fn (id, SEL) callconv(.c) void, @ptrCast(&c.objc_msgSend));
-const msgSend_bool = @as(*const fn (id, SEL) callconv(.c) BOOL, @ptrCast(&c.objc_msgSend));
-const msgSend_u16 = @as(*const fn (id, SEL) callconv(.c) u16, @ptrCast(&c.objc_msgSend));
-const msgSend_i64 = @as(*const fn (id, SEL) callconv(.c) i64, @ptrCast(&c.objc_msgSend));
-const msgSend_u64 = @as(*const fn (id, SEL) callconv(.c) u64, @ptrCast(&c.objc_msgSend));
-const msgSend_cgfloat = @as(*const fn (id, SEL) callconv(.c) CGFloat, @ptrCast(&c.objc_msgSend));
-const msgSend_id_id = @as(*const fn (id, SEL, id) callconv(.c) id, @ptrCast(&c.objc_msgSend));
+const msgSend_void_id: *const fn (id, SEL, id) callconv(.c) void = @ptrCast(&c.objc_msgSend);
+const msgSend_void_bool: *const fn (id, SEL, BOOL) callconv(.c) void = @ptrCast(&c.objc_msgSend);
+const msgSend_void_i64: *const fn (id, SEL, i64) callconv(.c) void = @ptrCast(&c.objc_msgSend);
+const msgSend_void: *const fn (id, SEL) callconv(.c) void = @ptrCast(&c.objc_msgSend);
+const msgSend_u16: *const fn (id, SEL) callconv(.c) u16 = @ptrCast(&c.objc_msgSend);
+const msgSend_i64: *const fn (id, SEL) callconv(.c) i64 = @ptrCast(&c.objc_msgSend);
+const msgSend_u64: *const fn (id, SEL) callconv(.c) u64 = @ptrCast(&c.objc_msgSend);
+const msgSend_cgfloat: *const fn (id, SEL) callconv(.c) CGFloat = @ptrCast(&c.objc_msgSend);
+const msgSend_id_id: *const fn (id, SEL, id) callconv(.c) id = @ptrCast(&c.objc_msgSend);
 
 // initWithContentRect:styleMask:backing:defer:
-const msgSend_initWindow = @as(*const fn (id, SEL, CGRect, NSUInteger, NSUInteger, BOOL) callconv(.c) id, @ptrCast(&c.objc_msgSend));
+const msgSend_initWindow: *const fn (id, SEL, CGRect, NSUInteger, NSUInteger, BOOL) callconv(.c) id = @ptrCast(&c.objc_msgSend);
 // initWithFrame:
-const msgSend_initFrame = @as(*const fn (id, SEL, CGRect) callconv(.c) id, @ptrCast(&c.objc_msgSend));
+const msgSend_initFrame: *const fn (id, SEL, CGRect) callconv(.c) id = @ptrCast(&c.objc_msgSend);
 // colorWithRed:green:blue:alpha:
-const msgSend_color4 = @as(*const fn (id, SEL, CGFloat, CGFloat, CGFloat, CGFloat) callconv(.c) id, @ptrCast(&c.objc_msgSend));
+const msgSend_color4: *const fn (id, SEL, CGFloat, CGFloat, CGFloat, CGFloat) callconv(.c) id = @ptrCast(&c.objc_msgSend);
 // scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:
-const msgSend_timer = @as(*const fn (id, SEL, f64, id, SEL, id, BOOL) callconv(.c) id, @ptrCast(&c.objc_msgSend));
+const msgSend_timer: *const fn (id, SEL, f64, id, SEL, id, BOOL) callconv(.c) id = @ptrCast(&c.objc_msgSend);
 // convertPoint:fromView:
-const msgSend_convertPoint = @as(*const fn (id, SEL, CGPoint, id) callconv(.c) CGPoint, @ptrCast(&c.objc_msgSend));
+const msgSend_convertPoint: *const fn (id, SEL, CGPoint, id) callconv(.c) CGPoint = @ptrCast(&c.objc_msgSend);
 // CGContext (returned as pointer)
-const msgSend_ctx = @as(*const fn (id, SEL) callconv(.c) c.CGContextRef, @ptrCast(&c.objc_msgSend));
+const msgSend_ctx: *const fn (id, SEL) callconv(.c) c.CGContextRef = @ptrCast(&c.objc_msgSend);
 
 // For struct returns: on arm64 all go through objc_msgSend, on x86_64 large structs need objc_msgSend_stret
 const builtin_info = @import("builtin");
@@ -61,7 +58,7 @@ const msgSend_rect = if (builtin_info.cpu.arch == .x86_64)
 else
     @as(*const fn (id, SEL) callconv(.c) CGRect, @ptrCast(&c.objc_msgSend));
 
-const msgSend_point = @as(*const fn (id, SEL) callconv(.c) CGPoint, @ptrCast(&c.objc_msgSend));
+const msgSend_point: *const fn (id, SEL) callconv(.c) CGPoint = @ptrCast(&c.objc_msgSend);
 
 fn objcClass(name: [*:0]const u8) id {
     return c.objc_getClass(name);
@@ -114,7 +111,6 @@ const font_size_h3: CGFloat = 20.0;
 
 const padding_x: CGFloat = 40.0;
 const padding_top: CGFloat = 50.0;
-const line_spacing: CGFloat = 6.0;
 const para_spacing: CGFloat = 16.0;
 const code_padding: CGFloat = 12.0;
 const close_btn_size: CGFloat = 28.0;
@@ -1354,5 +1350,5 @@ pub fn registerFileAssociation() void {
         \\   </array>
         \\2. Rebuild and re-register the app bundle.
         \\
-    ) catch {};
+    ) catch return;
 }

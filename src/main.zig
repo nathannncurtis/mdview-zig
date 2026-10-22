@@ -60,11 +60,11 @@ pub fn beginFrame() void {
 }
 
 pub fn noteBlock(y: f32) void {
-    block_y.append(gpa, y) catch {};
+    block_y.append(gpa, y) catch return;
 }
 
 pub fn noteHit(h: Hit) void {
-    if (h.content.links.len > 0) hits.append(gpa, h) catch {};
+    if (h.content.links.len > 0) hits.append(gpa, h) catch return;
 }
 
 pub fn isHover(content: md.Inline, l: md.Link) bool {
@@ -146,13 +146,21 @@ fn visit(place: Place) bool {
 pub fn goBack() void {
     const place = back_stack.pop() orelse return;
     const current = here();
-    if (visit(place)) forward_stack.append(gpa, current) catch {} else back_stack.append(gpa, place) catch {};
+    if (visit(place)) {
+        forward_stack.append(gpa, current) catch return;
+    } else {
+        back_stack.append(gpa, place) catch return;
+    }
 }
 
 pub fn goForward() void {
     const place = forward_stack.pop() orelse return;
     const current = here();
-    if (visit(place)) back_stack.append(gpa, current) catch {} else forward_stack.append(gpa, place) catch {};
+    if (visit(place)) {
+        back_stack.append(gpa, current) catch return;
+    } else {
+        forward_stack.append(gpa, place) catch return;
+    }
 }
 
 pub fn activate(target: []const u8) void {
@@ -301,7 +309,7 @@ fn openMarkdown(target: []const u8) void {
         file_path = old_path;
         return;
     }
-    back_stack.append(gpa, .{ .path = old_path, .scroll = old_scroll }) catch {};
+    back_stack.append(gpa, .{ .path = old_path, .scroll = old_scroll }) catch |err| logFmt("history: {t}", .{err});
     forward_stack.clearRetainingCapacity();
     scroll_y = 0;
     if (fragment.len > 0) jump(fragment) else platform.invalidate();

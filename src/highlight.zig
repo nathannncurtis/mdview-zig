@@ -1760,7 +1760,7 @@ fn expectTok(lang: []const u8, code: []const u8, text: []const u8, kind: Kind) !
         if (t.kind == kind and std.mem.eql(u8, code[t.start..t.end], text)) found = true;
     }
     if (!found) {
-        std.debug.print("{s}: no {s} token {s}\n", .{ lang, @tagName(kind), text });
+        std.log.err("{s}: no {s} token {s}", .{ lang, @tagName(kind), text });
         return error.TestExpectedEqual;
     }
 }

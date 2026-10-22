@@ -254,7 +254,7 @@ const Scanner = struct {
             if (j == start or j >= src.len or src[j] != ';') return null;
             const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
             const buf = try s.a.alloc(u8, 4);
-            const n = std.unicode.utf8Encode(cp, buf) catch unreachable;
+            const n = std.unicode.utf8Encode(cp, buf) catch return null;
             try s.text(buf[0..n]);
             return j + 1;
         }

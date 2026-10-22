@@ -477,6 +477,7 @@ pub fn run() void {
     _ = ShowWindow(hwnd, SW_SHOW);
     _ = UpdateWindow(hwnd);
 
+    // SAFETY: written by GetMessageW
     var msg: MSG = undefined;
     while (GetMessageW(&msg, null, 0, 0) != 0) {
         _ = TranslateMessage(&msg);
@@ -509,6 +510,7 @@ pub fn initD2D() void {
 
 fn createRenderTarget(hwnd: HWND) void {
     if (g_d2d_factory) |factory| {
+        // SAFETY: written by GetClientRect
         var rc: RECT = undefined;
         _ = GetClientRect(hwnd, &rc);
         const size = D2D1_SIZE_U{ .width = @intCast(rc.right - rc.left), .height = @intCast(rc.bottom - rc.top) };
@@ -758,6 +760,7 @@ fn drawAlertIcon(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, alert: md.Alert, 
 fn renderErrorBox(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, x: f32, y: f32, w: f32) f32 {
     const lay = createLayout(vt_dw, dwf, content, g_text_format.?, @max(w - 34, 20)) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    // SAFETY: written by GetMetrics
     var m: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
     const h = m.height + 32;
@@ -803,6 +806,7 @@ fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable,
             var buf: [16]u8 = undefined;
             const lay = createLayout(vt_dw, dwf, .{ .text = md.markerLabel(&buf, m) }, g_text_format.?, 100) orelse return;
             defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+            // SAFETY: written by GetMetrics
             var met: DWRITE_TEXT_METRICS = undefined;
             _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &met);
             vt_rt.DrawTextLayout(rt, .{ .x = x - 6 - met.width, .y = y }, lay, text, 0);
@@ -826,6 +830,7 @@ fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable,
 fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque) f32 {
     const lay = createLayout(vt_dw, dwf, content, text_format, max_width) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    // SAFETY: written by GetMetrics
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
     drawLayout(vt_rt, rt, lay, x, y, brush, content);
@@ -864,6 +869,7 @@ pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
     _ = vt.SetTextAlignment(lay, alignmentCode(hit.alignment));
     var trailing: BOOL = 0;
     var inside: BOOL = 0;
+    // SAFETY: written by HitTestPoint
     var m: DWRITE_HIT_TEST_METRICS = undefined;
     if (vt.HitTestPoint(lay, x, y, &trailing, &inside, &m) < 0 or inside == 0) return null;
     return md.byteFromUtf16(hit.content.text, m.textPosition);
@@ -947,6 +953,7 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
             }
             const lay = cellLayout(vt_dw, dwf, t, row, col, 100000) orelse continue;
             defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+            // SAFETY: written by GetMetrics
             var m: DWRITE_TEXT_METRICS = undefined;
             _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
             w.* = @max(w.*, m.widthIncludingTrailingWhitespace);
@@ -969,6 +976,7 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
             }
             lay.* = cellLayout(vt_dw, dwf, t, row, col, widths[col] - cell_pad_x * 2);
             if (lay.*) |l| {
+                // SAFETY: written by GetMetrics
                 var m: DWRITE_TEXT_METRICS = undefined;
                 _ = vtable(IDWriteTextLayout_VTable, l).GetMetrics(l, &m);
                 text_h = @max(text_h, m.height);
@@ -1029,6 +1037,7 @@ fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
 
     applySyntaxHighlighting(lay, text, toks);
 
+    // SAFETY: written by GetMetrics
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
     const block_height = metrics.height + 24;
@@ -1096,6 +1105,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
     switch (msg) {
         WM_PAINT => {
             render();
+            // SAFETY: written by BeginPaint
             var ps: PAINTSTRUCT = undefined;
             _ = BeginPaint(hwnd, &ps);
             _ = EndPaint(hwnd, &ps);
@@ -1201,7 +1211,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             return HTCLIENT;
         },
         WM_TIMER => {
-            const timer_id = @as(usize, @bitCast(wParam));
+            const timer_id: usize = @bitCast(wParam);
             if (timer_id == TIMER_FILE_WATCH) app.checkFileChanged();
             if (timer_id == TIMER_SCROLL_SAVE) app.saveScrollPosition();
             return 0;
@@ -1243,7 +1253,7 @@ extern "kernel32" fn GetCurrentPackageFullName(length: *u32, name: ?[*]u16) call
 pub fn registerFileAssociation() void {
     var pkg_len: u32 = 0;
     if (GetCurrentPackageFullName(&pkg_len, null) != 15700) {
-        std.Io.File.stdout().writeStreamingAll(app.io, "mdview is installed as a package, which already registers .md and .markdown. Choose mdview under Settings > Default apps.\n") catch {};
+        std.Io.File.stdout().writeStreamingAll(app.io, "mdview is installed as a package, which already registers .md and .markdown. Choose mdview under Settings > Default apps.\n") catch return;
         return;
     }
     var exe_buf: [512]u16 = undefined;
@@ -1264,7 +1274,7 @@ pub fn registerFileAssociation() void {
     setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\mdview\\shell\\open\\command"), null, @ptrCast(&cmd_buf));
     setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\.md"), null, L("mdview"));
     setRegString(HKEY_CURRENT_USER, L("Software\\Classes\\.markdown"), null, L("mdview"));
-    std.Io.File.stdout().writeStreamingAll(app.io, "mdview registered as default viewer for .md and .markdown files.\n") catch {};
+    std.Io.File.stdout().writeStreamingAll(app.io, "mdview registered as default viewer for .md and .markdown files.\n") catch return;
 }
 
 fn setRegString(root: usize, subkey: [*:0]const u16, value_name: ?[*:0]const u16, data: [*:0]const u16) void {

@@ -92,9 +92,7 @@ jobs:
           curl -sSfL -o zlint "https://github.com/DonIsaac/zlint/releases/download/v$v/zlint-linux-x86_64"
           echo "0b331646d5e40bec3cfcb0694c5da0b13b9de8b10af12937a777ab3144b70b65  zlint" | sha256sum -c -
           chmod +x zlint
-          # The platform backends are linted but only the portable files fail on warnings.
-          git ls-files 'src/*.zig' build.zig | grep -Ev '^src/(win32|linux|macos)\.zig$' | ./zlint -S --deny-warnings
-          git ls-files 'src/win32.zig' 'src/linux.zig' 'src/macos.zig' | ./zlint -S
+          git ls-files '*.zig' | ./zlint -S --deny-warnings
 
   fuzz:
     needs: changes

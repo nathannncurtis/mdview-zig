@@ -447,6 +447,7 @@ pub const Scanner = struct {
         while (isAlpha(s.ch(0))) try s.read(&name);
         if (name.items.len == 0) return s.fail("could not find expected directive name", "while scanning a directive", start);
         if (!s.isBlankZ(0)) return s.fail("found unexpected non-alphabetical character", "while scanning a directive", start);
+        // SAFETY: assigned in every directive branch before enqueue
         var tok: Token = undefined;
         if (std.mem.eql(u8, name.items, "YAML")) {
             while (s.isBlank(0)) s.skip();

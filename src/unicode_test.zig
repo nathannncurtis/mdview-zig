@@ -1,7 +1,6 @@
 const std = @import("std");
 const unicode = @import("unicode.zig");
 
-const category = unicode.category;
 const isLetter = unicode.isLetter;
 const isMark = unicode.isMark;
 const isNumber = unicode.isNumber;
