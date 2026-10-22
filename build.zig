@@ -71,4 +71,22 @@ pub fn build(b: *std.Build) void {
     });
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+
+    const python = if (@import("builtin").os.tag == .windows) "python" else "python3";
+    const generator_test = b.addSystemCommand(&.{ python, "tools/test_gen_unicode.py", b.graph.zig_exe });
+    test_step.dependOn(&generator_test.step);
+
+    if (resolved.os.tag == .windows) {
+        const hit_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/win32.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        for ([_][]const u8{ "d2d1", "dwrite", "user32", "gdi32", "ole32", "shell32", "advapi32" }) |lib| {
+            hit_tests.root_module.linkSystemLibrary(lib, .{});
+        }
+        test_step.dependOn(&b.addRunArtifact(hit_tests).step);
+    }
 }

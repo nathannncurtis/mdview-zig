@@ -1,0 +1,975 @@
+@@EX 161 defs
+[foo]: /url "title"
+
+[foo]
+@@HTML
+<p><a href="/url" title="title">foo</a></p>
+@@END
+@@EX 162 defs
+   [foo]: 
+      /url  
+           'the title'  
+
+[foo]
+@@HTML
+<p><a href="/url" title="the title">foo</a></p>
+@@END
+@@EX 163 defs
+[Foo*bar\]]:my_(url) 'title (with parens)'
+
+[Foo*bar\]]
+@@HTML
+<p><a href="my_(url)" title="title (with parens)">Foo*bar]</a></p>
+@@END
+@@EX 164 defs
+[Foo bar]:
+<my url>
+'title'
+
+[Foo bar]
+@@HTML
+<p><a href="my%20url" title="title">Foo bar</a></p>
+@@END
+@@EX 165 defs
+[foo]: /url '
+title
+line1
+line2
+'
+
+[foo]
+@@HTML
+<p><a href="/url" title="
+title
+line1
+line2
+">foo</a></p>
+@@END
+@@EX 166 defs
+[foo]: /url 'title
+
+with blank line'
+
+[foo]
+@@HTML
+<p>[foo]: /url 'title</p>
+<p>with blank line'</p>
+<p>[foo]</p>
+@@END
+@@EX 167 defs
+[foo]:
+/url
+
+[foo]
+@@HTML
+<p><a href="/url">foo</a></p>
+@@END
+@@EX 168 defs
+[foo]:
+
+[foo]
+@@HTML
+<p>[foo]:</p>
+<p>[foo]</p>
+@@END
+@@EX 169 defs
+[foo]: <>
+
+[foo]
+@@HTML
+<p><a href="">foo</a></p>
+@@END
+@@EX 170 defs
+[foo]: <bar>(baz)
+
+[foo]
+@@HTML
+<p>[foo]: <bar>(baz)</p>
+<p>[foo]</p>
+@@END
+@@EX 171 defs
+[foo]: /url\bar\*baz "foo\"bar\baz"
+
+[foo]
+@@HTML
+<p><a href="/url%5Cbar*baz" title="foo&quot;bar\baz">foo</a></p>
+@@END
+@@EX 172 defs
+[foo]
+
+[foo]: url
+@@HTML
+<p><a href="url">foo</a></p>
+@@END
+@@EX 173 defs
+[foo]
+
+[foo]: first
+[foo]: second
+@@HTML
+<p><a href="first">foo</a></p>
+@@END
+@@EX 174 defs
+[FOO]: /url
+
+[Foo]
+@@HTML
+<p><a href="/url">Foo</a></p>
+@@END
+@@EX 175 defs
+[ΑΓΩ]: /φου
+
+[αγω]
+@@HTML
+<p><a href="/%CF%86%CE%BF%CF%85">αγω</a></p>
+@@END
+@@EX 176 defs
+[foo]: /url
+@@HTML
+@@END
+@@EX 177 defs
+[
+foo
+]: /url
+bar
+@@HTML
+<p>bar</p>
+@@END
+@@EX 178 defs
+[foo]: /url "title" ok
+@@HTML
+<p>[foo]: /url &quot;title&quot; ok</p>
+@@END
+@@EX 179 defs
+[foo]: /url
+"title" ok
+@@HTML
+<p>&quot;title&quot; ok</p>
+@@END
+@@EX 180 defs
+    [foo]: /url "title"
+
+[foo]
+@@HTML
+<pre><code>[foo]: /url &quot;title&quot;
+</code></pre>
+<p>[foo]</p>
+@@END
+@@EX 181 defs
+```
+[foo]: /url
+```
+
+[foo]
+@@HTML
+<pre><code>[foo]: /url
+</code></pre>
+<p>[foo]</p>
+@@END
+@@EX 182 defs
+Foo
+[bar]: /baz
+
+[bar]
+@@HTML
+<p>Foo
+[bar]: /baz</p>
+<p>[bar]</p>
+@@END
+@@EX 183 defs
+# [Foo]
+[foo]: /url
+> bar
+@@HTML
+<h1><a href="/url">Foo</a></h1>
+<blockquote>
+<p>bar</p>
+</blockquote>
+@@END
+@@EX 184 defs
+[foo]: /url
+bar
+===
+[foo]
+@@HTML
+<h1>bar</h1>
+<p><a href="/url">foo</a></p>
+@@END
+@@EX 185 defs
+[foo]: /url
+===
+[foo]
+@@HTML
+<p>===
+<a href="/url">foo</a></p>
+@@END
+@@EX 186 defs
+[foo]: /foo-url "foo"
+[bar]: /bar-url
+  "bar"
+[baz]: /baz-url
+
+[foo],
+[bar],
+[baz]
+@@HTML
+<p><a href="/foo-url" title="foo">foo</a>,
+<a href="/bar-url" title="bar">bar</a>,
+<a href="/baz-url">baz</a></p>
+@@END
+@@EX 187 defs
+[foo]
+
+> [foo]: /url
+@@HTML
+<p><a href="/url">foo</a></p>
+<blockquote>
+</blockquote>
+@@END
+@@EX 188 defs
+[foo]: /url
+@@HTML
+@@END
+@@EX 493 links
+[link](/uri "title")
+@@HTML
+<p><a href="/uri" title="title">link</a></p>
+@@END
+@@EX 494 links
+[link](/uri)
+@@HTML
+<p><a href="/uri">link</a></p>
+@@END
+@@EX 495 links
+[link]()
+@@HTML
+<p><a href="">link</a></p>
+@@END
+@@EX 496 links
+[link](<>)
+@@HTML
+<p><a href="">link</a></p>
+@@END
+@@EX 497 links
+[link](/my uri)
+@@HTML
+<p>[link](/my uri)</p>
+@@END
+@@EX 498 links
+[link](</my uri>)
+@@HTML
+<p><a href="/my%20uri">link</a></p>
+@@END
+@@EX 499 links
+[link](foo
+bar)
+@@HTML
+<p>[link](foo
+bar)</p>
+@@END
+@@EX 500 links
+[link](<foo
+bar>)
+@@HTML
+<p>[link](<foo
+bar>)</p>
+@@END
+@@EX 501 links
+[a](<b)c>)
+@@HTML
+<p><a href="b)c">a</a></p>
+@@END
+@@EX 502 links
+[link](<foo\>)
+@@HTML
+<p>[link](&lt;foo&gt;)</p>
+@@END
+@@EX 503 links
+[a](<b)c
+[a](<b)c>
+[a](<b>c)
+@@HTML
+<p>[a](&lt;b)c
+[a](&lt;b)c&gt;
+[a](<b>c)</p>
+@@END
+@@EX 504 links
+[link](\(foo\))
+@@HTML
+<p><a href="(foo)">link</a></p>
+@@END
+@@EX 505 links
+[link](foo(and(bar)))
+@@HTML
+<p><a href="foo(and(bar))">link</a></p>
+@@END
+@@EX 506 links
+[link](foo\(and\(bar\))
+@@HTML
+<p><a href="foo(and(bar)">link</a></p>
+@@END
+@@EX 507 links
+[link](<foo(and(bar)>)
+@@HTML
+<p><a href="foo(and(bar)">link</a></p>
+@@END
+@@EX 508 links
+[link](foo\)\:)
+@@HTML
+<p><a href="foo):">link</a></p>
+@@END
+@@EX 509 links
+[link](#fragment)
+
+[link](http://example.com#fragment)
+
+[link](http://example.com?foo=3#frag)
+@@HTML
+<p><a href="#fragment">link</a></p>
+<p><a href="http://example.com#fragment">link</a></p>
+<p><a href="http://example.com?foo=3#frag">link</a></p>
+@@END
+@@EX 510 links
+[link](foo\bar)
+@@HTML
+<p><a href="foo%5Cbar">link</a></p>
+@@END
+@@EX 511 links
+[link](foo%20b&auml;)
+@@HTML
+<p><a href="foo%20b%C3%A4">link</a></p>
+@@END
+@@EX 512 links
+[link]("title")
+@@HTML
+<p><a href="%22title%22">link</a></p>
+@@END
+@@EX 513 links
+[link](/url "title")
+[link](/url 'title')
+[link](/url (title))
+@@HTML
+<p><a href="/url" title="title">link</a>
+<a href="/url" title="title">link</a>
+<a href="/url" title="title">link</a></p>
+@@END
+@@EX 514 links
+[link](/url "title \"&quot;")
+@@HTML
+<p><a href="/url" title="title &quot;&quot;">link</a></p>
+@@END
+@@EX 515 links
+[link](/url "title")
+@@HTML
+<p><a href="/url%C2%A0%22title%22">link</a></p>
+@@END
+@@EX 516 links
+[link](/url "title "and" title")
+@@HTML
+<p>[link](/url &quot;title &quot;and&quot; title&quot;)</p>
+@@END
+@@EX 517 links
+[link](/url 'title "and" title')
+@@HTML
+<p><a href="/url" title="title &quot;and&quot; title">link</a></p>
+@@END
+@@EX 518 links
+[link](   /uri
+  "title"  )
+@@HTML
+<p><a href="/uri" title="title">link</a></p>
+@@END
+@@EX 519 links
+[link] (/uri)
+@@HTML
+<p>[link] (/uri)</p>
+@@END
+@@EX 520 links
+[link [foo [bar]]](/uri)
+@@HTML
+<p><a href="/uri">link [foo [bar]]</a></p>
+@@END
+@@EX 521 links
+[link] bar](/uri)
+@@HTML
+<p>[link] bar](/uri)</p>
+@@END
+@@EX 522 links
+[link [bar](/uri)
+@@HTML
+<p>[link <a href="/uri">bar</a></p>
+@@END
+@@EX 523 links
+[link \[bar](/uri)
+@@HTML
+<p><a href="/uri">link [bar</a></p>
+@@END
+@@EX 524 links
+[link *foo **bar** `#`*](/uri)
+@@HTML
+<p><a href="/uri">link <em>foo <strong>bar</strong> <code>#</code></em></a></p>
+@@END
+@@EX 525 links
+[![moon](moon.jpg)](/uri)
+@@HTML
+<p><a href="/uri"><img src="moon.jpg" alt="moon" /></a></p>
+@@END
+@@EX 526 links
+[foo [bar](/uri)](/uri)
+@@HTML
+<p>[foo <a href="/uri">bar</a>](/uri)</p>
+@@END
+@@EX 527 links
+[foo *[bar [baz](/uri)](/uri)*](/uri)
+@@HTML
+<p>[foo <em>[bar <a href="/uri">baz</a>](/uri)</em>](/uri)</p>
+@@END
+@@EX 528 links
+![[[foo](uri1)](uri2)](uri3)
+@@HTML
+<p><img src="uri3" alt="[foo](uri2)" /></p>
+@@END
+@@EX 529 links
+*[foo*](/uri)
+@@HTML
+<p>*<a href="/uri">foo*</a></p>
+@@END
+@@EX 530 links
+[foo *bar](baz*)
+@@HTML
+<p><a href="baz*">foo *bar</a></p>
+@@END
+@@EX 531 links
+*foo [bar* baz]
+@@HTML
+<p><em>foo [bar</em> baz]</p>
+@@END
+@@EX 532 links
+[foo <bar attr="](baz)">
+@@HTML
+<p>[foo <bar attr="](baz)"></p>
+@@END
+@@EX 533 links
+[foo`](/uri)`
+@@HTML
+<p>[foo<code>](/uri)</code></p>
+@@END
+@@EX 534 links
+[foo<http://example.com/?search=](uri)>
+@@HTML
+<p>[foo<a href="http://example.com/?search=%5D(uri)">http://example.com/?search=](uri)</a></p>
+@@END
+@@EX 535 links
+[foo][bar]
+
+[bar]: /url "title"
+@@HTML
+<p><a href="/url" title="title">foo</a></p>
+@@END
+@@EX 536 links
+[link [foo [bar]]][ref]
+
+[ref]: /uri
+@@HTML
+<p><a href="/uri">link [foo [bar]]</a></p>
+@@END
+@@EX 537 links
+[link \[bar][ref]
+
+[ref]: /uri
+@@HTML
+<p><a href="/uri">link [bar</a></p>
+@@END
+@@EX 538 links
+[link *foo **bar** `#`*][ref]
+
+[ref]: /uri
+@@HTML
+<p><a href="/uri">link <em>foo <strong>bar</strong> <code>#</code></em></a></p>
+@@END
+@@EX 539 links
+[![moon](moon.jpg)][ref]
+
+[ref]: /uri
+@@HTML
+<p><a href="/uri"><img src="moon.jpg" alt="moon" /></a></p>
+@@END
+@@EX 540 links
+[foo [bar](/uri)][ref]
+
+[ref]: /uri
+@@HTML
+<p>[foo <a href="/uri">bar</a>]<a href="/uri">ref</a></p>
+@@END
+@@EX 541 links
+[foo *bar [baz][ref]*][ref]
+
+[ref]: /uri
+@@HTML
+<p>[foo <em>bar <a href="/uri">baz</a></em>]<a href="/uri">ref</a></p>
+@@END
+@@EX 542 links
+*[foo*][ref]
+
+[ref]: /uri
+@@HTML
+<p>*<a href="/uri">foo*</a></p>
+@@END
+@@EX 543 links
+[foo *bar][ref]
+
+[ref]: /uri
+@@HTML
+<p><a href="/uri">foo *bar</a></p>
+@@END
+@@EX 544 links
+[foo <bar attr="][ref]">
+
+[ref]: /uri
+@@HTML
+<p>[foo <bar attr="][ref]"></p>
+@@END
+@@EX 545 links
+[foo`][ref]`
+
+[ref]: /uri
+@@HTML
+<p>[foo<code>][ref]</code></p>
+@@END
+@@EX 546 links
+[foo<http://example.com/?search=][ref]>
+
+[ref]: /uri
+@@HTML
+<p>[foo<a href="http://example.com/?search=%5D%5Bref%5D">http://example.com/?search=][ref]</a></p>
+@@END
+@@EX 547 links
+[foo][BaR]
+
+[bar]: /url "title"
+@@HTML
+<p><a href="/url" title="title">foo</a></p>
+@@END
+@@EX 548 links
+[Толпой][Толпой] is a Russian word.
+
+[ТОЛПОЙ]: /url
+@@HTML
+<p><a href="/url">Толпой</a> is a Russian word.</p>
+@@END
+@@EX 549 links
+[Foo
+  bar]: /url
+
+[Baz][Foo bar]
+@@HTML
+<p><a href="/url">Baz</a></p>
+@@END
+@@EX 550 links
+[foo] [bar]
+
+[bar]: /url "title"
+@@HTML
+<p>[foo] <a href="/url" title="title">bar</a></p>
+@@END
+@@EX 551 links
+[foo]
+[bar]
+
+[bar]: /url "title"
+@@HTML
+<p>[foo]
+<a href="/url" title="title">bar</a></p>
+@@END
+@@EX 552 links
+[foo]: /url1
+
+[foo]: /url2
+
+[bar][foo]
+@@HTML
+<p><a href="/url1">bar</a></p>
+@@END
+@@EX 553 links
+[bar][foo\!]
+
+[foo!]: /url
+@@HTML
+<p>[bar][foo!]</p>
+@@END
+@@EX 554 links
+[foo][ref[]
+
+[ref[]: /uri
+@@HTML
+<p>[foo][ref[]</p>
+<p>[ref[]: /uri</p>
+@@END
+@@EX 555 links
+[foo][ref[bar]]
+
+[ref[bar]]: /uri
+@@HTML
+<p>[foo][ref[bar]]</p>
+<p>[ref[bar]]: /uri</p>
+@@END
+@@EX 556 links
+[[[foo]]]
+
+[[[foo]]]: /url
+@@HTML
+<p>[[[foo]]]</p>
+<p>[[[foo]]]: /url</p>
+@@END
+@@EX 557 links
+[foo][ref\[]
+
+[ref\[]: /uri
+@@HTML
+<p><a href="/uri">foo</a></p>
+@@END
+@@EX 558 links
+[bar\\]: /uri
+
+[bar\\]
+@@HTML
+<p><a href="/uri">bar\</a></p>
+@@END
+@@EX 559 links
+[]
+
+[]: /uri
+@@HTML
+<p>[]</p>
+<p>[]: /uri</p>
+@@END
+@@EX 560 links
+[
+ ]
+
+[
+ ]: /uri
+@@HTML
+<p>[
+]</p>
+<p>[
+]: /uri</p>
+@@END
+@@EX 561 links
+[foo][]
+
+[foo]: /url "title"
+@@HTML
+<p><a href="/url" title="title">foo</a></p>
+@@END
+@@EX 562 links
+[*foo* bar][]
+
+[*foo* bar]: /url "title"
+@@HTML
+<p><a href="/url" title="title"><em>foo</em> bar</a></p>
+@@END
+@@EX 563 links
+[Foo][]
+
+[foo]: /url "title"
+@@HTML
+<p><a href="/url" title="title">Foo</a></p>
+@@END
+@@EX 564 links
+[foo] 
+[]
+
+[foo]: /url "title"
+@@HTML
+<p><a href="/url" title="title">foo</a>
+[]</p>
+@@END
+@@EX 565 links
+[foo]
+
+[foo]: /url "title"
+@@HTML
+<p><a href="/url" title="title">foo</a></p>
+@@END
+@@EX 566 links
+[*foo* bar]
+
+[*foo* bar]: /url "title"
+@@HTML
+<p><a href="/url" title="title"><em>foo</em> bar</a></p>
+@@END
+@@EX 567 links
+[[*foo* bar]]
+
+[*foo* bar]: /url "title"
+@@HTML
+<p>[<a href="/url" title="title"><em>foo</em> bar</a>]</p>
+@@END
+@@EX 568 links
+[[bar [foo]
+
+[foo]: /url
+@@HTML
+<p>[[bar <a href="/url">foo</a></p>
+@@END
+@@EX 569 links
+[Foo]
+
+[foo]: /url "title"
+@@HTML
+<p><a href="/url" title="title">Foo</a></p>
+@@END
+@@EX 570 links
+[foo] bar
+
+[foo]: /url
+@@HTML
+<p><a href="/url">foo</a> bar</p>
+@@END
+@@EX 571 links
+\[foo]
+
+[foo]: /url "title"
+@@HTML
+<p>[foo]</p>
+@@END
+@@EX 572 links
+[foo*]: /url
+
+*[foo*]
+@@HTML
+<p>*<a href="/url">foo*</a></p>
+@@END
+@@EX 573 links
+[foo][bar]
+
+[foo]: /url1
+[bar]: /url2
+@@HTML
+<p><a href="/url2">foo</a></p>
+@@END
+@@EX 574 links
+[foo][]
+
+[foo]: /url1
+@@HTML
+<p><a href="/url1">foo</a></p>
+@@END
+@@EX 575 links
+[foo]()
+
+[foo]: /url1
+@@HTML
+<p><a href="">foo</a></p>
+@@END
+@@EX 576 links
+[foo](not a link)
+
+[foo]: /url1
+@@HTML
+<p><a href="/url1">foo</a>(not a link)</p>
+@@END
+@@EX 577 links
+[foo][bar][baz]
+
+[baz]: /url
+@@HTML
+<p>[foo]<a href="/url">bar</a></p>
+@@END
+@@EX 578 links
+[foo][bar][baz]
+
+[baz]: /url1
+[bar]: /url2
+@@HTML
+<p><a href="/url2">foo</a><a href="/url1">baz</a></p>
+@@END
+@@EX 579 links
+[foo][bar][baz]
+
+[baz]: /url1
+[foo]: /url2
+@@HTML
+<p>[foo]<a href="/url1">bar</a></p>
+@@END
+@@EX 602 autolinks
+<http://foo.bar.baz>
+@@HTML
+<p><a href="http://foo.bar.baz">http://foo.bar.baz</a></p>
+@@END
+@@EX 603 autolinks
+<http://foo.bar.baz/test?q=hello&id=22&boolean>
+@@HTML
+<p><a href="http://foo.bar.baz/test?q=hello&amp;id=22&amp;boolean">http://foo.bar.baz/test?q=hello&amp;id=22&amp;boolean</a></p>
+@@END
+@@EX 604 autolinks
+<irc://foo.bar:2233/baz>
+@@HTML
+<p><a href="irc://foo.bar:2233/baz">irc://foo.bar:2233/baz</a></p>
+@@END
+@@EX 605 autolinks
+<MAILTO:FOO@BAR.BAZ>
+@@HTML
+<p><a href="MAILTO:FOO@BAR.BAZ">MAILTO:FOO@BAR.BAZ</a></p>
+@@END
+@@EX 606 autolinks
+<a+b+c:d>
+@@HTML
+<p><a href="a+b+c:d">a+b+c:d</a></p>
+@@END
+@@EX 607 autolinks
+<made-up-scheme://foo,bar>
+@@HTML
+<p><a href="made-up-scheme://foo,bar">made-up-scheme://foo,bar</a></p>
+@@END
+@@EX 608 autolinks
+<http://../>
+@@HTML
+<p><a href="http://../">http://../</a></p>
+@@END
+@@EX 609 autolinks
+<localhost:5001/foo>
+@@HTML
+<p><a href="localhost:5001/foo">localhost:5001/foo</a></p>
+@@END
+@@EX 610 autolinks
+<http://foo.bar/baz bim>
+@@HTML
+<p>&lt;http://foo.bar/baz bim&gt;</p>
+@@END
+@@EX 611 autolinks
+<http://example.com/\[\>
+@@HTML
+<p><a href="http://example.com/%5C%5B%5C">http://example.com/\[\</a></p>
+@@END
+@@EX 612 autolinks
+<foo@bar.example.com>
+@@HTML
+<p><a href="mailto:foo@bar.example.com">foo@bar.example.com</a></p>
+@@END
+@@EX 613 autolinks
+<foo+special@Bar.baz-bar0.com>
+@@HTML
+<p><a href="mailto:foo+special@Bar.baz-bar0.com">foo+special@Bar.baz-bar0.com</a></p>
+@@END
+@@EX 614 autolinks
+<foo\+@bar.example.com>
+@@HTML
+<p>&lt;foo+@bar.example.com&gt;</p>
+@@END
+@@EX 615 autolinks
+<>
+@@HTML
+<p>&lt;&gt;</p>
+@@END
+@@EX 616 autolinks
+< http://foo.bar >
+@@HTML
+<p>&lt; http://foo.bar &gt;</p>
+@@END
+@@EX 617 autolinks
+<m:abc>
+@@HTML
+<p>&lt;m:abc&gt;</p>
+@@END
+@@EX 618 autolinks
+<foo.bar.baz>
+@@HTML
+<p>&lt;foo.bar.baz&gt;</p>
+@@END
+@@EX 619 autolinks
+http://example.com
+@@HTML
+<p>http://example.com</p>
+@@END
+@@EX 620 autolinks
+foo@bar.example.com
+@@HTML
+<p>foo@bar.example.com</p>
+@@END
+@@EX 621 autolinks-ext
+www.commonmark.org
+@@HTML
+<p><a href="http://www.commonmark.org">www.commonmark.org</a></p>
+@@END
+@@EX 622 autolinks-ext
+Visit www.commonmark.org/help for more information.
+@@HTML
+<p>Visit <a href="http://www.commonmark.org/help">www.commonmark.org/help</a> for more information.</p>
+@@END
+@@EX 623 autolinks-ext
+Visit www.commonmark.org.
+
+Visit www.commonmark.org/a.b.
+@@HTML
+<p>Visit <a href="http://www.commonmark.org">www.commonmark.org</a>.</p>
+<p>Visit <a href="http://www.commonmark.org/a.b">www.commonmark.org/a.b</a>.</p>
+@@END
+@@EX 624 autolinks-ext
+www.google.com/search?q=Markup+(business)
+
+www.google.com/search?q=Markup+(business)))
+
+(www.google.com/search?q=Markup+(business))
+
+(www.google.com/search?q=Markup+(business)
+@@HTML
+<p><a href="http://www.google.com/search?q=Markup+(business)">www.google.com/search?q=Markup+(business)</a></p>
+<p><a href="http://www.google.com/search?q=Markup+(business)">www.google.com/search?q=Markup+(business)</a>))</p>
+<p>(<a href="http://www.google.com/search?q=Markup+(business)">www.google.com/search?q=Markup+(business)</a>)</p>
+<p>(<a href="http://www.google.com/search?q=Markup+(business)">www.google.com/search?q=Markup+(business)</a></p>
+@@END
+@@EX 625 autolinks-ext
+www.google.com/search?q=(business))+ok
+@@HTML
+<p><a href="http://www.google.com/search?q=(business))+ok">www.google.com/search?q=(business))+ok</a></p>
+@@END
+@@EX 626 autolinks-ext
+www.google.com/search?q=commonmark&hl=en
+
+www.google.com/search?q=commonmark&hl;
+@@HTML
+<p><a href="http://www.google.com/search?q=commonmark&amp;hl=en">www.google.com/search?q=commonmark&amp;hl=en</a></p>
+<p><a href="http://www.google.com/search?q=commonmark">www.google.com/search?q=commonmark</a>&amp;hl;</p>
+@@END
+@@EX 627 autolinks-ext
+www.commonmark.org/he<lp
+@@HTML
+<p><a href="http://www.commonmark.org/he">www.commonmark.org/he</a>&lt;lp</p>
+@@END
+@@EX 628 autolinks-ext
+http://commonmark.org
+
+(Visit https://encrypted.google.com/search?q=Markup+(business))
+
+Anonymous FTP is available at ftp://foo.bar.baz.
+@@HTML
+<p><a href="http://commonmark.org">http://commonmark.org</a></p>
+<p>(Visit <a href="https://encrypted.google.com/search?q=Markup+(business)">https://encrypted.google.com/search?q=Markup+(business)</a>)</p>
+<p>Anonymous FTP is available at <a href="ftp://foo.bar.baz">ftp://foo.bar.baz</a>.</p>
+@@END
+@@EX 629 autolinks-ext
+foo@bar.baz
+@@HTML
+<p><a href="mailto:foo@bar.baz">foo@bar.baz</a></p>
+@@END
+@@EX 630 autolinks-ext
+hello@mail+xyz.example isn't valid, but hello+xyz@mail.example is.
+@@HTML
+<p>hello@mail+xyz.example isn't valid, but <a href="mailto:hello+xyz@mail.example">hello+xyz@mail.example</a> is.</p>
+@@END
+@@EX 631 autolinks-ext
+a.b-c_d@a.b
+
+a.b-c_d@a.b.
+
+a.b-c_d@a.b-
+
+a.b-c_d@a.b_
+@@HTML
+<p><a href="mailto:a.b-c_d@a.b">a.b-c_d@a.b</a></p>
+<p><a href="mailto:a.b-c_d@a.b">a.b-c_d@a.b</a>.</p>
+<p>a.b-c_d@a.b-</p>
+<p>a.b-c_d@a.b_</p>
+@@END

@@ -4,6 +4,10 @@ const inl = @import("inline.zig");
 const highlight = @import("highlight.zig");
 const blocks = @import("blocks.zig");
 const yaml = @import("yaml.zig");
+const links = @import("links.zig");
+
+pub const Link = links.Link;
+pub const Image = links.Image;
 
 pub const Definition = blocks.Definition;
 
@@ -19,6 +23,14 @@ pub const Inline = struct {
     code: []const Span = &.{},
     strike: []const Span = &.{},
     emoji: []const Span = &.{},
+    links: []const Link = &.{},
+    images: []const Image = &.{},
+    sup: []const Span = &.{},
+
+    pub fn linkAt(self: Inline, byte: u32) ?Link {
+        for (self.links) |l| if (byte >= l.start and byte < l.start + l.len) return l;
+        return null;
+    }
 };
 
 pub const Align = enum { none, left, center, right };
@@ -128,12 +140,6 @@ pub const Block = struct {
     }
 };
 
-pub const Footnote = struct {
-    /// Normalized like a definition label, without the `^`.
-    label: []const u8,
-    blocks: []const Block,
-};
-
 pub const Document = struct {
     arena: std.heap.ArenaAllocator,
     blocks: []const Block = &.{},
@@ -141,8 +147,8 @@ pub const Document = struct {
     /// source order, and removed from `blocks`. `label` is normalized: trimmed, whitespace collapsed,
     /// Unicode case folded.
     definitions: []const Definition = &.{},
-    /// Footnote definitions (`[^label]: ...`), each with all its blocks; not part of `blocks`.
-    footnotes: []const Footnote = &.{},
+    /// For each referenced footnote, in number order, the index in `blocks` of its first block.
+    footnote_blocks: []const u32 = &.{},
 
     pub fn deinit(self: *Document) void {
         self.arena.deinit();
@@ -153,13 +159,25 @@ pub const Document = struct {
 pub fn parse(gpa: Allocator, markdown: []const u8) Allocator.Error!Document {
     var doc: Document = .{ .arena = .init(gpa) };
     errdefer doc.arena.deinit();
-    var p: Parser = .{ .a = doc.arena.allocator(), .tmp = .init(gpa) };
+    const a = doc.arena.allocator();
+
+    // Footnote numbers follow the first reference, and a footnote body can add references,
+    // so a first pass over the document settles the order and the back-reference counts.
+    var seed: []const links.Note = &.{};
+    if (std.mem.indexOf(u8, markdown, "[^") != null) {
+        var scratch: std.heap.ArenaAllocator = .init(gpa);
+        defer scratch.deinit();
+        var first: Parser = .{ .a = scratch.allocator(), .tmp = .init(gpa), .refs = .init(scratch.allocator()) };
+        defer first.tmp.deinit();
+        try first.run(markdown, null);
+        const copy = try a.alloc(links.Note, first.refs.order.items.len);
+        for (copy, first.refs.order.items) |*c, n| c.* = .{ .label = try a.dupe(u8, n.label), .node = 0, .refs = n.refs };
+        seed = copy;
+    }
+
+    var p: Parser = .{ .a = a, .tmp = .init(gpa), .refs = .init(a), .seed = seed };
     defer p.tmp.deinit();
-    const skip = try p.frontMatter(markdown);
-    const tree = try blocks.build(p.a, markdown[skip..]);
-    try p.walk(&tree, 0);
-    try p.finish(&doc);
-    doc.definitions = tree.defs.items;
+    try p.run(markdown, &doc);
     return doc;
 }
 
@@ -172,6 +190,9 @@ const RawInline = struct {
     code: Range,
     strike: Range,
     emoji: Range,
+    links: Range,
+    images: Range,
+    sup: Range,
 };
 
 const RawBlock = struct {
@@ -186,8 +207,6 @@ const RawBlock = struct {
     marks: []Lead = &.{},
     compact: bool = false,
 };
-
-const RawFootnote = struct { label: []const u8, lo: usize, hi: usize };
 
 const alert_names = [_]struct { tag: []const u8, alert: Alert, label: []const u8 }{
     .{ .tag = "[!NOTE]", .alert = .note, .label = "Note" },
@@ -225,6 +244,13 @@ const Parser = struct {
     code: std.ArrayList(Span) = .empty,
     strike: std.ArrayList(Span) = .empty,
     emoji: std.ArrayList(Span) = .empty,
+    links: std.ArrayList(Link) = .empty,
+    images: std.ArrayList(Image) = .empty,
+    sup: std.ArrayList(Span) = .empty,
+    refs: links.Refs,
+    seed: []const links.Note = &.{},
+    backref: ?Backref = null,
+    note_starts: std.ArrayList(u32) = .empty,
     tmp: std.heap.ArenaAllocator,
     blocks: std.ArrayList(RawBlock) = .empty,
     aligns: std.ArrayList(Align) = .empty,
@@ -233,8 +259,73 @@ const Parser = struct {
     joined: std.ArrayList(u8) = .empty,
     frames: std.ArrayList(Frame) = .empty,
     leads: std.ArrayList(Lead) = .empty,
-    fn_blocks: std.ArrayList(RawBlock) = .empty,
-    footnotes: std.ArrayList(RawFootnote) = .empty,
+
+    const Backref = struct { number: u32, count: u32 };
+
+    fn run(p: *Parser, markdown: []const u8, doc: ?*Document) Allocator.Error!void {
+        const skip = try p.frontMatter(markdown);
+        const tree = try blocks.build(p.a, markdown[skip..]);
+        for (tree.defs.items) |d| try p.refs.addDef(d.label, .{ .dest = d.dest, .title = d.title });
+        for (tree.nodes.items, 0..) |n, i| if (n.kind == .footnote) try p.refs.addNote(n.label, @intCast(i));
+        if (p.seed.len > 0) try p.refs.seed(p.seed);
+        try p.walk(&tree, 0);
+        try p.footnoteSection(&tree);
+        if (doc) |d| {
+            try p.finish(d);
+            d.definitions = tree.defs.items;
+            d.footnote_blocks = p.note_starts.items;
+        }
+    }
+
+    // Referenced footnotes follow the document after a rule, as the items of a numbered list.
+    fn footnoteSection(p: *Parser, t: *const blocks.Tree) Allocator.Error!void {
+        if (p.refs.order.items.len == 0) return;
+        try p.emit(.{ .kind = .hr, .content = p.textFrom(p.textLen()) });
+        const group: u32 = @intCast(t.nodes.items.len);
+        var n: usize = 0;
+        while (n < p.refs.order.items.len) : (n += 1) {
+            const note = p.refs.order.items[n];
+            const number: u32 = @intCast(n + 1);
+            try p.frames.append(p.a, .{ .kind = .list, .id = group + number, .group = group, .ordered = true, .start = 1 });
+            try p.leads.append(p.a, .{ .mark = .{ .kind = .number, .number = number }, .inset = p.frameInset() });
+            var consumed = false;
+            try p.note_starts.append(p.a, @intCast(p.blocks.items.len));
+            var c = t.nodes.items[note.node].first;
+            while (c != blocks.none) : (c = t.nodes.items[c].next) {
+                const last = t.nodes.items[c].next == blocks.none;
+                if (last and t.nodes.items[c].kind == .paragraph) {
+                    p.backref = .{ .number = number, .count = note.refs };
+                    consumed = true;
+                }
+                try p.walk(t, c);
+                if (p.backref != null) {
+                    p.backref = null;
+                    consumed = false;
+                }
+            }
+            if (!consumed) {
+                const r = p.textFrom(p.textLen());
+                try p.backrefs(r.text.lo, number, note.refs);
+                try p.emit(.{ .kind = .paragraph, .content = p.closeRange(r) });
+            }
+            if (p.leads.items.len > 0) try p.emit(.{ .kind = .paragraph, .content = try p.plain(" ") });
+            _ = p.frames.pop();
+        }
+    }
+
+    fn backrefs(p: *Parser, start: u32, number: u32, count: u32) Allocator.Error!void {
+        for (1..count + 1) |nth| {
+            if (nth > 1 or p.textLen() > start) try p.text.append(p.a, ' ');
+            const arrow = if (nth == 1) "\u{21a9}" else try std.fmt.allocPrint(p.a, "\u{21a9}{d}", .{nth});
+            if (nth > 1) try p.sup.append(p.a, .{ p.textLen() - start + 3, @intCast(arrow.len - 3) });
+            try p.links.append(p.a, .{
+                .start = p.textLen() - start,
+                .len = @intCast(arrow.len),
+                .target = try std.fmt.allocPrint(p.a, "#fnref-{d}-{d}", .{ number, nth }),
+            });
+            try p.text.appendSlice(p.a, arrow);
+        }
+    }
 
     fn emit(p: *Parser, raw: RawBlock) Allocator.Error!void {
         var b = raw;
@@ -286,7 +377,7 @@ const Parser = struct {
                 }
             },
             .quote => try p.quote(t, idx),
-            .footnote => try p.footnote(t, idx),
+            .footnote => {},
             .paragraph => try p.paragraph(t, idx, node.content.items),
             .heading => {
                 try p.join(node.content.items);
@@ -314,24 +405,6 @@ const Parser = struct {
             },
             .html => {},
         }
-    }
-
-    fn footnote(p: *Parser, t: *const blocks.Tree, idx: u32) Allocator.Error!void {
-        const node = t.nodes.items[idx];
-        const saved_frames = p.frames;
-        const saved_leads = p.leads;
-        p.frames = .empty;
-        p.leads = .empty;
-        const start = p.blocks.items.len;
-        var c = node.first;
-        while (c != blocks.none) : (c = t.nodes.items[c].next) try p.walk(t, c);
-        if (p.leads.items.len > 0) try p.emit(.{ .kind = .paragraph, .content = try p.plain(" ") });
-        const lo = p.fn_blocks.items.len;
-        try p.fn_blocks.appendSlice(p.a, p.blocks.items[start..]);
-        p.blocks.shrinkRetainingCapacity(start);
-        try p.footnotes.append(p.a, .{ .label = node.label, .lo = lo, .hi = p.fn_blocks.items.len });
-        p.frames = saved_frames;
-        p.leads = saved_leads;
     }
 
     fn quote(p: *Parser, t: *const blocks.Tree, idx: u32) Allocator.Error!void {
@@ -425,7 +498,13 @@ const Parser = struct {
                 text = body;
             }
         }
-        try p.emit(.{ .kind = .paragraph, .content = try p.parseInline(text), .compact = compact });
+        var content = try p.parseInline(text);
+        if (p.backref) |b| {
+            p.backref = null;
+            try p.backrefs(content.text.lo, b.number, b.count);
+            content = p.closeRange(content);
+        }
+        try p.emit(.{ .kind = .paragraph, .content = content, .compact = compact });
     }
 
     fn cellInline(p: *Parser, v: yaml.Value) Allocator.Error!Inline {
@@ -546,13 +625,9 @@ const Parser = struct {
 
     fn finish(p: *Parser, doc: *Document) Allocator.Error!void {
         settle(p.blocks.items);
-        for (p.footnotes.items) |f| settle(p.fn_blocks.items[f.lo..f.hi]);
         const cells = try p.a.alloc(Inline, p.cells.items.len);
         for (cells, p.cells.items) |*c, raw| c.* = p.resolve(raw);
         doc.blocks = try p.build(p.blocks.items, cells);
-        const notes = try p.a.alloc(Footnote, p.footnotes.items.len);
-        for (notes, p.footnotes.items) |*n, f| n.* = .{ .label = f.label, .blocks = try p.build(p.fn_blocks.items[f.lo..f.hi], cells) };
-        doc.footnotes = notes;
     }
 
     fn build(p: *Parser, raws: []const RawBlock, cells: []const Inline) Allocator.Error![]const Block {
@@ -584,6 +659,9 @@ const Parser = struct {
             .code = p.code.items[r.code.lo..r.code.hi],
             .strike = p.strike.items[r.strike.lo..r.strike.hi],
             .emoji = p.emoji.items[r.emoji.lo..r.emoji.hi],
+            .links = p.links.items[r.links.lo..r.links.hi],
+            .images = p.images.items[r.images.lo..r.images.hi],
+            .sup = p.sup.items[r.sup.lo..r.sup.hi],
         };
     }
 
@@ -597,6 +675,9 @@ const Parser = struct {
         const c: u32 = @intCast(p.code.items.len);
         const st: u32 = @intCast(p.strike.items.len);
         const em: u32 = @intCast(p.emoji.items.len);
+        const l: u32 = @intCast(p.links.items.len);
+        const im: u32 = @intCast(p.images.items.len);
+        const su: u32 = @intCast(p.sup.items.len);
         return .{
             .text = .{ .lo = start, .hi = p.textLen() },
             .bold = .{ .lo = b, .hi = b },
@@ -604,6 +685,9 @@ const Parser = struct {
             .code = .{ .lo = c, .hi = c },
             .strike = .{ .lo = st, .hi = st },
             .emoji = .{ .lo = em, .hi = em },
+            .links = .{ .lo = l, .hi = l },
+            .images = .{ .lo = im, .hi = im },
+            .sup = .{ .lo = su, .hi = su },
         };
     }
 
@@ -656,14 +740,15 @@ const Parser = struct {
 
     fn parseInline(p: *Parser, raw: []const u8) Allocator.Error!RawInline {
         _ = p.tmp.reset(.retain_capacity);
-        const parsed = try inl.parse(p.tmp.allocator(), raw, &legacy_hooks);
-        var r = p.textFrom(p.textLen());
+        const hooks: inl.Hooks = .{ .ctx = p, .link = linkHook, .autolink = autolinkHook, .bare = bareHook };
+        const parsed = try inl.parse(p.tmp.allocator(), raw, &hooks);
+        const r = p.textFrom(p.textLen());
         try p.text.appendSlice(p.a, parsed.text);
 
-        const Open = struct { kind: inl.Kind, pos: u32 };
+        const Open = struct { kind: inl.Kind, pos: u32, url: []const u8, title: []const u8 };
         var stack: std.ArrayList(Open) = .empty;
         for (parsed.events) |ev| switch (ev.tag) {
-            .open => try stack.append(p.tmp.allocator(), .{ .kind = ev.kind, .pos = ev.pos }),
+            .open => try stack.append(p.tmp.allocator(), .{ .kind = ev.kind, .pos = ev.pos, .url = ev.url, .title = ev.title }),
             .close => {
                 const open = stack.pop() orelse continue;
                 const span: Span = .{ open.pos, ev.pos - open.pos };
@@ -673,36 +758,71 @@ const Parser = struct {
                     .strike => try p.strike.append(p.a, span),
                     .code => try p.code.append(p.a, span),
                     .emoji => try p.emoji.append(p.a, span),
-                    .link, .image => {},
+                    .sup => try p.sup.append(p.a, span),
+                    .link, .image => {
+                        const item: Link = .{
+                            .start = span[0],
+                            .len = span[1],
+                            .target = try p.a.dupe(u8, open.url),
+                            .title = try p.a.dupe(u8, open.title),
+                        };
+                        if (open.kind == .image) try p.images.append(p.a, item) else try p.links.append(p.a, item);
+                    },
                 }
             },
             .html, .soft, .hard => {},
         };
 
+        return p.closeRange(r);
+    }
+
+    fn closeRange(p: *const Parser, open: RawInline) RawInline {
+        var r = open;
         r.text.hi = p.textLen();
         r.bold.hi = @intCast(p.bold.items.len);
         r.italic.hi = @intCast(p.italic.items.len);
         r.code.hi = @intCast(p.code.items.len);
         r.strike.hi = @intCast(p.strike.items.len);
         r.emoji.hi = @intCast(p.emoji.items.len);
+        r.links.hi = @intCast(p.links.items.len);
+        r.images.hi = @intCast(p.images.items.len);
+        r.sup.hi = @intCast(p.sup.items.len);
         return r;
     }
 };
 
-const legacy_hooks: inl.Hooks = .{ .link = legacyLink };
+fn parserOf(h: *const inl.Hooks) *Parser {
+    return @ptrCast(@alignCast(h.ctx.?));
+}
 
-fn legacyLink(_: *const inl.Hooks, _: Allocator, src: []const u8, _: usize, close: usize, _: bool) Allocator.Error!?inl.LinkMatch {
-    if (close + 1 >= src.len or src[close + 1] != '(') return null;
-    var depth: i32 = 0;
-    var k = close + 1;
-    while (k < src.len) : (k += 1) {
-        if (src[k] == '(') depth += 1;
-        if (src[k] == ')') {
-            depth -= 1;
-            if (depth == 0) return .{ .end = k + 1 };
+fn linkHook(h: *const inl.Hooks, a: Allocator, src: []const u8, text_start: usize, close: usize, image: bool) Allocator.Error!?inl.LinkMatch {
+    const p = parserOf(h);
+    const open = text_start - @as(usize, if (image) 2 else 1);
+    if (!image and text_start < close and src[text_start] == '^') {
+        if (try p.refs.noteRef(src[text_start + 1 .. close])) |number| {
+            return .{
+                .end = close + 1,
+                .url = try std.fmt.allocPrint(a, "#fn-{d}", .{number}),
+                .replace = try std.fmt.allocPrint(a, "{d}", .{number}),
+                .sup = true,
+            };
         }
     }
-    return null;
+    const found = (try links.matchInline(a, src, close + 1)) orelse
+        (try links.matchReference(a, &p.refs, src, open, close)) orelse return null;
+    return .{ .end = found.end, .url = found.dest, .title = found.title };
+}
+
+fn autolinkHook(_: *const inl.Hooks, a: Allocator, src: []const u8, lt: usize) Allocator.Error!?inl.AutolinkMatch {
+    const al = links.autolink(src, lt) orelse return null;
+    const url = if (al.prefix_mailto) try std.mem.concat(a, u8, &.{ "mailto:", al.target }) else al.target;
+    return .{ .end = al.end, .url = url, .text = al.text };
+}
+
+fn bareHook(_: *const inl.Hooks, a: Allocator, src: []const u8, at: usize) Allocator.Error!?inl.AutolinkMatch {
+    const al = (try links.extendedAutolink(a, src, at)) orelse return null;
+    const url = if (al.prefix_mailto) try std.mem.concat(a, u8, &.{ "mailto:", al.target }) else al.target;
+    return .{ .end = al.end, .url = url, .text = src[at..al.end] };
 }
 
 fn splitRow(a: Allocator, line: []const u8) Allocator.Error![]const []const u8 {
@@ -763,6 +883,18 @@ pub fn utf16Offset(text: []const u8, byte_offset: u32) u32 {
     return cursor.at(byte_offset);
 }
 
+/// Byte offset of the character at UTF-16 code unit `unit`, for APIs that report UTF-16 indexes.
+pub fn byteFromUtf16(text: []const u8, unit: u32) u32 {
+    var byte: usize = 0;
+    var units: u32 = 0;
+    while (byte < text.len and units < unit) {
+        const n = std.unicode.utf8ByteSequenceLength(text[byte]) catch 1;
+        units += if (n == 4) 2 else 1;
+        byte += n;
+    }
+    return @intCast(@min(byte, text.len));
+}
+
 /// Maps increasing byte offsets to UTF-16 offsets in one pass over the text.
 pub const Utf16Cursor = struct {
     text: []const u8,
@@ -785,6 +917,8 @@ const testing = std.testing;
 test {
     _ = inl;
     _ = highlight;
+    _ = links;
+    _ = @import("unicode_test.zig");
     _ = @import("spec_test.zig");
 }
 
@@ -867,6 +1001,8 @@ test "utf16 offsets count surrogate pairs" {
     var cursor: Utf16Cursor = .{ .text = text };
     try testing.expectEqual(@as(u32, 4), cursor.at(7));
     try testing.expectEqual(@as(u32, 1), cursor.at(1));
+    try testing.expectEqual(@as(u32, 7), byteFromUtf16(text, 4));
+    try testing.expectEqual(@as(u32, 3), byteFromUtf16(text, 2));
 }
 
 test "table with alignment, escaped pipes and ragged rows" {
@@ -1023,9 +1159,6 @@ test "definitions are collected and removed from the output" {
     try testing.expectEqualStrings("http://x", doc.definitions[0].dest);
     try testing.expectEqualStrings("T", doc.definitions[0].title);
     try testing.expectEqualStrings("/y", doc.definitions[1].dest);
-    try testing.expectEqual(@as(usize, 1), doc.footnotes.len);
-    try testing.expectEqualStrings("n", doc.footnotes[0].label);
-    try testing.expectEqualStrings("a note text", doc.footnotes[0].blocks[0].content.text);
 }
 
 test "tables work inside lists and quotes" {
@@ -1048,16 +1181,21 @@ test "definition labels use full Unicode case folding" {
     try testing.expectEqualStrings("ss", doc.definitions[2].label);
 }
 
-test "footnotes keep every block and stay out of the document" {
-    var doc = try parse(testing.allocator, "text\n\n[^1]: first\n\n    second\n\n    ```\n    code\n    ```\n\nafter\n");
+test "footnotes stay out of the document until referenced and keep every block" {
+    const body = "[^1]: first\n\n    second\n\n    ```\n    code\n    ```\n\nafter\n";
+    var plain = try parse(testing.allocator, "text\n\n" ++ body);
+    defer plain.deinit();
+    try testing.expectEqual(@as(usize, 2), plain.blocks.len);
+
+    var doc = try parse(testing.allocator, "text[^1]\n\n" ++ body);
     defer doc.deinit();
-    try testing.expectEqual(@as(usize, 2), doc.blocks.len);
-    try testing.expectEqual(@as(usize, 1), doc.footnotes.len);
-    const f = doc.footnotes[0];
-    try testing.expectEqualStrings("1", f.label);
-    try testing.expectEqual(@as(usize, 3), f.blocks.len);
-    try testing.expectEqualStrings("second", f.blocks[1].content.text);
-    try testing.expectEqual(BlockKind.code_block, f.blocks[2].kind);
+    try testing.expectEqual(@as(usize, 7), doc.blocks.len);
+    try testing.expectEqualStrings("after", doc.blocks[1].content.text);
+    try testing.expectEqual(BlockKind.hr, doc.blocks[2].kind);
+    try testing.expectEqualStrings("first", doc.blocks[3].content.text);
+    try testing.expectEqualStrings("second", doc.blocks[4].content.text);
+    try testing.expectEqual(BlockKind.code_block, doc.blocks[5].kind);
+    try testing.expectEqualStrings("\u{21a9}", doc.blocks[6].content.text);
 }
 
 test "nested list markers on one line and empty quotes" {
@@ -1170,4 +1308,104 @@ test "a map whose values are all nil or false has no value row" {
     try testing.expectEqual(@as(usize, 2), t.nestedAt(1, 1).?.rows());
     try testing.expectEqual(@as(usize, 0), t.nestedAt(2, 1).?.rows());
     try testing.expectEqual(@as(usize, 0), t.nestedAt(3, 1).?.rows());
+}
+
+test "footnotes are numbered by first reference and get back-references" {
+    const src =
+        \\Text[^b] and more[^a] and again[^b].
+        \\
+        \\[^a]: First note.
+        \\[^b]: Second note
+        \\  continued.
+        \\[^unused]: never shown
+        \\
+        \\[^missing] stays text.
+    ;
+    var doc = try parse(testing.allocator, src);
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 5), doc.blocks.len);
+    const body = doc.blocks[0].content;
+    try testing.expectEqualStrings("Text1 and more2 and again1.", body.text);
+    try testing.expectEqual(@as(usize, 3), body.links.len);
+    try testing.expectEqual(@as(usize, 3), body.sup.len);
+    try testing.expectEqualSlices(u32, &.{ 4, 1 }, &body.sup[0]);
+    try testing.expectEqualStrings("#fn-1", body.links[0].target);
+    try testing.expectEqualStrings("#fn-2", body.links[1].target);
+    try testing.expectEqualStrings("[^missing] stays text.", doc.blocks[1].content.text);
+    try testing.expectEqual(BlockKind.hr, doc.blocks[2].kind);
+    try testing.expectEqualStrings("Second note continued. \u{21a9} \u{21a9}2", doc.blocks[3].content.text);
+    try testing.expectEqual(@as(u32, 1), doc.blocks[3].marks[0].mark.number);
+    try testing.expectEqualStrings("#fnref-1-2", doc.blocks[3].content.links[1].target);
+}
+
+test "footnote bodies can reference other footnotes and hold lists and code" {
+    var doc = try parse(testing.allocator, "A[^1]\n\n[^1]: See[^2].\n\n        code in note\n\n[^2]: - one\n    - two\n");
+    defer doc.deinit();
+    var found_code = false;
+    var items: usize = 0;
+    for (doc.blocks) |b| {
+        if (b.kind == .code_block and std.mem.indexOf(u8, b.content.text, "code in note") != null) found_code = true;
+        for (b.marks) |m| if (m.mark.kind == .bullet) {
+            items += 1;
+        };
+    }
+    try testing.expect(found_code);
+    try testing.expectEqual(@as(usize, 2), items);
+    try testing.expectEqualStrings("See2.", doc.blocks[2].content.text);
+}
+
+test "links keep their range, target and title on the inline" {
+    var doc = try parse(testing.allocator, "see [the *docs*](<a b> \"T\") and <https://x.org/a> or www.x.org/a.");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqualStrings("see the docs and https://x.org/a or www.x.org/a.", c.text);
+    try testing.expectEqual(@as(usize, 3), c.links.len);
+    try testing.expectEqualStrings("a b", c.links[0].target);
+    try testing.expectEqualStrings("T", c.links[0].title);
+    try testing.expectEqualStrings("the docs", c.text[c.links[0].start..][0..c.links[0].len]);
+    try testing.expectEqualStrings("https://x.org/a", c.links[1].target);
+    try testing.expectEqualStrings("http://www.x.org/a", c.links[2].target);
+    try testing.expectEqualStrings("www.x.org/a", c.text[c.links[2].start..][0..c.links[2].len]);
+    try testing.expect(c.linkAt(c.links[0].start) != null);
+    try testing.expect(c.linkAt(0) == null);
+}
+
+test "images keep alt text and source" {
+    var doc = try parse(testing.allocator, "![alt *x*](pic.png \"t\") [![i](p.png)](/u)");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqualStrings("alt x i", c.text);
+    try testing.expectEqual(@as(usize, 2), c.images.len);
+    try testing.expectEqualStrings("pic.png", c.images[0].target);
+    try testing.expectEqual(@as(usize, 1), c.links.len);
+    try testing.expectEqualStrings("/u", c.links[0].target);
+}
+
+test "extended autolinks work inside emphasis and not inside links" {
+    var doc = try parse(testing.allocator, "**see www.a.org/x** and *me@b.org* and [www.c.org](/d)");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqual(@as(usize, 3), c.links.len);
+    try testing.expectEqualStrings("http://www.a.org/x", c.links[0].target);
+    try testing.expectEqualStrings("mailto:me@b.org", c.links[1].target);
+    try testing.expectEqualStrings("/d", c.links[2].target);
+    try testing.expectEqual(@as(usize, 1), c.bold.len);
+    try testing.expectEqual(@as(usize, 1), c.italic.len);
+}
+
+test "entities and escapes in destinations and titles" {
+    var doc = try parse(testing.allocator, "[a](/f&ouml;&#38;o\\) \"t&amp;\\\"x\")");
+    defer doc.deinit();
+    const l = doc.blocks[0].content.links[0];
+    try testing.expectEqualStrings("/f\u{f6}&o)", l.target);
+    try testing.expectEqualStrings("t&\"x", l.title);
+}
+
+test "reference links use definitions inside containers" {
+    var doc = try parse(testing.allocator, "> [ref]: /u \"t\"\n\n- [foo]: /v\n\n[a][ref] and [foo]\n");
+    defer doc.deinit();
+    const c = doc.blocks[doc.blocks.len - 1].content;
+    try testing.expectEqual(@as(usize, 2), c.links.len);
+    try testing.expectEqualStrings("/u", c.links[0].target);
+    try testing.expectEqualStrings("/v", c.links[1].target);
 }

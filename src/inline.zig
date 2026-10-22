@@ -4,7 +4,7 @@ const entities = @import("entities.zig");
 const emoji = @import("emoji.zig");
 const unicode = @import("unicode.zig");
 
-pub const Kind = enum { em, strong, strike, code, emoji, link, image };
+pub const Kind = enum { em, strong, strike, code, emoji, link, image, sup };
 pub const EventTag = enum { open, close, html, soft, hard };
 
 /// `pos` is a byte offset into `Parsed.text`. `soft` and `hard` consume one byte of text
@@ -23,7 +23,8 @@ pub const Parsed = struct {
     events: []const Event,
 };
 
-pub const LinkMatch = struct { end: usize, url: []const u8 = "", title: []const u8 = "" };
+/// A non-empty `replace` stands in for the bracketed text, drawn raised and smaller when `sup` is set.
+pub const LinkMatch = struct { end: usize, url: []const u8 = "", title: []const u8 = "", replace: []const u8 = "", sup: bool = false };
 pub const AutolinkMatch = struct { end: usize, url: []const u8, text: []const u8 };
 
 pub const Hooks = struct {
@@ -34,6 +35,8 @@ pub const Hooks = struct {
     link: *const fn (h: *const Hooks, a: Allocator, src: []const u8, text_start: usize, close: usize, image: bool) Allocator.Error!?LinkMatch = noLink,
     /// Called at every `<`. Return the autolink starting there, or null.
     autolink: *const fn (h: *const Hooks, a: Allocator, src: []const u8, lt: usize) Allocator.Error!?AutolinkMatch = noAutolink,
+    /// Called at every byte that is not otherwise special. Return a bare (extended) autolink starting there, or null.
+    bare: *const fn (h: *const Hooks, a: Allocator, src: []const u8, at: usize) Allocator.Error!?AutolinkMatch = noAutolink,
 };
 
 fn noLink(_: *const Hooks, _: Allocator, _: []const u8, _: usize, _: usize, _: bool) Allocator.Error!?LinkMatch {
@@ -61,6 +64,7 @@ const Node = struct {
     s: []const u8 = "",
     url: []const u8 = "",
     title: []const u8 = "",
+    bare: bool = false,
     prev: u32 = none,
     next: u32 = none,
 };
@@ -148,6 +152,15 @@ const Scanner = struct {
         var run: usize = 0;
         while (i < src.len) {
             if (!isSpecial(src[i]) or (src[i] == '!' and !(i + 1 < src.len and src[i + 1] == '['))) {
+                if (try s.hooks.bare(s.hooks, s.a, src, i)) |m| {
+                    try s.text(src[run..i]);
+                    _ = try s.push(.{ .tag = .open, .kind = .link, .url = m.url, .bare = true });
+                    try s.text(m.text);
+                    _ = try s.push(.{ .tag = .close, .kind = .link, .bare = true });
+                    i = m.end;
+                    run = i;
+                    continue;
+                }
                 i += 1;
                 continue;
             }
@@ -367,12 +380,24 @@ const Scanner = struct {
             return i + 1;
         };
         try s.processEmphasis(b.prev_delim);
+        if (m.replace.len > 0) while (s.tail != b.node) s.unlink(s.tail);
+        var inner = s.nodes.items[b.node].next;
+        while (inner != none) {
+            const nx = s.nodes.items[inner].next;
+            if (s.nodes.items[inner].bare) s.unlink(inner);
+            inner = nx;
+        }
         const opener = &s.nodes.items[b.node];
         opener.tag = .open;
         opener.kind = if (b.image) .image else .link;
         opener.s = "";
         opener.url = m.url;
         opener.title = m.title;
+        if (m.replace.len > 0) {
+            if (m.sup) _ = try s.push(.{ .tag = .open, .kind = .sup });
+            try s.text(m.replace);
+            if (m.sup) _ = try s.push(.{ .tag = .close, .kind = .sup });
+        }
         _ = try s.push(.{ .tag = .close, .kind = if (b.image) .image else .link });
         _ = s.brackets.pop();
         if (!b.image) for (s.brackets.items) |*o| {
@@ -686,7 +711,7 @@ fn toHtml(a: Allocator, p: Parsed) ![]const u8 {
                     }
                     try out.append(a, '>');
                 },
-                .emoji, .image => {},
+                .emoji, .image, .sup => {},
             },
             .close => switch (ev.kind) {
                 .em => try out.appendSlice(a, "</em>"),
@@ -694,7 +719,7 @@ fn toHtml(a: Allocator, p: Parsed) ![]const u8 {
                 .strike => try out.appendSlice(a, "</del>"),
                 .code => try out.appendSlice(a, "</code>"),
                 .link => try out.appendSlice(a, "</a>"),
-                .emoji, .image => {},
+                .emoji, .image, .sup => {},
             },
         }
     }
