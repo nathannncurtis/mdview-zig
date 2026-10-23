@@ -53,10 +53,11 @@ jobs:
         run: |
           bash .github/scripts/smoke.sh zig-out/bin/mdview.exe
           bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview.exe
+      - name: Intel SDE
+        run: bash .github/scripts/setup-sde.sh
       - name: Smoke test on an older CPU
         timeout-minutes: 5
         run: |
-          bash .github/scripts/setup-sde.sh
           bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview.exe
           bash .github/scripts/emu-selftest.sh
       - name: Signing client
@@ -160,6 +161,11 @@ jobs:
         run: |
           xvfb-run -a bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview
           xvfb-run -a bash .github/scripts/emu-selftest.sh
+      - name: qemu debug
+        if: failure()
+        run: |
+          qemu-x86_64 -cpu Nehalem /bin/true; echo true=$?
+          xvfb-run -a qemu-x86_64 -cpu Nehalem -d in_asm,guest_errors,unimp -D /tmp/q.log zig-out/bin/mdview testdata/smoke.md & sleep 5; kill %1; tail -25 /tmp/q.log
       - name: Debian package
         env:
           VERSION: ${{ inputs.version }}
