@@ -474,25 +474,38 @@ fn setColor(cr: *c.cairo_t, col: Color) void {
     c.cairo_set_source_rgb(cr, col.r, col.g, col.b);
 }
 
+const LineBox = struct { start: u32, y: c_int, height: c_int };
+
 fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32) void {
     if (content.code.len == 0) return;
-    const iter = c.pango_layout_get_iter(layout) orelse return;
-    defer c.pango_layout_iter_free(iter);
     const scale: f64 = c.PANGO_SCALE;
     const desc = c.pango_layout_get_font_description(layout);
     const points: f64 = if (desc) |d| @as(f64, @floatFromInt(c.pango_font_description_get_size(d))) / scale else 12;
     const pad: f64 = md.code_pad_em * md.code_scale * points * 96.0 / 72.0;
-    const bg = rgbColor(md.code_bg);
-    c.cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, md.code_bg_alpha);
+
+    var lines: std.ArrayList(LineBox) = .empty;
+    defer lines.deinit(app.gpa);
+    const iter = c.pango_layout_get_iter(layout) orelse return;
+    defer c.pango_layout_iter_free(iter);
     while (true) {
-        const line = c.pango_layout_iter_get_line_readonly(iter) orelse break;
         // SAFETY: written by pango_layout_iter_get_line_extents
         var logical: c.PangoRectangle = undefined;
         c.pango_layout_iter_get_line_extents(iter, null, &logical);
-        const line_start: u32 = @intCast(line.*.start_index);
-        const line_end: u32 = line_start + @as(u32, @intCast(line.*.length));
-        for (content.code) |span| {
-            const from = @max(span[0], line_start);
+        lines.append(app.gpa, .{ .start = @intCast(c.pango_layout_iter_get_index(iter)), .y = logical.y, .height = logical.height }) catch return;
+        if (c.pango_layout_iter_next_line(iter) == 0) break;
+    }
+
+    const bg = rgbColor(md.code_bg);
+    c.cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, md.code_bg_alpha);
+    var first: usize = 0;
+    for (lines.items, 0..) |box, index| {
+        const line_end: u32 = if (index + 1 < lines.items.len) lines.items[index + 1].start else @intCast(content.text.len);
+        while (first < content.code.len and content.code[first][0] + content.code[first][1] <= box.start) first += 1;
+        const line = c.pango_layout_get_line_readonly(layout, @intCast(index)) orelse continue;
+        var k = first;
+        while (k < content.code.len and content.code[k][0] < line_end) : (k += 1) {
+            const span = content.code[k];
+            const from = @max(span[0], box.start);
             const to = @min(span[0] + span[1], line_end);
             if (from >= to) continue;
             var found: ?[*]c_int = null;
@@ -501,15 +514,13 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inlin
             const ranges = found orelse continue;
             defer c.g_free(@ptrCast(ranges));
             const total: usize = @intCast(n);
-            var i: usize = 0;
-            while (i < total) : (i += 1) {
-                const left = @as(f64, @floatFromInt(ranges[i * 2])) / scale - (if (i == 0 and span[0] >= line_start) pad else 0);
+            for (0..total) |i| {
+                const left = @as(f64, @floatFromInt(ranges[i * 2])) / scale - (if (i == 0 and span[0] >= box.start) pad else 0);
                 const right = @as(f64, @floatFromInt(ranges[i * 2 + 1])) / scale + (if (i + 1 == total and span[0] + span[1] <= line_end) pad else 0);
-                drawRoundedRect(cr, x + @as(f32, @floatCast(left)), y + @as(f32, @floatFromInt(logical.y)) / @as(f32, c.PANGO_SCALE), @floatCast(right - left), @as(f32, @floatFromInt(logical.height)) / @as(f32, c.PANGO_SCALE), md.code_radius);
+                drawRoundedRect(cr, x + @as(f32, @floatCast(left)), y + @as(f32, @floatFromInt(box.y)) / @as(f32, c.PANGO_SCALE), @floatCast(right - left), @as(f32, @floatFromInt(box.height)) / @as(f32, c.PANGO_SCALE), md.code_radius);
                 c.cairo_fill(cr);
             }
         }
-        if (c.pango_layout_iter_next_line(iter) == 0) break;
     }
 }
 
