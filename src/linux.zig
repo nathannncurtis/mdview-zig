@@ -479,9 +479,6 @@ const LineBox = struct { start: u32, y: c_int, height: c_int };
 fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32) void {
     if (content.code.len == 0) return;
     const scale: f64 = c.PANGO_SCALE;
-    const desc = c.pango_layout_get_font_description(layout);
-    const points: f64 = if (desc) |d| @as(f64, @floatFromInt(c.pango_font_description_get_size(d))) / scale else 12;
-    const pad: f64 = md.code_pad_em * md.code_scale * points * 96.0 / 72.0;
 
     var lines: std.ArrayList(LineBox) = .empty;
     defer lines.deinit(app.gpa);
@@ -495,28 +492,28 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inlin
         if (c.pango_layout_iter_next_line(iter) == 0) break;
     }
 
+    const spans = content.code;
+    const text_len = content.text.len + 2 * pad_len * spans.len;
     const bg = rgbColor(md.code_bg);
     c.cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, md.code_bg_alpha);
     var first: usize = 0;
     for (lines.items, 0..) |box, index| {
-        const line_end: u32 = if (index + 1 < lines.items.len) lines.items[index + 1].start else @intCast(content.text.len);
-        while (first < content.code.len and content.code[first][0] + content.code[first][1] <= box.start) first += 1;
+        const line_end: u32 = if (index + 1 < lines.items.len) lines.items[index + 1].start else @intCast(text_len);
+        while (first < spans.len and rightMark(spans, first) + pad_len <= box.start) first += 1;
         const line = c.pango_layout_get_line_readonly(layout, @intCast(index)) orelse continue;
         var k = first;
-        while (k < content.code.len and content.code[k][0] < line_end) : (k += 1) {
-            const span = content.code[k];
-            const from = @max(span[0], box.start);
-            const to = @min(span[0] + span[1], line_end);
+        while (k < spans.len and leftMark(spans, k) < line_end) : (k += 1) {
+            const from = @max(leftMark(spans, k), box.start);
+            const to = @min(rightMark(spans, k) + pad_len, line_end);
             if (from >= to) continue;
             var found: ?[*]c_int = null;
             var n: c_int = 0;
             c.pango_layout_line_get_x_ranges(line, @intCast(from), @intCast(to), &found, &n);
             const ranges = found orelse continue;
             defer c.g_free(@ptrCast(ranges));
-            const total: usize = @intCast(n);
-            for (0..total) |i| {
-                const left = @as(f64, @floatFromInt(ranges[i * 2])) / scale - (if (i == 0 and span[0] >= box.start) pad else 0);
-                const right = @as(f64, @floatFromInt(ranges[i * 2 + 1])) / scale + (if (i + 1 == total and span[0] + span[1] <= line_end) pad else 0);
+            for (0..@as(usize, @intCast(n))) |i| {
+                const left = @as(f64, @floatFromInt(ranges[i * 2])) / scale;
+                const right = @as(f64, @floatFromInt(ranges[i * 2 + 1])) / scale;
                 drawRoundedRect(cr, x + @as(f32, @floatCast(left)), y + @as(f32, @floatFromInt(box.y)) / @as(f32, c.PANGO_SCALE), @floatCast(right - left), @as(f32, @floatFromInt(box.height)) / @as(f32, c.PANGO_SCALE), md.code_radius);
                 c.cairo_fill(cr);
             }
@@ -597,7 +594,7 @@ pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
     var trailing: c_int = 0;
     const scale: f32 = @floatFromInt(c.PANGO_SCALE);
     if (c.pango_layout_xy_to_index(layout, @intFromFloat(x * scale), @intFromFloat(y * scale), &index, &trailing) == 0) return null;
-    return @intCast(index);
+    return @intCast(unmap(hit.content.code, @intCast(index)));
 }
 
 fn openUrl(url: []u8) void {
@@ -620,26 +617,85 @@ pub fn openExternal(url: []const u8) void {
     thread.detach();
 }
 
-fn spaceNeighbour(attr_list: *c.PangoAttrList, start: usize, end: usize, units: c_int) void {
-    const attr = c.pango_attr_letter_spacing_new(units) orelse return;
-    attr.*.start_index = @intCast(start);
-    attr.*.end_index = @intCast(end);
+const pad_mark = "\u{200d}";
+const pad_len = pad_mark.len;
+
+/// A code span is wrapped in two zero-width placeholders whose shape has the CSS padding as its width, so the neighbouring letters do not move.
+fn paddedText(a: std.mem.Allocator, content: md.Inline) std.mem.Allocator.Error![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(a);
+    var pos: usize = 0;
+    for (content.code) |span| {
+        try out.appendSlice(a, content.text[pos..span[0]]);
+        try out.appendSlice(a, pad_mark);
+        try out.appendSlice(a, content.text[span[0] .. span[0] + span[1]]);
+        try out.appendSlice(a, pad_mark);
+        pos = span[0] + span[1];
+    }
+    try out.appendSlice(a, content.text[pos..]);
+    return out.toOwnedSlice(a);
+}
+
+fn countBelow(spans: []const md.Span, i: usize, inclusive: bool, at_end: bool) usize {
+    var lo: usize = 0;
+    var hi: usize = spans.len;
+    while (lo < hi) {
+        const mid = (lo + hi) / 2;
+        const v = spans[mid][0] + if (at_end) spans[mid][1] else 0;
+        if (v < i or (inclusive and v == i)) lo = mid + 1 else hi = mid;
+    }
+    return lo;
+}
+
+fn mapStart(spans: []const md.Span, i: usize) usize {
+    return i + pad_len * (countBelow(spans, i, false, false) + countBelow(spans, i, false, true));
+}
+
+fn mapEnd(spans: []const md.Span, i: usize) usize {
+    return i + pad_len * (countBelow(spans, i, true, false) + countBelow(spans, i, true, true));
+}
+
+fn leftMark(spans: []const md.Span, k: usize) usize {
+    return spans[k][0] + 2 * pad_len * k;
+}
+
+fn rightMark(spans: []const md.Span, k: usize) usize {
+    return spans[k][0] + spans[k][1] + pad_len * (2 * k + 1);
+}
+
+fn unmap(spans: []const md.Span, m: usize) usize {
+    var lo: usize = 0;
+    var hi: usize = 2 * spans.len;
+    while (lo < hi) {
+        const mid = (lo + hi) / 2;
+        const at = if (mid % 2 == 0) leftMark(spans, mid / 2) else rightMark(spans, mid / 2);
+        if (at + pad_len <= m) lo = mid + 1 else hi = mid;
+    }
+    if (lo < 2 * spans.len) {
+        const at = if (lo % 2 == 0) leftMark(spans, lo / 2) else rightMark(spans, lo / 2);
+        if (at <= m) return at - pad_len * lo;
+    }
+    return m - pad_len * lo;
+}
+
+fn addShape(attr_list: *c.PangoAttrList, at: usize, width: c_int) void {
+    const ink: c.PangoRectangle = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    const logical: c.PangoRectangle = .{ .x = 0, .y = 0, .width = width, .height = 0 };
+    const attr = c.pango_attr_shape_new(&ink, &logical) orelse return;
+    attr.*.start_index = @intCast(at);
+    attr.*.end_index = @intCast(at + pad_len);
     c.pango_attr_list_insert(attr_list, attr);
 }
 
-/// The code background pads the span like CSS; Pango can only widen a character on both sides, so the characters next to the span carry the room.
-fn padCodeNeighbours(attr_list: *c.PangoAttrList, text: []const u8, span: md.Span, size_units: c_int) void {
-    const units: c_int = @intFromFloat(2 * md.code_pad_em * md.code_scale * @as(f32, @floatFromInt(size_units)) * 96.0 / 72.0);
-    if (span[0] > 0) {
-        var from: usize = span[0] - 1;
-        while (from > 0 and text[from] & 0xC0 == 0x80) from -= 1;
-        spaceNeighbour(attr_list, from, span[0], units);
-    }
-    const end = span[0] + span[1];
-    if (end < text.len) {
-        const len = std.unicode.utf8ByteSequenceLength(text[end]) catch 1;
-        spaceNeighbour(attr_list, end, @min(end + len, text.len), units);
-    }
+fn insertRange(attr_list: *c.PangoAttrList, attr: ?*c.PangoAttribute, start: usize, end: usize) void {
+    const a = attr orelse return;
+    a.*.start_index = @intCast(start);
+    a.*.end_index = @intCast(end);
+    c.pango_attr_list_insert(attr_list, a);
+}
+
+fn padUnits(desc: *const c.PangoFontDescription) c_int {
+    return @intFromFloat(md.code_pad_em * md.code_scale * @as(f32, @floatFromInt(c.pango_font_description_get_size(desc))) * 96.0 / 72.0);
 }
 
 fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
@@ -649,96 +705,56 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
     c.pango_layout_set_font_description(pango_layout, desc);
     c.pango_layout_set_width(pango_layout, if (max_width) |w| @intFromFloat(w * @as(f32, c.PANGO_SCALE)) else -1);
     c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
-    c.pango_layout_set_text(pango_layout, content.text.ptr, @intCast(content.text.len));
 
-    // Apply bold/italic via Pango attributes
+    var spans: []const md.Span = content.code;
+    const owned: ?[]u8 = if (content.code.len == 0) null else paddedText(app.gpa, content) catch null;
+    defer if (owned) |t| app.gpa.free(t);
+    if (owned == null) spans = &.{};
+    const text = owned orelse content.text;
+    c.pango_layout_set_text(pango_layout, text.ptr, @intCast(text.len));
+
     const attr_list = c.pango_attr_list_new() orelse return;
     defer c.pango_attr_list_unref(attr_list);
 
-    for (content.bold) |span| {
-        const start = span[0];
-        const length = span[1];
-        const attr = c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD) orelse continue;
-        attr.*.start_index = start;
-        attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, attr);
-    }
+    for (content.bold) |span| insertRange(attr_list, c.pango_attr_weight_new(c.PANGO_WEIGHT_BOLD), mapStart(spans, span[0]), mapEnd(spans, span[0] + span[1]));
+    for (content.italic) |span| insertRange(attr_list, c.pango_attr_style_new(c.PANGO_STYLE_ITALIC), mapStart(spans, span[0]), mapEnd(spans, span[0] + span[1]));
+    for (content.strike) |span| insertRange(attr_list, c.pango_attr_strikethrough_new(1), mapStart(spans, span[0]), mapEnd(spans, span[0] + span[1]));
+    for (content.emoji) |span| insertRange(attr_list, c.pango_attr_family_new("Noto Color Emoji,Twemoji,Emoji,Sans"), mapStart(spans, span[0]), mapEnd(spans, span[0] + span[1]));
 
-    for (content.italic) |span| {
-        const start = span[0];
-        const length = span[1];
-        const attr = c.pango_attr_style_new(c.PANGO_STYLE_ITALIC) orelse continue;
-        attr.*.start_index = start;
-        attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, attr);
-    }
-
-    for (content.strike) |span| {
-        const attr = c.pango_attr_strikethrough_new(1) orelse continue;
-        attr.*.start_index = span[0];
-        attr.*.end_index = span[0] + span[1];
-        c.pango_attr_list_insert(attr_list, attr);
-    }
-
-    for (content.emoji) |span| {
-        const attr = c.pango_attr_family_new("Noto Color Emoji,Twemoji,Emoji,Sans") orelse continue;
-        attr.*.start_index = span[0];
-        attr.*.end_index = span[0] + span[1];
-        c.pango_attr_list_insert(attr_list, attr);
-    }
-
-    // Inline code ranges: monospace + different color
-    for (content.code) |span| {
-        const start = span[0];
-        const length = span[1];
-        const attr = c.pango_attr_family_new("monospace") orelse continue;
-        attr.*.start_index = start;
-        attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, attr);
-        if (c.pango_attr_scale_new(md.code_scale)) |size| {
-            size.*.start_index = start;
-            size.*.end_index = start + length;
-            c.pango_attr_list_insert(attr_list, size);
-        }
-        padCodeNeighbours(attr_list, content.text, span, c.pango_font_description_get_size(desc));
-        // Tint inline code slightly
-        const col_attr = c.pango_attr_foreground_new(
+    const pad = padUnits(desc);
+    for (content.code, 0..) |span, k| {
+        const start = if (spans.len == 0) span[0] else leftMark(spans, k) + pad_len;
+        const end = if (spans.len == 0) span[0] + span[1] else rightMark(spans, k);
+        insertRange(attr_list, c.pango_attr_family_new("monospace"), start, end);
+        insertRange(attr_list, c.pango_attr_scale_new(md.code_scale), start, end);
+        insertRange(attr_list, c.pango_attr_foreground_new(
             @intFromFloat(col_hl_string.r * 65535.0),
             @intFromFloat(col_hl_string.g * 65535.0),
             @intFromFloat(col_hl_string.b * 65535.0),
-        ) orelse continue;
-        col_attr.*.start_index = start;
-        col_attr.*.end_index = start + length;
-        c.pango_attr_list_insert(attr_list, col_attr);
+        ), start, end);
+        if (spans.len > 0) {
+            addShape(attr_list, leftMark(spans, k), pad);
+            addShape(attr_list, rightMark(spans, k), pad);
+        }
     }
 
     for (content.links) |l| {
-        const color = c.pango_attr_foreground_new(
+        const start = mapStart(spans, l.start);
+        const end = mapEnd(spans, l.start + l.len);
+        insertRange(attr_list, c.pango_attr_foreground_new(
             @intFromFloat(col_link.r * 65535.0),
             @intFromFloat(col_link.g * 65535.0),
             @intFromFloat(col_link.b * 65535.0),
-        ) orelse continue;
-        color.*.start_index = l.start;
-        color.*.end_index = l.start + l.len;
-        c.pango_attr_list_insert(attr_list, color);
-        if (app.isHover(content, l)) {
-            const underline = c.pango_attr_underline_new(c.PANGO_UNDERLINE_SINGLE) orelse continue;
-            underline.*.start_index = l.start;
-            underline.*.end_index = l.start + l.len;
-            c.pango_attr_list_insert(attr_list, underline);
-        }
+        ), start, end);
+        if (app.isHover(content, l)) insertRange(attr_list, c.pango_attr_underline_new(c.PANGO_UNDERLINE_SINGLE), start, end);
     }
 
     const rise: c_int = @intFromFloat(@as(f64, @floatFromInt(c.pango_font_description_get_size(desc))) * 0.4);
     for (content.sup) |span| {
-        const scale = c.pango_attr_scale_new(0.7) orelse continue;
-        scale.*.start_index = span[0];
-        scale.*.end_index = span[0] + span[1];
-        c.pango_attr_list_insert(attr_list, scale);
-        const raise = c.pango_attr_rise_new(rise) orelse continue;
-        raise.*.start_index = span[0];
-        raise.*.end_index = span[0] + span[1];
-        c.pango_attr_list_insert(attr_list, raise);
+        const start = mapStart(spans, span[0]);
+        const end = mapEnd(spans, span[0] + span[1]);
+        insertRange(attr_list, c.pango_attr_scale_new(0.7), start, end);
+        insertRange(attr_list, c.pango_attr_rise_new(rise), start, end);
     }
 
     c.pango_layout_set_attributes(pango_layout, attr_list);
@@ -1073,4 +1089,53 @@ fn addColorAttr(attr_list: *c.PangoAttrList, color: Color, start: u32, end: u32)
     attr.*.start_index = start;
     attr.*.end_index = end;
     c.pango_attr_list_insert(attr_list, attr);
+}
+
+fn glyphX(layout: *c.PangoLayout, byte: usize) c.PangoRectangle {
+    // SAFETY: written by pango_layout_index_to_pos
+    var r: c.PangoRectangle = undefined;
+    c.pango_layout_index_to_pos(layout, @intCast(byte), &r);
+    return r;
+}
+
+test "the code span padding keeps the neighbouring letters where they were" {
+    app.gpa = std.testing.allocator;
+    var doc = try md.parse(std.testing.allocator, "foo`bar`baz");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    try std.testing.expectEqual(@as(usize, 1), content.code.len);
+
+    const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return error.NoSurface;
+    defer c.cairo_surface_destroy(surface);
+    const cr = c.cairo_create(surface) orelse return error.NoContext;
+    defer c.cairo_destroy(cr);
+    const with = c.pango_cairo_create_layout(cr) orelse return error.NoLayout;
+    defer c.g_object_unref(with);
+    const without = c.pango_cairo_create_layout(cr) orelse return error.NoLayout;
+    defer c.g_object_unref(without);
+
+    setInline(with, content, null, "Sans 12");
+    var plain = content;
+    plain.code = &.{};
+    setInline(without, plain, null, "Sans 12");
+
+    const spans = content.code;
+    const o_with = glyphX(with, 2);
+    const o_without = glyphX(without, 2);
+    try std.testing.expectEqual(o_without.x, o_with.x);
+    try std.testing.expectEqual(o_without.width, o_with.width);
+
+    const desc = c.pango_font_description_from_string("Sans 12") orelse return error.NoFont;
+    defer c.pango_font_description_free(desc);
+    const pad = padUnits(desc);
+    try std.testing.expect(pad > 0);
+
+    const first_code = glyphX(with, mapEnd(spans, 3));
+    try std.testing.expectApproxEqAbs(@as(f64, @floatFromInt(pad)), @as(f64, @floatFromInt(first_code.x - (o_with.x + o_with.width))), 2);
+
+    const b_after = glyphX(with, mapEnd(spans, 6));
+    const code_end = glyphX(with, rightMark(spans, 0) - 1);
+    try std.testing.expectApproxEqAbs(@as(f64, @floatFromInt(pad)), @as(f64, @floatFromInt(b_after.x - (code_end.x + code_end.width))), 2);
+    try std.testing.expectEqual(@as(usize, 6), unmap(spans, mapEnd(spans, 6)));
+    try std.testing.expectEqual(@as(usize, 3), unmap(spans, mapEnd(spans, 3)));
 }

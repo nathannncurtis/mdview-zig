@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const resolved = target.result;
+    var linux_c: ?*std.Build.Step.TranslateC = null;
     if (resolved.os.tag == .windows) {
         exe_mod.linkSystemLibrary("d2d1", .{});
         exe_mod.linkSystemLibrary("dwrite", .{});
@@ -29,6 +30,7 @@ pub fn build(b: *std.Build) void {
             c.linkSystemLibrary(lib, .{});
             exe_mod.linkSystemLibrary(lib, .{});
         }
+        linux_c = c;
         exe_mod.addImport("c", c.createModule());
     } else if (resolved.os.tag == .macos) {
         const c = b.addTranslateC(.{
@@ -72,6 +74,19 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
     addTools(b, test_step);
+
+    if (linux_c) |c| {
+        const layout_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/linux.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
+        layout_tests.root_module.addImport("c", c.createModule());
+        test_step.dependOn(&b.addRunArtifact(layout_tests).step);
+    }
 
     const stress_tests = b.addTest(.{
         .root_module = b.createModule(.{

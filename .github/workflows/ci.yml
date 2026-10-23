@@ -157,7 +157,7 @@ jobs:
         run: |
           exe=zig-out/bin/mdview
           [ "$RUNNER_OS" = Windows ] && exe=zig-out/bin/mdview.exe
-          run="zig build stress-app -- $exe $RUNNER_TEMP/stress $RUNNER_TEMP/work --hold 10 --parallel 16 --interact paragraphs.md,table_rows.md"
+          run="zig build stress-app -- $exe $RUNNER_TEMP/stress $RUNNER_TEMP/work --hold 10 --parallel 8 --interact paragraphs.md,table_rows.md"
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a $run; else $run; fi
 
   docs:
