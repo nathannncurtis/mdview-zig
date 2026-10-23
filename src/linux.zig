@@ -620,6 +620,28 @@ pub fn openExternal(url: []const u8) void {
     thread.detach();
 }
 
+fn spaceNeighbour(attr_list: *c.PangoAttrList, start: usize, end: usize, units: c_int) void {
+    const attr = c.pango_attr_letter_spacing_new(units) orelse return;
+    attr.*.start_index = @intCast(start);
+    attr.*.end_index = @intCast(end);
+    c.pango_attr_list_insert(attr_list, attr);
+}
+
+/// The code background pads the span like CSS; Pango can only widen a character on both sides, so the characters next to the span carry the room.
+fn padCodeNeighbours(attr_list: *c.PangoAttrList, text: []const u8, span: md.Span, size_units: c_int) void {
+    const units: c_int = @intFromFloat(2 * md.code_pad_em * md.code_scale * @as(f32, @floatFromInt(size_units)) * 96.0 / 72.0);
+    if (span[0] > 0) {
+        var from: usize = span[0] - 1;
+        while (from > 0 and text[from] & 0xC0 == 0x80) from -= 1;
+        spaceNeighbour(attr_list, from, span[0], units);
+    }
+    const end = span[0] + span[1];
+    if (end < text.len) {
+        const len = std.unicode.utf8ByteSequenceLength(text[end]) catch 1;
+        spaceNeighbour(attr_list, end, @min(end + len, text.len), units);
+    }
+}
+
 fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
     const desc = c.pango_font_description_from_string(font_desc_str) orelse return;
     defer c.pango_font_description_free(desc);
@@ -678,6 +700,7 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
             size.*.end_index = start + length;
             c.pango_attr_list_insert(attr_list, size);
         }
+        padCodeNeighbours(attr_list, content.text, span, c.pango_font_description_get_size(desc));
         // Tint inline code slightly
         const col_attr = c.pango_attr_foreground_new(
             @intFromFloat(col_hl_string.r * 65535.0),

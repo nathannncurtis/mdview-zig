@@ -308,14 +308,13 @@ fn drawCodeBackgrounds(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloa
         var open = false;
         var left: CGFloat = 0;
         var right: CGFloat = 0;
-        var close_pad: CGFloat = 0;
         for (0..run_count) |ri| {
             const glyph_run: c.CTRunRef = @ptrCast(@constCast(c.CFArrayGetValueAtIndex(runs, @intCast(ri))));
             const attrs = c.CTRunGetAttributes(glyph_run);
             const start_value = c.CFDictionaryGetValue(attrs, @ptrCast(start_key));
             const end_value = c.CFDictionaryGetValue(attrs, @ptrCast(end_key));
             if (start_value == null or end_value == null) {
-                if (open) flushCodeFragment(ctx, left, right + close_pad, bottom, height);
+                if (open) flushCodeFragment(ctx, left, right, bottom, height);
                 open = false;
                 continue;
             }
@@ -329,9 +328,8 @@ fn drawCodeBackgrounds(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloa
                 left = if (cfInt32(start_value.?) == range.location) x0 - pad else x0;
             }
             right = x1;
-            close_pad = if (cfInt32(end_value.?) == range.location + range.length) pad else 0;
         }
-        if (open) flushCodeFragment(ctx, left, right + close_pad, bottom, height);
+        if (open) flushCodeFragment(ctx, left, right, bottom, height);
     }
 }
 
@@ -552,6 +550,11 @@ fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Col
             defer c.CFRelease(end_number);
             c.CFAttributedStringSetAttribute(attr_str, r, start_key, @ptrCast(start_number));
             c.CFAttributedStringSetAttribute(attr_str, r, end_key, @ptrCast(end_number));
+            var pad: CGFloat = md.code_pad_em * c.CTFontGetSize(code_font);
+            const kern = c.CFNumberCreate(null, c.kCFNumberFloat64Type, &pad);
+            defer c.CFRelease(kern);
+            if (r.location > 0) c.CFAttributedStringSetAttribute(attr_str, c.CFRange{ .location = r.location - 1, .length = 1 }, c.kCTKernAttributeName, @ptrCast(kern));
+            c.CFAttributedStringSetAttribute(attr_str, c.CFRange{ .location = r.location + r.length - 1, .length = 1 }, c.kCTKernAttributeName, @ptrCast(kern));
             setAttrFont(attr_str, r.location, r.length, code_font);
             setAttrColor(attr_str, r.location, r.length, hexColor(0xe6edf3));
         }
