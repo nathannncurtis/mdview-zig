@@ -6,8 +6,8 @@ set -euo pipefail
 image=debian@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 tmp=${RUNNER_TEMP:-/tmp}
 
-docker run --rm -e CI=true -e RUNNER_TEMP="$tmp" -v "$PWD:$PWD" -v "$tmp:$tmp" -w "$PWD" "$image" bash -ec '
+docker run --rm --init -e CI=true -e RUNNER_TEMP="$tmp" -v "$PWD:$PWD" -v "$tmp:$tmp" -w "$PWD" "$image" bash -ec '
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends qemu-user xvfb xauth libx11-6 libcairo2 libpango-1.0-0 libpangocairo-1.0-0 fonts-dejavu-core > /dev/null
-  xvfb-run -a bash -ec "bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview; echo first run done; bash .github/scripts/emu-selftest.sh"
+  xvfb-run -a bash -ec "echo smoke; timeout -k 5 100 bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview; echo selftest; timeout -k 5 120 bash .github/scripts/emu-selftest.sh"
 '
