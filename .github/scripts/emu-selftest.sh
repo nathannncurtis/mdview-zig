@@ -6,8 +6,9 @@ case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) exe=mdview.exe ;; esac
 native=${RUNNER_TEMP:-${TMPDIR:-/tmp}}/native-build/bin/$exe
 
 if [ ! -f "$native" ]; then echo "no -Dcpu=native build (runner CPU has no AVX); skipping the emulator self-test"; exit 0; fi
-out=$(bash "$here/smoke.sh" --cpu "$native" 2>&1)
+out=$(mktemp)
+timeout -k 5 200 bash "$here/smoke.sh" --cpu "$native" > "$out" 2>&1
 rc=$?
-echo "$out"
+cat "$out"
 if [ "$rc" -eq 0 ]; then echo "::error::the -Dcpu=native build ran on the emulated Nehalem CPU"; exit 1; fi
 echo "self-test passed: the -Dcpu=native build fails on the emulated Nehalem CPU"
