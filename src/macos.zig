@@ -258,6 +258,7 @@ fn measureAndDrawAttrStr(ctx: c.CGContextRef, attr_str: c.CFAttributedStringRef,
     defer c.CFRelease(frame);
 
     c.CGContextSaveGState(ctx);
+    drawCodeBackgrounds(ctx, frame, x, y_cg - suggested.height);
     c.CTFrameDraw(frame, ctx);
     drawStrikes(ctx, frame, x, y_cg - suggested.height);
     c.CGContextRestoreGState(ctx);
@@ -267,6 +268,70 @@ fn measureAndDrawAttrStr(ctx: c.CGContextRef, attr_str: c.CFAttributedStringRef,
 
 // CoreText has no strikethrough, so runs tagged with this attribute get a line drawn over them.
 const strike_key_name = "mdview-strikethrough";
+const code_start_key_name = "mdview-code-start";
+const code_end_key_name = "mdview-code-end";
+
+fn cfInt32(key_value: *const anyopaque) i32 {
+    var out: i32 = -1;
+    _ = c.CFNumberGetValue(@ptrCast(key_value), c.kCFNumberSInt32Type, &out);
+    return out;
+}
+
+fn flushCodeFragment(ctx: c.CGContextRef, left: CGFloat, right: CGFloat, bottom: CGFloat, height: CGFloat) void {
+    drawRoundedRect(ctx, cgRect(left, bottom, right - left, height), md.code_radius);
+    c.CGContextFillPath(ctx);
+}
+
+fn drawCodeBackgrounds(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame_y: CGFloat) void {
+    const lines = c.CTFrameGetLines(frame);
+    const line_count: usize = @intCast(c.CFArrayGetCount(lines));
+    if (line_count == 0) return;
+    const origins = app.gpa.alloc(CGPoint, line_count) catch return;
+    defer app.gpa.free(origins);
+    c.CTFrameGetLineOrigins(frame, c.CFRange{ .location = 0, .length = 0 }, origins.ptr);
+
+    const start_key = cfString(code_start_key_name);
+    defer c.CFRelease(start_key);
+    const end_key = cfString(code_end_key_name);
+    defer c.CFRelease(end_key);
+    c.CGContextSetRGBFillColor(ctx, hexColor(md.code_bg).r, hexColor(md.code_bg).g, hexColor(md.code_bg).b, md.code_bg_alpha);
+    for (origins, 0..) |origin, li| {
+        const line: c.CTLineRef = @ptrCast(@constCast(c.CFArrayGetValueAtIndex(lines, @intCast(li))));
+        var ascent: CGFloat = 0;
+        var descent: CGFloat = 0;
+        var leading: CGFloat = 0;
+        _ = c.CTLineGetTypographicBounds(line, &ascent, &descent, &leading);
+        const bottom = frame_y + origin.y - descent;
+        const height = ascent + descent;
+        const runs = c.CTLineGetGlyphRuns(line);
+        const run_count: usize = @intCast(c.CFArrayGetCount(runs));
+        var open = false;
+        var left: CGFloat = 0;
+        var right: CGFloat = 0;
+        for (0..run_count) |ri| {
+            const glyph_run: c.CTRunRef = @ptrCast(@constCast(c.CFArrayGetValueAtIndex(runs, @intCast(ri))));
+            const attrs = c.CTRunGetAttributes(glyph_run);
+            const start_value = c.CFDictionaryGetValue(attrs, @ptrCast(start_key));
+            const end_value = c.CFDictionaryGetValue(attrs, @ptrCast(end_key));
+            if (start_value == null or end_value == null) {
+                if (open) flushCodeFragment(ctx, left, right, bottom, height);
+                open = false;
+                continue;
+            }
+            const range = c.CTRunGetStringRange(glyph_run);
+            const font_value = c.CFDictionaryGetValue(attrs, c.kCTFontAttributeName);
+            const pad = if (font_value) |f| md.code_pad_em * c.CTFontGetSize(@ptrCast(f)) else 0;
+            const x0 = frame_x + origin.x + c.CTLineGetOffsetForStringIndex(line, range.location, null);
+            const x1 = frame_x + origin.x + c.CTLineGetOffsetForStringIndex(line, range.location + range.length, null);
+            if (!open) {
+                open = true;
+                left = if (cfInt32(start_value.?) == range.location) x0 - pad else x0;
+            }
+            right = x1;
+        }
+        if (open) flushCodeFragment(ctx, left, right, bottom, height);
+    }
+}
 
 fn drawStrikes(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame_y: CGFloat) void {
     const lines = c.CTFrameGetLines(frame);
@@ -469,10 +534,27 @@ fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Col
     }
 
     if (content.code.len > 0) {
-        const code_font = createMonoFont(font_size_code);
+        const code_font = createMonoFont(c.CTFontGetSize(base_font) * md.code_scale);
         defer c.CFRelease(code_font);
+        const start_key = cfString(code_start_key_name);
+        defer c.CFRelease(start_key);
+        const end_key = cfString(code_end_key_name);
+        defer c.CFRelease(end_key);
         for (content.code) |span| {
             const r = cfRange(text, span);
+            var first: i32 = @intCast(r.location);
+            var last: i32 = @intCast(r.location + r.length);
+            const start_number = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &first);
+            defer c.CFRelease(start_number);
+            const end_number = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &last);
+            defer c.CFRelease(end_number);
+            c.CFAttributedStringSetAttribute(attr_str, r, start_key, @ptrCast(start_number));
+            c.CFAttributedStringSetAttribute(attr_str, r, end_key, @ptrCast(end_number));
+            var pad: CGFloat = md.code_pad_em * c.CTFontGetSize(code_font);
+            const kern = c.CFNumberCreate(null, c.kCFNumberFloat64Type, &pad);
+            defer c.CFRelease(kern);
+            if (r.location > 0) c.CFAttributedStringSetAttribute(attr_str, c.CFRange{ .location = r.location - 1, .length = 1 }, c.kCTKernAttributeName, @ptrCast(kern));
+            c.CFAttributedStringSetAttribute(attr_str, c.CFRange{ .location = r.location + r.length - 1, .length = 1 }, c.kCTKernAttributeName, @ptrCast(kern));
             setAttrFont(attr_str, r.location, r.length, code_font);
             setAttrColor(attr_str, r.location, r.length, hexColor(0xe6edf3));
         }

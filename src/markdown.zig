@@ -13,6 +13,12 @@ pub const Definition = blocks.Definition;
 
 pub const BlockKind = enum { h1, h2, h3, h4, h5, h6, paragraph, code_block, hr, table, alert_title, error_box };
 
+pub const code_scale: f32 = 0.85;
+pub const code_radius: f32 = 6;
+pub const code_pad_em: f32 = 0.4;
+pub const code_bg: u24 = 0x656c76;
+pub const code_bg_alpha: f32 = 0.2;
+
 /// Byte offset and length within `Inline.text`.
 pub const Span = [2]u32;
 
@@ -167,7 +173,7 @@ pub fn parse(gpa: Allocator, markdown: []const u8) Allocator.Error!Document {
     if (std.mem.indexOf(u8, markdown, "[^") != null) {
         var scratch: std.heap.ArenaAllocator = .init(gpa);
         defer scratch.deinit();
-        var first: Parser = .{ .a = scratch.allocator(), .tmp = .init(gpa), .refs = .init(scratch.allocator()) };
+        var first: Parser = .{ .a = scratch.allocator(), .work = scratch.allocator(), .tmp = .init(gpa), .refs = .init(scratch.allocator()) };
         defer first.tmp.deinit();
         try first.run(markdown, null);
         const copy = try a.alloc(links.Note, first.refs.order.items.len);
@@ -175,7 +181,9 @@ pub fn parse(gpa: Allocator, markdown: []const u8) Allocator.Error!Document {
         seed = copy;
     }
 
-    var p: Parser = .{ .a = a, .tmp = .init(gpa), .refs = .init(a), .seed = seed };
+    var work: std.heap.ArenaAllocator = .init(gpa);
+    defer work.deinit();
+    var p: Parser = .{ .a = a, .work = work.allocator(), .tmp = .init(gpa), .refs = .init(work.allocator()), .seed = seed };
     defer p.tmp.deinit();
     try p.run(markdown, &doc);
     return doc;
@@ -238,6 +246,8 @@ fn settle(raw: []RawBlock) void {
 // slices are only built in finish().
 const Parser = struct {
     a: Allocator,
+    /// Scratch space for the block tree and the raw blocks; freed once the document is built.
+    work: Allocator,
     text: std.ArrayList(u8) = .empty,
     bold: std.ArrayList(Span) = .empty,
     italic: std.ArrayList(Span) = .empty,
@@ -264,16 +274,22 @@ const Parser = struct {
 
     fn run(p: *Parser, markdown: []const u8, doc: ?*Document) Allocator.Error!void {
         const skip = try p.frontMatter(markdown);
-        const tree = try blocks.build(p.a, markdown[skip..]);
+        var tree_arena: std.heap.ArenaAllocator = .init(p.tmp.child_allocator);
+        defer tree_arena.deinit();
+        const tree = try blocks.build(tree_arena.allocator(), markdown[skip..]);
         for (tree.defs.items) |d| try p.refs.addDef(d.label, .{ .dest = d.dest, .title = d.title });
         for (tree.nodes.items, 0..) |n, i| if (n.kind == .footnote) try p.refs.addNote(n.label, @intCast(i));
         if (p.seed.len > 0) try p.refs.seed(p.seed);
         try p.walk(&tree, 0);
         try p.footnoteSection(&tree);
         if (doc) |d| {
-            try p.finish(d);
-            d.definitions = tree.defs.items;
+            const defs = try p.a.alloc(Definition, tree.defs.items.len);
+            for (defs, tree.defs.items) |*o, t| o.* = .{ .label = try p.a.dupe(u8, t.label), .dest = try p.a.dupe(u8, t.dest), .title = try p.a.dupe(u8, t.title) };
+            d.definitions = defs;
             d.footnote_blocks = p.note_starts.items;
+            tree_arena.deinit();
+            tree_arena = .init(p.tmp.child_allocator);
+            try p.finish(d);
         }
     }
 
@@ -332,7 +348,7 @@ const Parser = struct {
         b.frames = try p.a.dupe(Frame, p.frames.items);
         b.marks = try p.a.dupe(Lead, p.leads.items);
         p.leads.clearRetainingCapacity();
-        try p.blocks.append(p.a, b);
+        try p.blocks.append(p.work, b);
     }
 
     fn plain(p: *Parser, s: []const u8) Allocator.Error!RawInline {
@@ -456,8 +472,8 @@ const Parser = struct {
     fn highlightTokens(p: *Parser, raw: RawBlock) Allocator.Error![]const highlight.Token {
         if (raw.kind != .code_block or raw.lang.hi == raw.lang.lo) return &.{};
         var list: highlight.List = .empty;
-        try highlight.tokens(p.a, p.text.items[raw.lang.lo..raw.lang.hi], p.text.items[raw.content.text.lo..raw.content.text.hi], &list);
-        return list.items;
+        try highlight.tokens(p.work, p.text.items[raw.lang.lo..raw.lang.hi], p.text.items[raw.content.text.lo..raw.content.text.hi], &list);
+        return p.a.dupe(highlight.Token, list.items);
     }
 
     fn paragraph(p: *Parser, t: *const blocks.Tree, idx: u32, content: []const u8) Allocator.Error!void {
@@ -467,7 +483,7 @@ const Parser = struct {
 
         var lines: std.ArrayList([]const u8) = .empty;
         var it = std.mem.splitScalar(u8, std.mem.trimEnd(u8, content, "\n"), '\n');
-        while (it.next()) |l| try lines.append(p.a, std.mem.trimStart(u8, l, " \t"));
+        while (it.next()) |l| try lines.append(p.work, std.mem.trimStart(u8, l, " \t"));
 
         var i: usize = 1;
         while (i < lines.items.len) : (i += 1) {
@@ -484,8 +500,8 @@ const Parser = struct {
     fn paragraphLines(p: *Parser, lines: []const []const u8, compact: bool, in_item: bool) Allocator.Error!void {
         var src: std.ArrayList(u8) = .empty;
         for (lines) |l| {
-            try src.appendSlice(p.a, l);
-            try src.append(p.a, '\n');
+            try src.appendSlice(p.work, l);
+            try src.append(p.work, '\n');
         }
         try p.join(src.items);
         var text: []const u8 = p.joined.items;
@@ -604,7 +620,7 @@ const Parser = struct {
         const body = md[body_start..end];
         if (std.mem.trim(u8, body, " \t\r\n").len == 0) return 0;
 
-        switch (try yaml.parse(p.a, body)) {
+        switch (try yaml.parse(p.work, body)) {
             .other => return 0,
             .ok => |v| try p.emit(.{ .kind = .table, .content = p.textFrom(p.textLen()), .ytable = try p.yamlTable(v, true) }),
             .err => |e| {
@@ -693,8 +709,8 @@ const Parser = struct {
 
 
     fn tryTable(p: *Parser, header_line: []const u8, delim_line: []const u8, row_lines: []const []const u8) Allocator.Error!bool {
-        const header = try splitRow(p.a, header_line);
-        const delims = try splitRow(p.a, delim_line);
+        const header = try splitRow(p.work, header_line);
+        const delims = try splitRow(p.work, delim_line);
         if (header.len != delims.len) return false;
         const aligns_lo: u32 = @intCast(p.aligns.items.len);
         for (delims) |d| {
@@ -708,7 +724,7 @@ const Parser = struct {
         const columns: u32 = @intCast(header.len);
         const cells_lo: u32 = @intCast(p.cells.items.len);
         try p.addRow(header, columns);
-        for (row_lines) |row| try p.addRow(try splitRow(p.a, row), columns);
+        for (row_lines) |row| try p.addRow(try splitRow(p.work, row), columns);
 
         try p.emit(.{
             .kind = .table,
@@ -724,7 +740,7 @@ const Parser = struct {
     fn addRow(p: *Parser, cells: []const []const u8, columns: u32) Allocator.Error!void {
         for (0..columns) |col| {
             if (col >= cells.len) {
-                try p.cells.append(p.a, p.textFrom(p.textLen()));
+                try p.cells.append(p.work, p.textFrom(p.textLen()));
                 continue;
             }
             p.scratch.clearRetainingCapacity();
@@ -734,14 +750,14 @@ const Parser = struct {
                 if (raw[i] == '\\' and i + 1 < raw.len and raw[i + 1] == '|') i += 1;
                 try p.scratch.append(p.a, raw[i]);
             }
-            try p.cells.append(p.a, try p.parseInline(p.scratch.items));
+            try p.cells.append(p.work, try p.parseInline(p.scratch.items));
         }
     }
 
     fn parseInline(p: *Parser, raw: []const u8) Allocator.Error!RawInline {
         _ = p.tmp.reset(.retain_capacity);
         const hooks: inl.Hooks = .{ .ctx = p, .link = linkHook, .autolink = autolinkHook, .bare = bareHook };
-        const parsed = try inl.parse(p.tmp.allocator(), raw, &hooks);
+        const parsed = try inl.parseWithHeap(p.tmp.allocator(), p.tmp.child_allocator, raw, &hooks);
         const r = p.textFrom(p.textLen());
         try p.text.appendSlice(p.a, parsed.text);
 
@@ -1422,4 +1438,57 @@ test "back-arrows follow a footnote that ends in a list, code or quote on their 
         try testing.expect(doc.blocks[i - 1].frames.len >= 1);
     }
     try testing.expectEqual(@as(usize, 3), arrows);
+}
+
+test "quotes and lists nested past the depth cap stay readable as text" {
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(testing.allocator);
+    for (0..500) |_| try src.appendSlice(testing.allocator, "> ");
+    try src.appendSlice(testing.allocator, "deep text\n");
+    var doc = try parse(testing.allocator, src.items);
+    defer doc.deinit();
+    const last = doc.blocks[doc.blocks.len - 1];
+    try testing.expectEqual(@as(usize, blocks.max_depth), last.frames.len);
+    try testing.expect(std.mem.endsWith(u8, last.content.text, "deep text"));
+
+    src.clearRetainingCapacity();
+    for (0..500) |_| try src.appendSlice(testing.allocator, "- ");
+    try src.appendSlice(testing.allocator, "deep item\n");
+    var items = try parse(testing.allocator, src.items);
+    defer items.deinit();
+    try testing.expectEqual(@as(usize, blocks.max_depth), items.blocks[items.blocks.len - 1].frames.len);
+    try testing.expect(std.mem.endsWith(u8, items.blocks[items.blocks.len - 1].content.text, "deep item"));
+}
+
+test "a link destination nested more than 32 parentheses deep is not a link" {
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(testing.allocator);
+    try src.appendSlice(testing.allocator, "[a](");
+    try src.appendNTimes(testing.allocator, '(', 40);
+    try src.appendNTimes(testing.allocator, ')', 40);
+    try src.appendSlice(testing.allocator, ")\n");
+    var doc = try parse(testing.allocator, src.items);
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 0), doc.blocks[0].content.links.len);
+}
+
+test "many distinct footnotes are numbered in reference order" {
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(testing.allocator);
+    for (0..3000) |n| try src.print(testing.allocator, "ref[^n{d}]\n\n", .{3000 - n});
+    for (1..3001) |n| try src.print(testing.allocator, "[^n{d}]: note {d}\n\n", .{ n, n });
+    var doc = try parse(testing.allocator, src.items);
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 3000), doc.footnote_blocks.len);
+    try testing.expectEqualStrings("1", doc.blocks[0].content.text[3..]);
+}
+
+test "unclosed HTML constructs do not rescan the paragraph" {
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(testing.allocator);
+    try src.appendSlice(testing.allocator, "a ");
+    for (0..20000) |_| try src.appendSlice(testing.allocator, "<?x <![CDATA[ <!A <!-- a ");
+    var doc = try parse(testing.allocator, src.items);
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 1), doc.blocks.len);
 }

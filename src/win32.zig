@@ -43,7 +43,6 @@ const VK_CONTROL: i32 = 0x11;
 const CS_HREDRAW: u32 = 0x0002;
 const CS_VREDRAW: u32 = 0x0001;
 const WS_POPUP: u32 = 0x80000000;
-const WS_VISIBLE: u32 = 0x10000000;
 const WS_THICKFRAME: u32 = 0x00040000;
 const WS_SYSMENU: u32 = 0x00080000;
 const WS_MINIMIZEBOX: u32 = 0x00020000;
@@ -51,6 +50,23 @@ const WS_MAXIMIZEBOX: u32 = 0x00010000;
 const WS_EX_ACCEPTFILES: u32 = 0x00000010;
 const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 const SW_SHOW: i32 = 5;
+
+const STARTUPINFOW = extern struct {
+    cb: u32, reserved: ?[*:0]u16, desktop: ?[*:0]u16, title: ?[*:0]u16,
+    x: u32, y: u32, x_size: u32, y_size: u32, x_chars: u32, y_chars: u32, fill: u32,
+    flags: u32, show_window: u16, reserved2: u16, reserved3: ?*u8,
+    std_input: ?*anyopaque, std_output: ?*anyopaque, std_error: ?*anyopaque,
+};
+extern "kernel32" fn GetStartupInfoW(info: *STARTUPINFOW) callconv(.c) void;
+
+fn startupShowCommand() i32 {
+    // SAFETY: filled by GetStartupInfoW
+    var info: STARTUPINFOW = undefined;
+    info.cb = @sizeOf(STARTUPINFOW);
+    GetStartupInfoW(&info);
+    const use_show_window = 0x1;
+    return if (info.flags & use_show_window != 0 and info.show_window != 0) info.show_window else SW_SHOW;
+}
 const IDC_ARROW: usize = 32512;
 const IDC_HAND: usize = 32649;
 const HTCLIENT: u32 = 1;
@@ -189,6 +205,15 @@ const IDWriteFactory_VTable = extern struct {
     CreateTextFormat: *const fn (*anyopaque, [*:0]const u16, ?*anyopaque, u32, u32, u32, f32, [*:0]const u16, *?*anyopaque) callconv(.c) HRESULT, // 15
     _pad16_17: [2]*const anyopaque,
     CreateTextLayout: *const fn (*anyopaque, [*]const u16, u32, *anyopaque, f32, f32, *?*anyopaque) callconv(.c) HRESULT, // 18
+};
+
+const IID_IDWriteTextLayout1 = GUID{ .Data1 = 0x9064d822, .Data2 = 0x80a7, .Data3 = 0x465c, .Data4 = .{ 0xa9, 0x86, 0xdf, 0x65, 0xf7, 0x8b, 0x8f, 0xeb } };
+
+const IDWriteTextLayout1_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    _pad3_68: [66]*const anyopaque,
+    SetCharacterSpacing: *const fn (*anyopaque, f32, f32, f32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 69
 };
 
 const IDWriteTextLayout_VTable = extern struct {
@@ -368,7 +393,46 @@ fn rendererInline(_: *anyopaque, _: ?*anyopaque, _: f32, _: f32, _: ?*anyopaque,
 const sup_scale: f32 = 0.7;
 const sup_raise: f32 = 0.5;
 
+fn codeRects(lay: *anyopaque, content: md.Inline, out: *std.ArrayList(D2D1_RECT_F)) std.mem.Allocator.Error!void {
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    for (content.code) |span| {
+        const range = wideRange(content.text, span);
+        if (range.length == 0) continue;
+        var stack: [16]DWRITE_HIT_TEST_METRICS = undefined;
+        var rects: []DWRITE_HIT_TEST_METRICS = &stack;
+        var heap: ?[]DWRITE_HIT_TEST_METRICS = null;
+        defer if (heap) |h| app.gpa.free(h);
+        var count: u32 = 0;
+        var hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
+        if (hr == E_NOT_SUFFICIENT_BUFFER) {
+            heap = try app.gpa.alloc(DWRITE_HIT_TEST_METRICS, count);
+            rects = heap.?;
+            hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
+        }
+        if (hr < 0) continue;
+        const frags = rects[0..@min(count, rects.len)];
+        for (frags) |r| {
+            try out.append(app.gpa, .{ .left = r.left, .top = r.top, .right = r.left + r.width, .bottom = r.top + r.height });
+        }
+    }
+}
+
+fn drawCodeBackgrounds(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, content: md.Inline) void {
+    const brush = g_brush_code_span orelse return;
+    var rects: std.ArrayList(D2D1_RECT_F) = .empty;
+    defer rects.deinit(app.gpa);
+    codeRects(lay, content, &rects) catch return;
+    for (rects.items) |r| {
+        vt_rt.FillRoundedRectangle(rt, &.{
+            .rect = .{ .left = x + r.left, .top = y + r.top, .right = x + r.right, .bottom = y + r.bottom },
+            .radiusX = md.code_radius,
+            .radiusY = md.code_radius,
+        }, brush);
+    }
+}
+
 fn drawLayout(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, brush: *anyopaque, content: md.Inline) void {
+    if (content.code.len > 0) drawCodeBackgrounds(vt_rt, rt, lay, x, y, content);
     if (content.sup.len == 0) {
         vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
         return;
@@ -422,6 +486,7 @@ var g_brush_text: ?*anyopaque = null;
 var g_brush_heading: ?*anyopaque = null;
 var g_brush_code_bg: ?*anyopaque = null;
 var g_brush_code_text: ?*anyopaque = null;
+var g_brush_code_span: ?*anyopaque = null;
 var g_brush_quote: ?*anyopaque = null;
 var g_brush_hr: ?*anyopaque = null;
 var g_brush_table_border: ?*anyopaque = null;
@@ -464,7 +529,7 @@ pub fn run() void {
 
     const hwnd = CreateWindowExW(
         WS_EX_ACCEPTFILES, class_name, L("mdview"),
-        WS_POPUP | WS_VISIBLE | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
+        WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 900, 700, null, null, hi, null,
     ) orelse return;
     g_hwnd = hwnd;
@@ -474,7 +539,7 @@ pub fn run() void {
 
     _ = SetTimer(hwnd, TIMER_FILE_WATCH, 500, null);
     _ = SetTimer(hwnd, TIMER_SCROLL_SAVE, 3000, null);
-    _ = ShowWindow(hwnd, SW_SHOW);
+    _ = ShowWindow(hwnd, startupShowCommand());
     _ = UpdateWindow(hwnd);
 
     // SAFETY: written by GetMessageW
@@ -536,6 +601,9 @@ fn createBrushes(rt: *anyopaque) void {
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_code_text);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_quote);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.129, .g = 0.149, .b = 0.176, .a = 1 }, null, &g_brush_hr);
+    var span_color = rgbColor(md.code_bg);
+    span_color.a = md.code_bg_alpha;
+    _ = vt.CreateSolidColorBrush(rt, &span_color, null, &g_brush_code_span);
     g_brush_table_border = solidBrush(rt, 0x3d444d);
     g_brush_stripe = solidBrush(rt, 0x151b23);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
@@ -901,8 +969,11 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
         _ = vt_layout.SetStrikethrough(lay, 1, wideRange(content.text, span));
     }
     for (content.code) |span| {
-        _ = vt_layout.SetFontFamilyName(lay, std.unicode.utf8ToUtf16LeStringLiteral("Consolas"), wideRange(content.text, span));
+        const range = wideRange(content.text, span);
+        _ = vt_layout.SetFontFamilyName(lay, std.unicode.utf8ToUtf16LeStringLiteral("Consolas"), range);
+        _ = vt_layout.SetFontSize(lay, baseFontSize(text_format) * md.code_scale, range);
     }
+    if (content.code.len > 0) padCodeSpans(lay, content, baseFontSize(text_format));
     for (content.emoji) |span| {
         _ = vt_layout.SetFontFamilyName(lay, std.unicode.utf8ToUtf16LeStringLiteral("Segoe UI Emoji"), wideRange(content.text, span));
     }
@@ -918,6 +989,22 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
         if (brush) |b| _ = vt_layout.SetDrawingEffect(lay, b, range);
     }
     return lay;
+}
+
+fn padCodeSpans(lay: *anyopaque, content: md.Inline, font_size: f32) void {
+    const query: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = @ptrCast(vtable(IDWriteTextLayout_VTable, lay).QueryInterface);
+    var l1: ?*anyopaque = null;
+    if (query(lay, &IID_IDWriteTextLayout1, &l1) < 0) return;
+    const layout1 = l1 orelse return;
+    defer _ = vtable(IDWriteTextLayout1_VTable, layout1).Release(layout1);
+    const set = vtable(IDWriteTextLayout1_VTable, layout1).SetCharacterSpacing;
+    const pad = md.code_pad_em * md.code_scale * font_size;
+    for (content.code) |span| {
+        const range = wideRange(content.text, span);
+        if (range.length == 0) continue;
+        _ = set(layout1, pad, 0, 0, .{ .startPosition = range.startPosition, .length = 1 });
+        _ = set(layout1, if (range.length == 1) pad else 0, pad, 0, .{ .startPosition = range.startPosition + range.length - 1, .length = 1 });
+    }
 }
 
 const cell_pad_x: f32 = 13;
@@ -1311,4 +1398,66 @@ test "hit testing maps the pointer to the character under it" {
     try testing.expectEqual(@as(u32, 13), last);
     try testing.expectEqual(@as(?u32, 0), textIndexAt(hit, 2, 10));
     try testing.expectEqual(@as(?u32, null), textIndexAt(hit, 480, 10));
+}
+
+test "an inline code span that wraps gets one background rect per line" {
+    app.gpa = testing.allocator;
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    var doc = try md.parse(testing.allocator, "intro `alpha beta gamma delta epsilon zeta eta theta` outro");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    const dwf = g_dwrite_factory.?;
+    var rects: std.ArrayList(D2D1_RECT_F) = .empty;
+    defer rects.deinit(testing.allocator);
+
+    const wide = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, content, g_text_format.?, 2000).?;
+    defer _ = vtable(IDWriteTextLayout_VTable, wide).Release(wide);
+    try codeRects(wide, content, &rects);
+    try testing.expectEqual(@as(usize, 1), rects.items.len);
+
+    rects.clearRetainingCapacity();
+    const narrow = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, content, g_text_format.?, 120).?;
+    defer _ = vtable(IDWriteTextLayout_VTable, narrow).Release(narrow);
+    try codeRects(narrow, content, &rects);
+    try testing.expect(rects.items.len >= 2);
+    for (rects.items[1..], rects.items[0 .. rects.items.len - 1]) |next, prev| try testing.expect(next.top > prev.top);
+}
+
+test "the code background padding takes up space on both sides of the span" {
+    app.gpa = testing.allocator;
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    var doc = try md.parse(testing.allocator, "before `code` after");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    const dwf = g_dwrite_factory.?;
+    const lay = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, content, g_text_format.?, 2000).?;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+
+    // SAFETY: written by GetMetrics
+    var padded: DWRITE_TEXT_METRICS = undefined;
+    _ = vt.GetMetrics(lay, &padded);
+    var rects: std.ArrayList(D2D1_RECT_F) = .empty;
+    defer rects.deinit(testing.allocator);
+    try codeRects(lay, content, &rects);
+    const with_pad = rects.items[0].right - rects.items[0].left;
+
+    var l1: ?*anyopaque = null;
+    const query: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT = @ptrCast(vt.QueryInterface);
+    const hr = query(lay, &IID_IDWriteTextLayout1, &l1);
+    try testing.expect(hr >= 0);
+    defer _ = vtable(IDWriteTextLayout1_VTable, l1.?).Release(l1.?);
+    _ = vtable(IDWriteTextLayout1_VTable, l1.?).SetCharacterSpacing(l1.?, 0, 0, 0, .{ .startPosition = 0, .length = @intCast(content.text.len) });
+    // SAFETY: written by GetMetrics
+    var plain: DWRITE_TEXT_METRICS = undefined;
+    _ = vt.GetMetrics(lay, &plain);
+    rects.clearRetainingCapacity();
+    try codeRects(lay, content, &rects);
+    const without = rects.items[0].right - rects.items[0].left;
+
+    const want = 2 * md.code_pad_em * md.code_scale * 16;
+    try testing.expectApproxEqAbs(want, padded.widthIncludingTrailingWhitespace - plain.widthIncludingTrailingWhitespace, 0.5);
+    try testing.expectApproxEqAbs(want, with_pad - without, 0.5);
 }

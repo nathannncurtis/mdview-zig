@@ -22,6 +22,7 @@ pub const Refs = struct {
     defs: std.StringHashMapUnmanaged(Def) = .empty,
     notes: std.StringHashMapUnmanaged(u32) = .empty,
     order: std.ArrayList(Note) = .empty,
+    numbers: std.StringHashMapUnmanaged(u32) = .empty,
     key: std.ArrayList(u8) = .empty,
     frozen: bool = false,
 
@@ -35,6 +36,7 @@ pub const Refs = struct {
     }
 
     pub fn lookup(r: *Refs, label: []const u8) ?Def {
+        if (label.len > max_label * 4) return null;
         const k = normalizeLabel(&r.key, r.a, label) catch return null;
         return r.defs.get(k);
     }
@@ -48,22 +50,24 @@ pub const Refs = struct {
     pub fn seed(r: *Refs, earlier: []const Note) Allocator.Error!void {
         for (earlier) |n| {
             const node = r.notes.get(n.label) orelse continue;
+            try r.numbers.put(r.a, n.label, @intCast(r.order.items.len));
             try r.order.append(r.a, .{ .label = n.label, .node = node, .refs = n.refs });
         }
         r.frozen = true;
     }
 
     pub fn noteRef(r: *Refs, label: []const u8) Allocator.Error!?u32 {
+        if (label.len > max_label * 4) return null;
         const k = normalizeLabel(&r.key, r.a, label) catch return null;
         const node = r.notes.get(k) orelse return null;
-        for (r.order.items, 1..) |*n, number| {
-            if (std.mem.eql(u8, n.label, k)) {
-                if (!r.frozen) n.refs += 1;
-                return @intCast(number);
-            }
+        if (r.numbers.get(k)) |index| {
+            if (!r.frozen) r.order.items[index].refs += 1;
+            return index + 1;
         }
         if (r.frozen) return null;
-        try r.order.append(r.a, .{ .label = try r.a.dupe(u8, k), .node = node, .refs = 1 });
+        const owned = try r.a.dupe(u8, k);
+        try r.numbers.put(r.a, owned, @intCast(r.order.items.len));
+        try r.order.append(r.a, .{ .label = owned, .node = node, .refs = 1 });
         return @intCast(r.order.items.len);
     }
 };
@@ -182,6 +186,9 @@ fn entityAt(s: []const u8, i: usize) ?Entity {
 
 const Dest = struct { raw: []const u8, end: usize };
 
+const max_paren_depth = 32;
+const max_label = 999;
+
 fn parseDest(s: []const u8, i: usize) ?Dest {
     if (i >= s.len) return null;
     if (s[i] == '<') {
@@ -206,6 +213,7 @@ fn parseDest(s: []const u8, i: usize) ?Dest {
             j += 1;
         } else if (c == '(') {
             depth += 1;
+            if (depth > max_paren_depth) return null;
         } else if (c == ')') {
             if (depth == 0) break;
             depth -= 1;
@@ -298,7 +306,7 @@ fn parseLabel(s: []const u8, i: usize) ?Label {
             },
             '[' => return null,
             ']' => {
-                if (!text or j - i - 1 > 999) return null;
+                if (!text or j - i - 1 > max_label) return null;
                 return .{ .raw = s[i + 1 .. j], .end = j + 1 };
             },
             ' ', '\t', '\n', '\r' => {},
@@ -400,10 +408,14 @@ pub const Auto = struct { end: usize, text: []const u8, target: []const u8, pref
 
 pub fn autolink(s: []const u8, i: usize) ?Auto {
     if (i >= s.len or s[i] != '<') return null;
-    const close = std.mem.indexOfScalarPos(u8, s, i + 1, '>') orelse return null;
+    var close = i + 1;
+    while (close < s.len and s[close] != '>') : (close += 1) {
+        const c = s[close];
+        if (c <= ' ' or c == 0x7F or c == '<') return null;
+    }
+    if (close >= s.len) return null;
     const body = s[i + 1 .. close];
     if (body.len == 0) return null;
-    for (body) |c| if (c <= ' ' or c == 0x7F or c == '<') return null;
 
     if (std.mem.indexOfScalar(u8, body, ':')) |colon| {
         if (colon >= 2 and colon <= 32 and std.ascii.isAlphabetic(body[0])) {

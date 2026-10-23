@@ -162,7 +162,7 @@ const Reviver = struct {
                     if (tagIs(t, &.{ "!set", "tag:yaml.org,2002:set" })) return r.disallow("Psych::Set");
                     if (r.rubyClass(t)) |cls| return r.disallow(cls);
                 }
-                var out: std.ArrayList(OPair) = .empty;
+                var out: Pairs = .{};
                 var i: usize = 0;
                 while (i < m.items.len) : (i += 2) {
                     const kn = m.items[i];
@@ -172,13 +172,13 @@ const Reviver = struct {
                     if (is_merge and (vn == .map or vn == .alias)) {
                         const val = try r.revive(vn);
                         if (val == .map) {
-                            for (val.map) |p| try put(r.a, &out, p.key, p.value);
+                            for (val.map) |p| try out.put(r.a, p.key, p.value);
                             continue;
                         }
-                        try put(r.a, &out, key, val);
+                        try out.put(r.a, key, val);
                     } else if (is_merge and vn == .seq) {
                         const val = try r.revive(vn);
-                        var merged: std.ArrayList(OPair) = .empty;
+                        var merged: Pairs = .{};
                         var ok = true;
                         var j = val.seq.len;
                         while (j > 0) {
@@ -187,17 +187,17 @@ const Reviver = struct {
                                 ok = false;
                                 break;
                             }
-                            for (val.seq[j].map) |p| try put(r.a, &merged, p.key, p.value);
+                            for (val.seq[j].map) |p| try merged.put(r.a, p.key, p.value);
                         }
                         if (ok) {
-                            for (merged.items) |p| try put(r.a, &out, p.key, p.value);
-                        } else try put(r.a, &out, key, val);
+                            for (merged.list.items) |p| try out.put(r.a, p.key, p.value);
+                        } else try out.put(r.a, key, val);
                     } else {
                         const val = try r.revive(vn);
-                        try put(r.a, &out, key, val);
+                        try out.put(r.a, key, val);
                     }
                 }
-                return .{ .map = out.items };
+                return .{ .map = out.list.items };
             },
         }
     }
@@ -287,37 +287,31 @@ const Reviver = struct {
     }
 };
 
-fn put(a: Allocator, out: *std.ArrayList(OPair), key: Obj, value: Obj) Allocator.Error!void {
-    for (out.items) |*p| {
-        if (objEql(p.key, key)) {
-            p.value = value;
+const Pairs = struct {
+    list: std.ArrayList(OPair) = .empty,
+    index: std.StringHashMapUnmanaged(usize) = .empty,
+
+    fn put(p: *Pairs, a: Allocator, key: Obj, value: Obj) Allocator.Error!void {
+        if (key == .float and std.mem.eql(u8, key.float, "NaN")) return p.list.append(a, .{ .key = key, .value = value });
+        const slot = try p.index.getOrPut(a, try identity(a, key));
+        if (slot.found_existing) {
+            p.list.items[slot.value_ptr.*].value = value;
             return;
         }
+        slot.value_ptr.* = p.list.items.len;
+        try p.list.append(a, .{ .key = key, .value = value });
     }
-    try out.append(a, .{ .key = key, .value = value });
-}
+};
 
-fn objEql(x: Obj, y: Obj) bool {
-    if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
-    return switch (x) {
-        .null_ => true,
-        .boolean => |b| b == y.boolean,
-        .int => |s| std.mem.eql(u8, s, y.int),
-        .float => |s| std.mem.eql(u8, s, y.float) and !std.mem.eql(u8, s, "NaN"),
-        .str => |s| std.mem.eql(u8, s, y.str),
-        .sym => |s| std.mem.eql(u8, s, y.sym),
-        .time => |s| std.mem.eql(u8, s, y.time),
-        .seq => |s| blk: {
-            if (s.len != y.seq.len) break :blk false;
-            for (s, y.seq) |p, q| if (!objEql(p, q)) break :blk false;
-            break :blk true;
-        },
-        .map => |s| blk: {
-            if (s.len != y.map.len) break :blk false;
-            for (s, y.map) |p, q| if (!objEql(p.key, q.key) or !objEql(p.value, q.value)) break :blk false;
-            break :blk true;
-        },
+fn identity(a: Allocator, o: Obj) Allocator.Error![]const u8 {
+    const tag: u8 = @intFromEnum(std.meta.activeTag(o));
+    const body = switch (o) {
+        .null_ => "",
+        .boolean => |b| if (b) "t" else "f",
+        .int, .float, .str, .sym, .time => |s| s,
+        .seq, .map => try inspect(a, o),
     };
+    return std.mem.concat(a, u8, &.{ &.{tag}, body });
 }
 
 fn startsLikeString(s: []const u8) bool {
