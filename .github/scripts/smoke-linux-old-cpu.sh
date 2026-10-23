@@ -3,11 +3,12 @@
 # (the runner's own userland needs AVX2, so it cannot run on an emulated Nehalem).
 set -euo pipefail
 
-image=debian@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
+here=$(cd "$(dirname "$0")" && pwd)
+bash "$here/bake-old-cpu-image.sh"
+
+image=mdview/old-cpu:1
 tmp=${RUNNER_TEMP:-/tmp}
 
 docker run --rm --init -e CI=true -e RUNNER_TEMP="$tmp" -v "$PWD:$PWD" -v "$tmp:$tmp" -w "$PWD" "$image" bash -ec '
-  apt-get update -qq
-  apt-get install -y -qq --no-install-recommends qemu-user xvfb xauth libx11-6 libcairo2 libpango-1.0-0 libpangocairo-1.0-0 fonts-dejavu-core > /dev/null
   xvfb-run -a bash -ec "echo smoke; timeout -k 5 100 bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview; echo selftest; timeout -k 5 120 bash .github/scripts/emu-selftest.sh"
 '

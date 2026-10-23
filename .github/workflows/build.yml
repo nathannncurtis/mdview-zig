@@ -53,6 +53,10 @@ jobs:
         run: |
           bash .github/scripts/smoke.sh zig-out/bin/mdview.exe
           bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview.exe
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sde.tar.xz
+          key: sde-${{ hashFiles('.github/scripts/setup-sde.sh') }}
       - name: Intel SDE
         run: bash .github/scripts/setup-sde.sh
       - name: Smoke test on an older CPU
@@ -156,8 +160,12 @@ jobs:
         run: |
           xvfb-run -a bash .github/scripts/smoke.sh zig-out/bin/mdview
           xvfb-run -a bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/old-cpu-image.tar
+          key: old-cpu-image-${{ hashFiles('.github/scripts/smoke-linux-old-cpu.sh', '.github/scripts/bake-old-cpu-image.sh') }}
       - name: Smoke test on an older CPU
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: bash .github/scripts/smoke-linux-old-cpu.sh
       - name: Debian package
         env:
