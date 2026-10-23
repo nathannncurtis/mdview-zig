@@ -143,7 +143,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb qemu-user
+          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
@@ -158,16 +158,7 @@ jobs:
           xvfb-run -a bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview
       - name: Smoke test on an older CPU
         timeout-minutes: 5
-        run: |
-          xvfb-run -a bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview
-          xvfb-run -a bash .github/scripts/emu-selftest.sh
-      - name: qemu debug
-        if: failure()
-        run: |
-          head -3 /etc/os-release; qemu-x86_64 --version | head -1
-          for c in Nehalem Westmere SandyBridge Haswell max; do qemu-x86_64 -cpu $c /bin/true; echo $c=$?; done
-          qemu-x86_64 -cpu Nehalem -d in_asm -D /tmp/q.log /bin/true; tail -12 /tmp/q.log
-          grep -m1 -o 'x86-64-v[0-9]' /usr/lib/x86_64-linux-gnu/libc.so.6 || true
+        run: bash .github/scripts/smoke-linux-old-cpu.sh
       - name: Debian package
         env:
           VERSION: ${{ inputs.version }}
