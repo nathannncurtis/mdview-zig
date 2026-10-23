@@ -25,7 +25,7 @@ esac
 
 stop() {
   if [ -n "$windows" ]; then taskkill //F //T //PID "$(cat "/proc/$pid/winpid")" || echo "taskkill failed"
-  else kill "$pid"; fi
+  else kill -KILL "$pid"; fi
   for _ in $(seq 20); do kill -0 "$pid" 2> /dev/null || return 0; sleep 0.5; done
   echo "::error::pid $pid did not stop"
   return 1
