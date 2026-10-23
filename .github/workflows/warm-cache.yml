@@ -10,6 +10,8 @@ permissions:
 
 jobs:
   sde:
+    # A failed scheduled run would email the owner; the next CI or release run refills the cache anyway.
+    continue-on-error: true
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -21,6 +23,7 @@ jobs:
       - run: bash .github/scripts/setup-sde.sh
 
   image:
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
