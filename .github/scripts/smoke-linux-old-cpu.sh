@@ -9,6 +9,5 @@ tmp=${RUNNER_TEMP:-/tmp}
 docker run --rm -e CI=true -e RUNNER_TEMP="$tmp" -v "$PWD:$PWD" -v "$tmp:$tmp" -w "$PWD" "$image" bash -ec '
   apt-get update -qq
   apt-get install -y -qq --no-install-recommends qemu-user xvfb xauth libx11-6 libcairo2 libpango-1.0-0 libpangocairo-1.0-0 fonts-dejavu-core > /dev/null
-  xvfb-run -a bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview
-  xvfb-run -a bash .github/scripts/emu-selftest.sh
+  xvfb-run -a bash -ec "bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview; echo first run done; bash .github/scripts/emu-selftest.sh"
 '
