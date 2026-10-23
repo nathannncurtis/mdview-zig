@@ -43,7 +43,6 @@ const VK_CONTROL: i32 = 0x11;
 const CS_HREDRAW: u32 = 0x0002;
 const CS_VREDRAW: u32 = 0x0001;
 const WS_POPUP: u32 = 0x80000000;
-const WS_VISIBLE: u32 = 0x10000000;
 const WS_THICKFRAME: u32 = 0x00040000;
 const WS_SYSMENU: u32 = 0x00080000;
 const WS_MINIMIZEBOX: u32 = 0x00020000;
@@ -51,6 +50,23 @@ const WS_MAXIMIZEBOX: u32 = 0x00010000;
 const WS_EX_ACCEPTFILES: u32 = 0x00000010;
 const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 const SW_SHOW: i32 = 5;
+
+const STARTUPINFOW = extern struct {
+    cb: u32, reserved: ?[*:0]u16, desktop: ?[*:0]u16, title: ?[*:0]u16,
+    x: u32, y: u32, x_size: u32, y_size: u32, x_chars: u32, y_chars: u32, fill: u32,
+    flags: u32, show_window: u16, reserved2: u16, reserved3: ?*u8,
+    std_input: ?*anyopaque, std_output: ?*anyopaque, std_error: ?*anyopaque,
+};
+extern "kernel32" fn GetStartupInfoW(info: *STARTUPINFOW) callconv(.c) void;
+
+fn startupShowCommand() i32 {
+    // SAFETY: filled by GetStartupInfoW
+    var info: STARTUPINFOW = undefined;
+    info.cb = @sizeOf(STARTUPINFOW);
+    GetStartupInfoW(&info);
+    const use_show_window = 0x1;
+    return if (info.flags & use_show_window != 0 and info.show_window != 0) info.show_window else SW_SHOW;
+}
 const IDC_ARROW: usize = 32512;
 const IDC_HAND: usize = 32649;
 const HTCLIENT: u32 = 1;
@@ -510,7 +526,7 @@ pub fn run() void {
 
     const hwnd = CreateWindowExW(
         WS_EX_ACCEPTFILES, class_name, L("mdview"),
-        WS_POPUP | WS_VISIBLE | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
+        WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, 900, 700, null, null, hi, null,
     ) orelse return;
     g_hwnd = hwnd;
@@ -520,7 +536,7 @@ pub fn run() void {
 
     _ = SetTimer(hwnd, TIMER_FILE_WATCH, 500, null);
     _ = SetTimer(hwnd, TIMER_SCROLL_SAVE, 3000, null);
-    _ = ShowWindow(hwnd, SW_SHOW);
+    _ = ShowWindow(hwnd, startupShowCommand());
     _ = UpdateWindow(hwnd);
 
     // SAFETY: written by GetMessageW

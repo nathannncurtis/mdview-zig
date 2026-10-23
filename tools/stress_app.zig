@@ -12,11 +12,35 @@ const win = struct {
     extern "user32" fn EnumWindows(cb: Enum, lparam: isize) callconv(.c) i32;
     extern "user32" fn GetWindowThreadProcessId(hwnd: HWND, pid: *u32) callconv(.c) u32;
     extern "user32" fn IsWindowVisible(hwnd: HWND) callconv(.c) i32;
-    extern "user32" fn IsWindow(hwnd: HWND) callconv(.c) i32;
+    extern "user32" fn IsIconic(hwnd: HWND) callconv(.c) i32;
     extern "user32" fn SetWindowPos(hwnd: HWND, after: HWND, x: i32, y: i32, cx: i32, cy: i32, flags: u32) callconv(.c) i32;
     extern "user32" fn PostMessageW(hwnd: HWND, msg: u32, wparam: usize, lparam: isize) callconv(.c) i32;
-    extern "kernel32" fn GetProcessId(process: *anyopaque) callconv(.c) u32;
     extern "kernel32" fn WaitForSingleObject(handle: *anyopaque, ms: u32) callconv(.c) u32;
+    extern "kernel32" fn TerminateProcess(handle: *anyopaque, code: u32) callconv(.c) i32;
+    extern "kernel32" fn CloseHandle(handle: *anyopaque) callconv(.c) i32;
+    extern "kernel32" fn SetEnvironmentVariableW(name: [*:0]const u16, value: [*:0]const u16) callconv(.c) i32;
+    extern "kernel32" fn CreateProcessW(app: ?[*:0]const u16, cmd: [*:0]u16, pa: ?*anyopaque, ta: ?*anyopaque, inherit: i32, flags: u32, env: ?*anyopaque, cwd: ?[*:0]const u16, si: *StartupInfo, pi: *ProcessInfo) callconv(.c) i32;
+
+    const StartupInfo = extern struct {
+        cb: u32, reserved: ?[*:0]u16 = null, desktop: ?[*:0]u16 = null, title: ?[*:0]u16 = null,
+        x: u32 = 0, y: u32 = 0, x_size: u32 = 0, y_size: u32 = 0, x_chars: u32 = 0, y_chars: u32 = 0, fill: u32 = 0,
+        flags: u32 = 0, show_window: u16 = 0, reserved2: u16 = 0, reserved3: ?*u8 = null,
+        std_input: ?*anyopaque = null, std_output: ?*anyopaque = null, std_error: ?*anyopaque = null,
+    };
+    const ProcessInfo = extern struct { process: ?*anyopaque, thread: ?*anyopaque, pid: u32, tid: u32 };
+
+    /// Starts the exe minimized without activating it; the process handle and pid come back.
+    fn startMinimized(gpa: Allocator, exe: []const u8, file: []const u8, data_env: []const u8) !ProcessInfo {
+        const cmd = try std.unicode.utf8ToUtf16LeAllocZ(gpa, try std.fmt.allocPrint(gpa, "\"{s}\" \"{s}\"", .{ exe, file }));
+        const value = try std.unicode.utf8ToUtf16LeAllocZ(gpa, data_env);
+        if (SetEnvironmentVariableW(std.unicode.utf8ToUtf16LeStringLiteral("LOCALAPPDATA"), value) == 0) return error.SetEnvironment;
+        var si: StartupInfo = .{ .cb = @sizeOf(StartupInfo), .flags = 0x1, .show_window = 7 };
+        // SAFETY: filled by CreateProcessW
+        var pi: ProcessInfo = undefined;
+        if (CreateProcessW(null, cmd, null, null, 0, 0, null, null, &si, &pi) == 0) return error.CreateProcess;
+        _ = CloseHandle(pi.thread.?);
+        return pi;
+    }
 
     const wm_size = 0x0005;
     const wm_mousewheel = 0x020A;
@@ -79,7 +103,8 @@ const Ctx = struct {
 const Instance = struct {
     name: []const u8,
     log_path: []const u8,
-    child: std.process.Child,
+    child: ?std.process.Child = null,
+    handle: ?*anyopaque = null,
     launched_ms: i64,
     parsed_ms: ?i64 = null,
     window: win.HWND = null,
@@ -92,9 +117,14 @@ fn launch(c: *Ctx, name: []const u8, file: []const u8) !Instance {
     try Io.Dir.cwd().createDirPath(c.io, data);
     const log_path = try std.fs.path.join(c.gpa, &.{ data, "mdview", "mdview-zig.log" });
 
+    if (windows) {
+        const pi = try win.startMinimized(c.gpa, c.opts.exe, file, data);
+        return .{ .name = name, .log_path = log_path, .handle = pi.process, .launched_ms = c.nowMs(), .pid = pi.pid };
+    }
+
     var env = try c.environ.clone(c.gpa);
     defer env.deinit();
-    try env.put(if (windows) "LOCALAPPDATA" else "XDG_DATA_HOME", data);
+    try env.put("XDG_DATA_HOME", data);
 
     const child = try std.process.spawn(c.io, .{
         .argv = &.{ c.opts.exe, file },
@@ -103,7 +133,7 @@ fn launch(c: *Ctx, name: []const u8, file: []const u8) !Instance {
         .stdout = .ignore,
         .stderr = .ignore,
     });
-    const pid: u32 = if (windows) win.GetProcessId(child.id.?) else @intCast(child.id.?);
+    const pid: u32 = @intCast(child.id.?);
     return .{ .name = name, .log_path = log_path, .child = child, .launched_ms = c.nowMs(), .pid = pid };
 }
 
@@ -116,8 +146,8 @@ fn count(haystack: []const u8, needle: []const u8) usize {
 }
 
 fn alive(c: *Ctx, inst: *Instance) bool {
-    if (inst.child.id == null) return false;
-    if (windows) return win.WaitForSingleObject(inst.child.id.?, 0) == 258;
+    if (windows) return inst.handle != null and win.WaitForSingleObject(inst.handle.?, 0) == 258;
+    if (inst.child == null or inst.child.?.id == null) return false;
     var buf: [64]u8 = undefined;
     const path = std.fmt.bufPrint(&buf, "/proc/{d}/stat", .{inst.pid}) catch return false;
     const stat = Io.Dir.cwd().readFileAlloc(c.io, path, c.gpa, .limited(4096)) catch return false;
@@ -152,7 +182,15 @@ fn checkLog(c: *Ctx, inst: *Instance, what: []const u8) void {
 }
 
 fn stop(c: *Ctx, inst: *Instance) void {
-    inst.child.kill(c.io);
+    if (windows) {
+        if (inst.handle) |h| {
+            _ = win.TerminateProcess(h, 1);
+            _ = win.CloseHandle(h);
+            inst.handle = null;
+        }
+        return;
+    }
+    if (inst.child) |*ch| ch.kill(c.io);
 }
 
 fn holdPhase(c: *Ctx, names: []const []const u8) !void {
@@ -177,6 +215,10 @@ fn holdPhase(c: *Ctx, names: []const []const u8) !void {
         c.sleepMs(@intCast(c.opts.hold_seconds * 1000));
         for (insts[0..launched]) |*i| {
             const ok = alive(c, i);
+            if (windows) {
+                i.window = win.find(i.pid);
+                if (i.window == null) c.fail("{s}: no window", .{i.name}) else if (win.IsIconic(i.window) == 0) c.fail("{s}: window is not minimized", .{i.name});
+            }
             if (!ok) c.fail("{s}: exited within {d} s", .{ i.name, c.opts.hold_seconds });
             checkLog(c, i, "hold");
             files.say(c.io, "held  {s:<36} parse {d:>6} ms  {s}\n", .{ i.name, i.parsed_ms orelse 0, if (ok) "alive" else "DEAD" });
