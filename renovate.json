@@ -1,0 +1,72 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Every pinned version in this repo stays current, one PR a week. Nothing merges itself and nobody is tagged.",
+    "Not tracked, on purpose: Zig in .github/scripts/setup-zig.sh (ziglang.org tarballs with a sha256 per OS, which no Renovate datasource can update together; the README and build.zig.zon name the same version, so a bump is done by hand in one commit).",
+    "Not tracked, on purpose: the Artifact Signing client nupkg in build.yml, whose SHA256 Renovate's NuGet datasource cannot update alongside the version."
+  ],
+  "extends": [
+    "config:best-practices",
+    ":disableDependencyDashboard",
+    ":semanticCommitsDisabled"
+  ],
+  "schedule": [
+    "* 0-6 * * 1"
+  ],
+  "timezone": "America/Los_Angeles",
+  "prConcurrentLimit": 3,
+  "automerge": false,
+  "assignees": [],
+  "reviewers": [],
+  "labels": [
+    "dependencies"
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": [
+      "at any time"
+    ],
+    "labels": [
+      "security"
+    ]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "* 0-6 1 * *"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "One grouped PR for everything that isn't a major version.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "groupName": "all non-major"
+    },
+    {
+      "description": "Majors come one per PR, since they may need code changes.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "groupName": null
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Tools CI downloads from GitHub releases: a `tag=` line, then the URL, then its sha256.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "tag=(?<currentValue>v[0-9][^;\\s]*);[^\\n]*\\s+curl [^\\n]*https://github\\.com/(?<depName>[^/]+/[^/]+)/releases/download/[^\\n]*\\n\\s*echo \"(?<currentDigest>[a-f0-9]{64}) "
+      ],
+      "datasourceTemplate": "github-release-attachments"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+name: warm-cache
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sde:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sde.tar.xz
+          key: sde-${{ hashFiles('.github/scripts/setup-sde.sh') }}
+      - run: bash .github/scripts/setup-sde.sh
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/old-cpu-image.tar
+          key: old-cpu-image-${{ hashFiles('.github/scripts/smoke-linux-old-cpu.sh', '.github/scripts/bake-old-cpu-image.sh') }}
+      - run: bash .github/scripts/bake-old-cpu-image.sh
