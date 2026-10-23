@@ -253,9 +253,7 @@ fn findWindow(c: *Ctx, inst: *Instance) ?[]const u8 {
             inst.window = win.find(inst.pid);
             if (inst.window != null) return "";
         } else {
-            var pid_buf: [16]u8 = undefined;
-            const pid = std.fmt.bufPrint(&pid_buf, "{d}", .{inst.pid}) catch return null;
-            if (xdo(c, &.{ "search", "--onlyvisible", "--pid", pid })) |out| {
+            if (xdo(c, &.{ "search", "--onlyvisible", "--name", "^mdview$" })) |out| {
                 const line = std.mem.trim(u8, out[0 .. std.mem.indexOfScalar(u8, out, '\n') orelse out.len], " \r");
                 if (line.len > 0) return line;
             }
