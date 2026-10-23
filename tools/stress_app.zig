@@ -150,8 +150,11 @@ fn alive(c: *Ctx, inst: *Instance) bool {
     if (inst.child == null or inst.child.?.id == null) return false;
     var buf: [64]u8 = undefined;
     const path = std.fmt.bufPrint(&buf, "/proc/{d}/stat", .{inst.pid}) catch return false;
-    const stat = Io.Dir.cwd().readFileAlloc(c.io, path, c.gpa, .limited(4096)) catch return false;
-    defer c.gpa.free(stat);
+    const file = Io.Dir.cwd().openFile(c.io, path, .{}) catch return false;
+    defer file.close(c.io);
+    var stat_buf: [512]u8 = undefined;
+    const got = file.readStreaming(c.io, &.{&stat_buf}) catch return false;
+    const stat = stat_buf[0..got];
     const close = std.mem.lastIndexOfScalar(u8, stat, ')') orelse return false;
     return close + 2 < stat.len and stat[close + 2] != 'Z' and stat[close + 2] != 'X';
 }
