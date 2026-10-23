@@ -151,7 +151,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb xdotool
       - run: bash .github/scripts/setup-zig.sh
-      - run: zig build -Doptimize=ReleaseSmall
+      - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
       - name: Generate the stress files
         run: zig build gen-stress -- "$RUNNER_TEMP/stress" small
       - name: Run the app on them
