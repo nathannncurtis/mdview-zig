@@ -10,7 +10,7 @@ pub fn write(io: std.Io, path: []const u8, data: []const u8) !void {
 
 pub fn say(io: std.Io, comptime fmt: []const u8, args_: anytype) void {
     var buf: [1024]u8 = undefined;
-    var w = std.Io.File.stderr().writer(io, &buf);
+    var w = std.Io.File.stderr().writerStreaming(io, &buf);
     w.interface.print(fmt, args_) catch return;
     w.interface.flush() catch return;
 }

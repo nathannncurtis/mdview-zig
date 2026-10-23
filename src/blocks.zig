@@ -4,6 +4,9 @@ const unicode = @import("unicode.zig");
 
 pub const none: u32 = std.math.maxInt(u32);
 
+/// Quotes, list items and footnotes nested deeper than this are not opened; their markers stay in the text.
+pub const max_depth = 100;
+
 pub const Kind = enum { document, quote, list, item, footnote, paragraph, heading, code, thematic, html };
 
 pub const Node = struct {
@@ -12,11 +15,13 @@ pub const Node = struct {
     first: u32 = none,
     last: u32 = none,
     next: u32 = none,
+    prev: u32 = none,
     open: bool = true,
     last_blank: bool = false,
     last_checked: bool = false,
     content: std.ArrayList(u8) = .empty,
     level: u8 = 0,
+    depth: u8 = 0,
     fenced: bool = false,
     fence_char: u8 = 0,
     fence_len: usize = 0,
@@ -46,6 +51,7 @@ pub const Tree = struct {
 
 pub fn build(a: Allocator, markdown: []const u8) Allocator.Error!Tree {
     var p: P = .{ .a = a };
+    try p.nodes.ensureTotalCapacity(a, nonBlankLines(markdown) + 1);
     try p.nodes.append(a, .{ .kind = .document });
     var lines = std.mem.splitScalar(u8, markdown, '\n');
     while (lines.next()) |raw| {
@@ -54,6 +60,13 @@ pub fn build(a: Allocator, markdown: []const u8) Allocator.Error!Tree {
     }
     while (p.tip != none) try p.finalize(p.tip);
     return .{ .nodes = p.nodes, .defs = p.defs };
+}
+
+fn nonBlankLines(text: []const u8) usize {
+    var n: usize = 0;
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |l| n += @intFromBool(l.len > 0 and !(l.len == 1 and l[0] == '\r'));
+    return n;
 }
 
 fn isSpaceOrTab(c: ?u8) bool {
@@ -154,8 +167,11 @@ const P = struct {
     fn addChild(p: *P, kind: Kind) Allocator.Error!u32 {
         while (!p.canContain(p.tip, kind)) try p.finalize(p.tip);
         const idx: u32 = @intCast(p.nodes.items.len);
-        try p.nodes.append(p.a, .{ .kind = kind, .parent = p.tip, .line = p.line_no });
+        const opens = kind == .quote or kind == .item or kind == .footnote;
+        const depth = p.n(p.tip).depth + @intFromBool(opens);
+        try p.nodes.append(p.a, .{ .kind = kind, .parent = p.tip, .line = p.line_no, .depth = depth });
         const parent = p.n(p.tip);
+        p.nodes.items[idx].prev = parent.last;
         if (parent.last != none) p.nodes.items[parent.last].next = idx else parent.first = idx;
         p.nodes.items[p.tip].last = idx;
         p.tip = idx;
@@ -164,10 +180,9 @@ const P = struct {
 
     fn unlink(p: *P, idx: u32) void {
         const parent = p.nodes.items[idx].parent;
-        var prev: u32 = none;
-        var cur = p.n(parent).first;
-        while (cur != idx) : (cur = p.n(cur).next) prev = cur;
+        const prev = p.n(idx).prev;
         const nxt = p.n(idx).next;
+        if (nxt != none) p.n(nxt).prev = prev;
         if (prev == none) p.n(parent).first = nxt else p.n(prev).next = nxt;
         if (p.n(parent).last == idx) p.n(parent).last = prev;
     }
@@ -483,7 +498,7 @@ const P = struct {
 
     fn starts(p: *P, container: u32) Allocator.Error!u8 {
         const rest = p.line[p.nns..];
-        if (!p.indented and rest.len > 0 and rest[0] == '>') {
+        if (!p.indented and rest.len > 0 and rest[0] == '>' and p.n(container).depth < max_depth) {
             p.advanceNextNonspace();
             p.advanceOffset(1, false);
             if (isSpaceOrTab(p.peek(p.offset))) p.advanceOffset(1, true);
@@ -565,7 +580,7 @@ const P = struct {
             p.advanceOffset(p.line.len - p.offset, false);
             return 2;
         }
-        if (!p.indented and p.n(container).kind != .paragraph and try p.footnoteStart(rest)) return 1;
+        if (!p.indented and p.n(container).kind != .paragraph and try p.footnoteStart(container, rest)) return 1;
         if (!p.indented or p.n(container).kind == .list) {
             if (try p.listStart(container)) return 1;
         }
@@ -578,7 +593,8 @@ const P = struct {
         return 0;
     }
 
-    fn footnoteStart(p: *P, rest: []const u8) Allocator.Error!bool {
+    fn footnoteStart(p: *P, container: u32, rest: []const u8) Allocator.Error!bool {
+        if (p.n(container).depth >= max_depth) return false;
         if (rest.len < 5 or rest[0] != '[' or rest[1] != '^') return false;
         var i: usize = 2;
         while (i < rest.len and rest[i] != ']' and rest[i] != ' ' and rest[i] != '\t') i += 1;
@@ -594,7 +610,7 @@ const P = struct {
     }
 
     fn listStart(p: *P, container: u32) Allocator.Error!bool {
-        if (p.indent >= 4) return false;
+        if (p.indent >= 4 or p.n(container).depth >= max_depth) return false;
         const rest = p.line[p.nns..];
         if (rest.len == 0) return false;
         var mlen: usize = 0;

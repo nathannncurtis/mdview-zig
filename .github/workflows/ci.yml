@@ -108,6 +108,58 @@ jobs:
           zig build fuzz --fuzz=800K -Doptimize=ReleaseSafe --summary all 2>&1 | tee fuzz.log
           ! grep -qE 'panic|run test failure|FAILED' fuzz.log
 
+  # Parses the generator's adversarial files within a time and memory limit, on each OS (reduced sizes).
+  stress-parser:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/setup-zig.sh
+      - name: Generate the stress files
+        run: zig build gen-stress -- "$RUNNER_TEMP/stress" small
+      - name: Parse them
+        run: zig build stress -Dstress-dir="$RUNNER_TEMP/stress" --summary all
+
+  # Starts the ReleaseSmall app on every stress file, then resizes, scrolls and rewrites the open file.
+  stress-app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb xdotool
+      - run: bash .github/scripts/setup-zig.sh
+      - run: zig build -Doptimize=ReleaseSmall
+      - name: Generate the stress files
+        run: zig build gen-stress -- "$RUNNER_TEMP/stress" small
+      - name: Run the app on them
+        run: |
+          exe=zig-out/bin/mdview
+          [ "$RUNNER_OS" = Windows ] && exe=zig-out/bin/mdview.exe
+          run="zig build stress-app -- $exe $RUNNER_TEMP/stress $RUNNER_TEMP/work --hold 10 --parallel 16 --interact paragraphs.md,table_rows.md"
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a $run; else $run; fi
+
   docs:
     needs: changes
     if: needs.changes.outputs.docs == 'true'
@@ -121,7 +173,7 @@ jobs:
           fail: true
 
   ci-ok:
-    needs: [changes, rules, build, lint, fuzz, docs]
+    needs: [changes, rules, build, lint, fuzz, stress-parser, stress-app, docs]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

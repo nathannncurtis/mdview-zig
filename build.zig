@@ -73,6 +73,23 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
     addTools(b, test_step);
 
+    const stress_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/stress.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+        }),
+        .filters = &.{"stress files"},
+    });
+    const run_stress = b.addRunArtifact(stress_tests);
+    if (b.option([]const u8, "stress-dir", "Directory of files from gen-stress for the stress step")) |dir| {
+        run_stress.setEnvironmentVariable("MDVIEW_STRESS_DIR", dir);
+    }
+    if (b.option([]const u8, "stress-only", "Only parse stress files whose name contains this")) |only| {
+        run_stress.setEnvironmentVariable("MDVIEW_STRESS_ONLY", only);
+    }
+    b.step("stress", "Parse the gen-stress files with time and memory limits (-Dstress-dir=<dir>)").dependOn(&run_stress.step);
+
     if (resolved.os.tag == .windows) {
         const hit_tests = b.addTest(.{
             .root_module = b.createModule(.{
@@ -125,6 +142,8 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
         .{ .step = "gen-unicode", .file = "tools/gen_unicode.zig", .what = "Regenerate src/unicode.zig: <UnicodeData.txt> <out.zig>" },
         .{ .step = "gen-highlight-colors", .file = "tools/gen_highlight_colors.zig", .what = "Regenerate src/highlight_colors.zig: <primer-dark.json> <out.zig>" },
         .{ .step = "gen-spec-cases", .file = "tools/gen_spec_cases.zig", .what = "Regenerate src/spec_inline_cases.zig: <spec.txt> <out.zig>" },
+        .{ .step = "gen-stress", .file = "tools/gen_stress.zig", .what = "Write adversarial Markdown files: <outdir> [small]" },
+        .{ .step = "stress-app", .file = "tools/stress_app.zig", .what = "Run the built app on the gen-stress files: <mdview exe> <stress dir> <work dir> [options]" },
         .{ .step = "release-notes", .file = "tools/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
         .{ .step = "msix-assets", .file = "tools/make_assets.zig", .what = "Write the MSIX PNG assets from icon.ico into msix/Assets" },
         .{ .step = "pack-msix", .file = "tools/pack_msix.zig", .what = "Build the MSIX: <mdview.exe> <version> <output.msix> <work dir>" },

@@ -120,3 +120,24 @@ test "front matter YAML matches GitHub's rendering" {
     }
     try testing.expectEqual(@as(usize, 0), failed);
 }
+
+test "a later duplicate key wins and keeps the first position" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const result = try yaml.parse(arena.allocator(), "a: 1\nb: 2\na: 3\n");
+    const pairs = result.ok.map;
+    try testing.expectEqual(@as(usize, 2), pairs.len);
+    try testing.expectEqualStrings("a", pairs[0].key);
+    try testing.expectEqualStrings("3", pairs[0].value.scalar.text);
+}
+
+test "nesting deeper than 1000 levels is an error" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var src: std.ArrayList(u8) = .empty;
+    try src.appendNTimes(a, '[', 5000);
+    try src.appendNTimes(a, ']', 5000);
+    try src.append(a, '\n');
+    try testing.expect((try yaml.parse(a, src.items)) == .err);
+}

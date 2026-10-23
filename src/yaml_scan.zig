@@ -48,6 +48,8 @@ pub const ErrInfo = struct {
 
 pub const Fail = error{ Yaml, OutOfMemory };
 
+const max_depth = 1000;
+
 const SimpleKey = struct { possible: bool = false, required: bool = false, token_number: usize = 0, mark: Mark = .{} };
 
 pub const Scanner = struct {
@@ -254,7 +256,8 @@ pub const Scanner = struct {
         k.possible = false;
     }
 
-    fn increaseFlowLevel(s: *Scanner) Allocator.Error!void {
+    fn increaseFlowLevel(s: *Scanner) Fail!void {
+        if (s.flow_level >= max_depth) return s.fail("exceeded max depth of 1000", "while scanning a flow collection", s.mark);
         try s.simple_keys.append(s.a, .{});
         s.flow_level += 1;
     }
@@ -266,9 +269,10 @@ pub const Scanner = struct {
         }
     }
 
-    fn rollIndent(s: *Scanner, column: i64, number: ?usize, kind: TokenKind, mark: Mark) Allocator.Error!void {
+    fn rollIndent(s: *Scanner, column: i64, number: ?usize, kind: TokenKind, mark: Mark) Fail!void {
         if (s.flow_level > 0) return;
         if (s.indent < column) {
+            if (s.indents.items.len >= max_depth) return s.fail("exceeded max depth of 1000", "while scanning a block collection", mark);
             try s.indents.append(s.a, s.indent);
             s.indent = column;
             const t: Token = .{ .kind = kind, .start = mark, .end = mark };

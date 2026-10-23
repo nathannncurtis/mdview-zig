@@ -48,7 +48,16 @@ fn noAutolink(_: *const Hooks, _: Allocator, _: []const u8, _: usize) Allocator.
 }
 
 pub fn parse(a: Allocator, src: []const u8, hooks: *const Hooks) Allocator.Error!Parsed {
-    var s: Scanner = .{ .a = a, .src = src, .hooks = hooks };
+    return parseWithHeap(a, a, src, hooks);
+}
+
+/// The working lists live on `heap` and are freed before returning; the result lives on `a`.
+pub fn parseWithHeap(a: Allocator, heap: Allocator, src: []const u8, hooks: *const Hooks) Allocator.Error!Parsed {
+    var s: Scanner = .{ .a = a, .heap = heap, .src = src, .hooks = hooks };
+    defer s.nodes.deinit(heap);
+    defer s.delims.deinit(heap);
+    defer s.brackets.deinit(heap);
+    defer s.tick_last.deinit(heap);
     try s.scan();
     try s.processEmphasis(none);
     return s.flatten();
@@ -86,10 +95,12 @@ const Bracket = struct {
     text_start: usize,
     active: bool = true,
     prev_delim: u32,
+    bare_at: u32,
 };
 
 const Scanner = struct {
     a: Allocator,
+    heap: Allocator,
     src: []const u8,
     hooks: *const Hooks,
     nodes: std.ArrayList(Node) = .empty,
@@ -99,9 +110,14 @@ const Scanner = struct {
     dhead: u32 = none,
     dtail: u32 = none,
     brackets: std.ArrayList(Bracket) = .empty,
+    bare_count: u32 = 0,
+    html_miss: [3]usize = @splat(std.math.maxInt(usize)),
+    /// Once a backtick run finds no closer, the last start of every run length from there on.
+    tick_last: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    tick_from: usize = std.math.maxInt(usize),
 
     fn newNode(s: *Scanner, n: Node) Allocator.Error!u32 {
-        try s.nodes.append(s.a, n);
+        try s.nodes.append(s.heap, n);
         return @intCast(s.nodes.items.len - 1);
     }
 
@@ -154,6 +170,7 @@ const Scanner = struct {
             if (!isSpecial(src[i]) or (src[i] == '!' and !(i + 1 < src.len and src[i + 1] == '['))) {
                 if (try s.hooks.bare(s.hooks, s.a, src, i)) |m| {
                     try s.text(src[run..i]);
+                    s.bare_count += 1;
                     _ = try s.push(.{ .tag = .open, .kind = .link, .url = m.url, .bare = true });
                     try s.text(m.text);
                     _ = try s.push(.{ .tag = .close, .kind = .link, .bare = true });
@@ -213,7 +230,7 @@ const Scanner = struct {
                     _ = try s.push(.{ .tag = .close, .kind = .link });
                     return m.end;
                 }
-                if (htmlEnd(src, i)) |end| {
+                if (htmlEnd(src, i, &s.html_miss)) |end| {
                     _ = try s.push(.{ .tag = .html, .s = src[i..end] });
                     return end;
                 }
@@ -223,12 +240,12 @@ const Scanner = struct {
             '*', '_', '~' => return s.delimRun(i),
             '[' => {
                 const id = try s.push(.{ .tag = .text, .s = "[" });
-                try s.brackets.append(s.a, .{ .node = id, .image = false, .text_start = i + 1, .prev_delim = s.dtail });
+                try s.brackets.append(s.heap, .{ .node = id, .image = false, .text_start = i + 1, .prev_delim = s.dtail, .bare_at = s.bare_count });
                 return i + 1;
             },
             '!' => {
                 const id = try s.push(.{ .tag = .text, .s = "![" });
-                try s.brackets.append(s.a, .{ .node = id, .image = true, .text_start = i + 2, .prev_delim = s.dtail });
+                try s.brackets.append(s.heap, .{ .node = id, .image = true, .text_start = i + 2, .prev_delim = s.dtail, .bare_at = s.bare_count });
                 return i + 2;
             },
             ']' => return s.closeBracket(i),
@@ -270,6 +287,10 @@ const Scanner = struct {
         const src = s.src;
         var n: usize = 0;
         while (i + n < src.len and src[i + n] == '`') n += 1;
+        if (i >= s.tick_from and (s.tick_last.get(@intCast(n)) orelse 0) <= i) {
+            try s.text(src[i .. i + n]);
+            return i + n;
+        }
         var j = i + n;
         while (j < src.len) {
             if (src[j] != '`') {
@@ -293,8 +314,25 @@ const Scanner = struct {
             }
             j += m;
         }
+        if (i < s.tick_from) try s.indexTicks(i + n);
         try s.text(src[i .. i + n]);
         return i + n;
+    }
+
+    fn indexTicks(s: *Scanner, from: usize) Allocator.Error!void {
+        const src = s.src;
+        var j = from;
+        while (j < src.len) {
+            if (src[j] != '`') {
+                j += 1;
+                continue;
+            }
+            var m: usize = 0;
+            while (j + m < src.len and src[j + m] == '`') m += 1;
+            try s.tick_last.put(s.heap, @intCast(m), @intCast(j));
+            j += m;
+        }
+        s.tick_from = from;
     }
 
     fn emojiAt(s: *Scanner, i: usize) Allocator.Error!usize {
@@ -338,7 +376,7 @@ const Scanner = struct {
         }
         const id = try s.push(.{ .tag = .text, .s = src[i .. i + n] });
         if (can_open or can_close) {
-            try s.delims.append(s.a, .{
+            try s.delims.append(s.heap, .{
                 .node = id,
                 .ch = ch,
                 .orig = @intCast(n),
@@ -381,7 +419,7 @@ const Scanner = struct {
         };
         try s.processEmphasis(b.prev_delim);
         if (m.replace.len > 0) while (s.tail != b.node) s.unlink(s.tail);
-        var inner = s.nodes.items[b.node].next;
+        var inner = if (s.bare_count != b.bare_at) s.nodes.items[b.node].next else none;
         while (inner != none) {
             const nx = s.nodes.items[inner].next;
             if (s.nodes.items[inner].bare) s.unlink(inner);
@@ -400,9 +438,16 @@ const Scanner = struct {
         }
         _ = try s.push(.{ .tag = .close, .kind = if (b.image) .image else .link });
         _ = s.brackets.pop();
-        if (!b.image) for (s.brackets.items) |*o| {
-            if (!o.image) o.active = false;
-        };
+        if (!b.image) {
+            var k = s.brackets.items.len;
+            while (k > 0) {
+                k -= 1;
+                const o = &s.brackets.items[k];
+                if (o.image) continue;
+                if (!o.active) break;
+                o.active = false;
+            }
+        }
         return m.end;
     }
 
@@ -481,36 +526,39 @@ const Scanner = struct {
 
     fn flatten(s: *Scanner) Allocator.Error!Parsed {
         var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(s.heap);
         var events: std.ArrayList(Event) = .empty;
+        defer events.deinit(s.heap);
         var id = s.head;
         var open_stack: std.ArrayList(struct { kind: Kind, skipped: bool }) = .empty;
+        defer open_stack.deinit(s.heap);
         while (id != none) : (id = s.nodes.items[id].next) {
             const n = s.nodes.items[id];
             const pos: u32 = @intCast(buf.items.len);
             // GitHub renders strong directly inside strong as a single strong.
             if ((n.kind == .strong or n.kind == .em) and n.tag == .open) {
                 const skip = n.kind == .strong and open_stack.items.len > 0 and open_stack.items[open_stack.items.len - 1].kind == .strong;
-                try open_stack.append(s.a, .{ .kind = n.kind, .skipped = skip });
+                try open_stack.append(s.heap, .{ .kind = n.kind, .skipped = skip });
                 if (skip) continue;
             } else if ((n.kind == .strong or n.kind == .em) and n.tag == .close) {
                 if (open_stack.pop().?.skipped) continue;
             }
             switch (n.tag) {
-                .text => try buf.appendSlice(s.a, n.s),
-                .open => try events.append(s.a, .{ .tag = .open, .kind = n.kind, .pos = pos, .url = n.url, .title = n.title }),
-                .close => try events.append(s.a, .{ .tag = .close, .kind = n.kind, .pos = pos }),
-                .html => try events.append(s.a, .{ .tag = .html, .pos = pos, .raw = n.s }),
+                .text => try buf.appendSlice(s.heap, n.s),
+                .open => try events.append(s.heap, .{ .tag = .open, .kind = n.kind, .pos = pos, .url = n.url, .title = n.title }),
+                .close => try events.append(s.heap, .{ .tag = .close, .kind = n.kind, .pos = pos }),
+                .html => try events.append(s.heap, .{ .tag = .html, .pos = pos, .raw = n.s }),
                 .soft => {
-                    try events.append(s.a, .{ .tag = .soft, .pos = pos });
-                    try buf.append(s.a, ' ');
+                    try events.append(s.heap, .{ .tag = .soft, .pos = pos });
+                    try buf.append(s.heap, ' ');
                 },
                 .hard => {
-                    try events.append(s.a, .{ .tag = .hard, .pos = pos });
-                    try buf.append(s.a, '\n');
+                    try events.append(s.heap, .{ .tag = .hard, .pos = pos });
+                    try buf.append(s.heap, '\n');
                 },
             }
         }
-        return .{ .text = buf.items, .events = events.items };
+        return .{ .text = try s.a.dupe(u8, buf.items), .events = try s.a.dupe(Event, events.items) };
     }
 };
 
@@ -550,7 +598,16 @@ fn skipSpace(src: []const u8, i: usize) usize {
 }
 
 /// End index of the raw inline HTML construct starting at the `<` at `i`.
-fn htmlEnd(src: []const u8, i: usize) ?usize {
+fn findFrom(src: []const u8, from: usize, needle: []const u8, miss: *usize) ?usize {
+    if (from >= miss.*) return null;
+    return std.mem.indexOfPos(u8, src, from, needle) orelse {
+        miss.* = from;
+        return null;
+    };
+}
+
+/// `miss` remembers where a terminator was last found absent, so unclosed constructs do not rescan the rest of the text.
+fn htmlEnd(src: []const u8, i: usize, miss: *[3]usize) ?usize {
     var j = i + 1;
     if (j >= src.len) return null;
     const c = src[j];
@@ -563,7 +620,7 @@ fn htmlEnd(src: []const u8, i: usize) ?usize {
     }
     if (std.ascii.isAlphabetic(c)) return openTagEnd(src, j);
     if (c == '?') {
-        const e = std.mem.indexOfPos(u8, src, j + 1, "?>") orelse return null;
+        const e = findFrom(src, j + 1, "?>", &miss[0]) orelse return null;
         return e + 2;
     }
     if (c != '!') return null;
@@ -571,20 +628,17 @@ fn htmlEnd(src: []const u8, i: usize) ?usize {
     if (std.mem.startsWith(u8, src[j..], "--")) {
         const body = j + 2;
         if (std.mem.startsWith(u8, src[body..], ">") or std.mem.startsWith(u8, src[body..], "->")) return null;
-        const e = std.mem.indexOfPos(u8, src, body, "-->") orelse return null;
-        const inner = src[body..e];
-        if (inner.len > 0 and inner[inner.len - 1] == '-') return null;
-        if (std.mem.indexOf(u8, inner, "--") != null) return null;
-        return e + 3;
+        const e = std.mem.indexOfPos(u8, src, body, "--") orelse return null;
+        return if (std.mem.startsWith(u8, src[e..], "-->")) e + 3 else null;
     }
     if (std.mem.startsWith(u8, src[j..], "[CDATA[")) {
-        const e = std.mem.indexOfPos(u8, src, j + 7, "]]>") orelse return null;
+        const e = findFrom(src, j + 7, "]]>", &miss[1]) orelse return null;
         return e + 3;
     }
     if (j < src.len and std.ascii.isUpper(src[j])) {
         while (j < src.len and std.ascii.isUpper(src[j])) j += 1;
         if (j >= src.len or !isHtmlSpace(src[j])) return null;
-        const e = std.mem.indexOfScalarPos(u8, src, j, '>') orelse return null;
+        const e = findFrom(src, j, ">", &miss[2]) orelse return null;
         return e + 1;
     }
     return null;

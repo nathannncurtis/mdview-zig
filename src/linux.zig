@@ -474,6 +474,45 @@ fn setColor(cr: *c.cairo_t, col: Color) void {
     c.cairo_set_source_rgb(cr, col.r, col.g, col.b);
 }
 
+fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32) void {
+    if (content.code.len == 0) return;
+    const iter = c.pango_layout_get_iter(layout) orelse return;
+    defer c.pango_layout_iter_free(iter);
+    const scale: f64 = c.PANGO_SCALE;
+    const desc = c.pango_layout_get_font_description(layout);
+    const points: f64 = if (desc) |d| @as(f64, @floatFromInt(c.pango_font_description_get_size(d))) / scale else 12;
+    const pad: f64 = md.code_pad_em * md.code_scale * points * 96.0 / 72.0;
+    const bg = rgbColor(md.code_bg);
+    c.cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, md.code_bg_alpha);
+    while (true) {
+        const line = c.pango_layout_iter_get_line_readonly(iter);
+        // SAFETY: written by pango_layout_iter_get_line_extents
+        var logical: c.PangoRectangle = undefined;
+        c.pango_layout_iter_get_line_extents(iter, null, &logical);
+        const line_start: u32 = @intCast(line.*.start_index);
+        const line_end: u32 = line_start + @as(u32, @intCast(line.*.length));
+        for (content.code) |span| {
+            const from = @max(span[0], line_start);
+            const to = @min(span[0] + span[1], line_end);
+            if (from >= to) continue;
+            var ranges: [*c]c_int = null;
+            var n: c_int = 0;
+            c.pango_layout_line_get_x_ranges(line, @intCast(from), @intCast(to), &ranges, &n);
+            if (ranges == null) continue;
+            defer c.g_free(ranges);
+            const total: usize = @intCast(n);
+            var i: usize = 0;
+            while (i < total) : (i += 1) {
+                const left = @as(f64, @floatFromInt(ranges[i * 2])) / scale - (if (i == 0 and span[0] >= line_start) pad else 0);
+                const right = @as(f64, @floatFromInt(ranges[i * 2 + 1])) / scale + (if (i + 1 == total and span[0] + span[1] <= line_end) pad else 0);
+                drawRoundedRect(cr, x + @as(f32, @floatCast(left)), y + @as(f32, @floatFromInt(logical.y)) / @as(f32, c.PANGO_SCALE), @floatCast(right - left), @as(f32, @floatFromInt(logical.height)) / @as(f32, c.PANGO_SCALE), md.code_radius);
+                c.cairo_fill(cr);
+            }
+        }
+        if (c.pango_layout_iter_next_line(iter) == 0) break;
+    }
+}
+
 fn renderTextBlock(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
@@ -487,6 +526,7 @@ fn renderTextBlock(
     if (content.text.len == 0) return 0;
     setInline(pango_layout, content, max_width, font_desc_str);
 
+    drawCodeBackgrounds(cr, pango_layout, content, x, y);
     setColor(cr, color);
     c.cairo_move_to(cr, x, y);
     c.pango_cairo_show_layout(cr, pango_layout);
@@ -622,6 +662,11 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
         attr.*.start_index = start;
         attr.*.end_index = start + length;
         c.pango_attr_list_insert(attr_list, attr);
+        if (c.pango_attr_scale_new(md.code_scale)) |size| {
+            size.*.start_index = start;
+            size.*.end_index = start + length;
+            c.pango_attr_list_insert(attr_list, size);
+        }
         // Tint inline code slightly
         const col_attr = c.pango_attr_foreground_new(
             @intFromFloat(col_hl_string.r * 65535.0),
@@ -734,6 +779,7 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
                     _ = renderTable(cr, pango_layout, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
                 } else {
                     setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
+                    drawCodeBackgrounds(cr, pango_layout, t.cell(row, col), cx + cell_pad_x, row_y + cell_pad_y);
                     setColor(cr, col_text);
                     c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
                     c.pango_cairo_show_layout(cr, pango_layout);
