@@ -29,7 +29,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
-      - run: zig build -Doptimize=ReleaseSmall
+      - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
+      - name: Instruction set
+        run: |
+          bash .github/scripts/isa-check.sh zig-out/bin/mdview.exe
+          bash .github/scripts/isa-selftest.sh
       - name: Sign mdview.exe
         if: inputs.sign
         uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
@@ -44,6 +48,22 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      - name: Smoke test
+        timeout-minutes: 5
+        run: |
+          bash .github/scripts/smoke.sh zig-out/bin/mdview.exe
+          bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview.exe
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/sde.tar.xz
+          key: sde-${{ hashFiles('.github/scripts/setup-sde.sh') }}
+      - name: Intel SDE
+        run: bash .github/scripts/setup-sde.sh
+      - name: Smoke test on an older CPU
+        timeout-minutes: 5
+        run: |
+          bash .github/scripts/smoke.sh --cpu zig-out/bin/mdview.exe
+          bash .github/scripts/emu-selftest.sh
       - name: Signing client
         if: inputs.sign
         run: |
@@ -67,6 +87,9 @@ jobs:
           if ('${{ inputs.sign }}' -eq 'true') { $opts += '/DSIGN=1', "/Sazsign=`$q$env:SIGNTOOL`$q $env:SIGN_ARGS `$f" }
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $opts installer.iss
           if ($LASTEXITCODE) { throw 'ISCC failed' }
+      - name: Installed smoke test
+        timeout-minutes: 5
+        run: bash .github/scripts/smoke-installer-windows.sh Output/mdview-setup.exe
       - name: MSIX
         env:
           VERSION: ${{ inputs.version }}
@@ -124,10 +147,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev
+          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
-      - run: zig build -Doptimize=ReleaseSmall
+      - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
+      - name: Instruction set
+        run: |
+          bash .github/scripts/isa-check.sh zig-out/bin/mdview
+          bash .github/scripts/isa-selftest.sh
+      - name: Smoke test
+        timeout-minutes: 5
+        run: |
+          xvfb-run -a bash .github/scripts/smoke.sh zig-out/bin/mdview
+          xvfb-run -a bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/old-cpu-image.tar
+          key: old-cpu-image-${{ hashFiles('.github/scripts/smoke-linux-old-cpu.sh', '.github/scripts/bake-old-cpu-image.sh') }}
+      - name: Smoke test on an older CPU
+        timeout-minutes: 10
+        run: bash .github/scripts/smoke-linux-old-cpu.sh
       - name: Debian package
         env:
           VERSION: ${{ inputs.version }}
@@ -157,6 +196,13 @@ jobs:
           Categories=Utility;TextEditor;
           EOT
           dpkg-deb --build deb mdview-linux-x86_64.deb
+      - name: Installed smoke test
+        timeout-minutes: 5
+        run: |
+          sudo dpkg -i mdview-linux-x86_64.deb
+          xvfb-run -a bash .github/scripts/smoke.sh /usr/bin/mdview
+          sudo dpkg -r mdview
+          [ ! -e /usr/bin/mdview ]
       - name: Stage
         run: |
           mkdir dist
@@ -174,7 +220,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
-      - run: zig build -Doptimize=ReleaseSmall
+      - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
+      - name: Instruction set
+        run: bash .github/scripts/isa-check.sh zig-out/bin/mdview
+      - name: Smoke test
+        timeout-minutes: 5
+        run: |
+          bash .github/scripts/smoke.sh zig-out/bin/mdview
+          bash .github/scripts/smoke-selftest.sh zig-out/bin/mdview
       - name: App bundle and disk image
         env:
           VERSION: ${{ inputs.version }}
