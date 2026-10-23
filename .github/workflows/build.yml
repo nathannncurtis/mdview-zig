@@ -164,8 +164,10 @@ jobs:
       - name: qemu debug
         if: failure()
         run: |
-          qemu-x86_64 -cpu Nehalem /bin/true; echo true=$?
-          xvfb-run -a qemu-x86_64 -cpu Nehalem -d in_asm,guest_errors,unimp -D /tmp/q.log zig-out/bin/mdview testdata/smoke.md & sleep 5; kill %1; tail -25 /tmp/q.log
+          head -3 /etc/os-release; qemu-x86_64 --version | head -1
+          for c in Nehalem Westmere SandyBridge Haswell max; do qemu-x86_64 -cpu $c /bin/true; echo $c=$?; done
+          qemu-x86_64 -cpu Nehalem -d in_asm -D /tmp/q.log /bin/true; tail -12 /tmp/q.log
+          grep -m1 -o 'x86-64-v[0-9]' /usr/lib/x86_64-linux-gnu/libc.so.6 || true
       - name: Debian package
         env:
           VERSION: ${{ inputs.version }}

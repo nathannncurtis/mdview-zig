@@ -39,9 +39,17 @@ fail() {
   exit 1
 }
 
+[ -n "$CI" ] && [ -f "$log" ] && : > "$log"
 if [ "$file" = - ]; then "${wrap[@]}" "$bin" & else "${wrap[@]}" "$bin" "$file" & fi
 pid=$!
 echo "started $bin as pid $pid"
+if [ ${#wrap[@]} -gt 0 ]; then
+  for _ in $(seq 90); do
+    kill -0 "$pid" 2> /dev/null || break
+    grep -q "$backend" "$log" 2> /dev/null && break
+    sleep 1
+  done
+fi
 sleep 5
 
 if ! kill -0 "$pid" 2> /dev/null; then
