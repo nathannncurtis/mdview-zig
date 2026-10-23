@@ -485,7 +485,7 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inlin
     const bg = rgbColor(md.code_bg);
     c.cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, md.code_bg_alpha);
     while (true) {
-        const line = c.pango_layout_iter_get_line_readonly(iter);
+        const line = c.pango_layout_iter_get_line_readonly(iter) orelse break;
         // SAFETY: written by pango_layout_iter_get_line_extents
         var logical: c.PangoRectangle = undefined;
         c.pango_layout_iter_get_line_extents(iter, null, &logical);
@@ -495,11 +495,11 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inlin
             const from = @max(span[0], line_start);
             const to = @min(span[0] + span[1], line_end);
             if (from >= to) continue;
-            var ranges: [*c]c_int = null;
+            var found: ?[*]c_int = null;
             var n: c_int = 0;
-            c.pango_layout_line_get_x_ranges(line, @intCast(from), @intCast(to), &ranges, &n);
-            if (ranges == null) continue;
-            defer c.g_free(ranges);
+            c.pango_layout_line_get_x_ranges(line, @intCast(from), @intCast(to), &found, &n);
+            const ranges = found orelse continue;
+            defer c.g_free(@ptrCast(ranges));
             const total: usize = @intCast(n);
             var i: usize = 0;
             while (i < total) : (i += 1) {

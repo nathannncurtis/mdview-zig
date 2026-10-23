@@ -78,7 +78,9 @@ fn watchdog(io: std.Io) void {
         io.sleep(.fromMilliseconds(200), .awake) catch return;
         const now = std.Io.Timestamp.now(io, .awake).toMilliseconds();
         if (now > deadline_ms.load(.acquire)) {
-            std.debug.print("HANG: {s} exceeded {d} s\n", .{ current_name[0..current_len.load(.acquire)], seconds_per_file });
+            var buf: [320]u8 = undefined;
+            const msg = std.fmt.bufPrint(&buf, "HANG: {s} exceeded {d} s\n", .{ current_name[0..current_len.load(.acquire)], seconds_per_file }) catch "HANG\n";
+            std.Io.File.stderr().writeStreamingAll(io, msg) catch std.process.exit(2);
             std.process.exit(2);
         }
     }
