@@ -1690,11 +1690,45 @@ test "a missing image lays out its alt text and a reference image resolves" {
     while (app.images.now() < deadline) {
         _ = app.images.tick();
         if (app.images.look("gone.png", 400) == .missing) break;
-        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch {};
+        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
     }
     try testing.expect(app.images.look("gone.png", 400) == .missing);
     const alt = layoutSize(doc.blocks[0].content, 400);
     const plain = layoutSize(.{ .text = "a long alt text" }, 400);
     try testing.expectApproxEqAbs(plain.width, alt.width, 2);
     try testing.expectApproxEqAbs(plain.height, alt.height, 2);
+}
+
+extern "user32" fn DestroyWindow(hWnd: HWND) callconv(.c) BOOL;
+
+test "a loaded image is drawn through Direct2D and its bitmap is cached" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetObjects();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    try app.images.injectReady("wide.png", 400, 200);
+    const hwnd = CreateWindowExW(0, L("STATIC"), L("t"), WS_POPUP, 0, 0, 300, 200, null, null, null, null) orelse return error.NoWindow;
+    defer _ = DestroyWindow(hwnd);
+    createRenderTarget(hwnd);
+    try testing.expect(g_render_target != null);
+    var doc = try md.parse(testing.allocator, "![w](wide.png) text");
+    defer doc.deinit();
+    app.blocks = doc.blocks;
+    app.window_width = 300;
+    app.window_height = 200;
+    app.scroll_y = 0;
+    defer {
+        app.blocks = &.{};
+        app.hits.deinit(testing.allocator);
+        app.hits = .empty;
+        app.block_y.deinit(testing.allocator);
+        app.block_y = .empty;
+    }
+    render();
+    const bm = app.images.bitmap("wide.png", .{ .w = 220, .h = 110 }) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u32, 400), bm.w);
+    try testing.expectEqual(@as(u32, 200), bm.h);
 }
