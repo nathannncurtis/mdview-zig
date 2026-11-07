@@ -37,6 +37,11 @@ pub const Inline = struct {
         for (self.links) |l| if (byte >= l.start and byte < l.start + l.len) return l;
         return null;
     }
+
+    pub fn imageAt(self: Inline, byte: u32) ?Image {
+        for (self.images) |im| if (byte >= im.start and byte < im.start + im.len) return im;
+        return null;
+    }
 };
 
 pub const Align = enum { none, left, center, right };
@@ -761,10 +766,10 @@ const Parser = struct {
         const r = p.textFrom(p.textLen());
         try p.text.appendSlice(p.a, parsed.text);
 
-        const Open = struct { kind: inl.Kind, pos: u32, url: []const u8, title: []const u8 };
+        const Open = struct { kind: inl.Kind, pos: u32, url: []const u8, title: []const u8, alt: []const u8 };
         var stack: std.ArrayList(Open) = .empty;
         for (parsed.events) |ev| switch (ev.tag) {
-            .open => try stack.append(p.tmp.allocator(), .{ .kind = ev.kind, .pos = ev.pos, .url = ev.url, .title = ev.title }),
+            .open => try stack.append(p.tmp.allocator(), .{ .kind = ev.kind, .pos = ev.pos, .url = ev.url, .title = ev.title, .alt = ev.raw }),
             .close => {
                 const open = stack.pop() orelse continue;
                 const span: Span = .{ open.pos, ev.pos - open.pos };
@@ -775,15 +780,19 @@ const Parser = struct {
                     .code => try p.code.append(p.a, span),
                     .emoji => try p.emoji.append(p.a, span),
                     .sup => try p.sup.append(p.a, span),
-                    .link, .image => {
-                        const item: Link = .{
-                            .start = span[0],
-                            .len = span[1],
-                            .target = try p.a.dupe(u8, open.url),
-                            .title = try p.a.dupe(u8, open.title),
-                        };
-                        if (open.kind == .image) try p.images.append(p.a, item) else try p.links.append(p.a, item);
-                    },
+                    .link => try p.links.append(p.a, .{
+                        .start = span[0],
+                        .len = span[1],
+                        .target = try p.a.dupe(u8, open.url),
+                        .title = try p.a.dupe(u8, open.title),
+                    }),
+                    .image => try p.images.append(p.a, .{
+                        .start = span[0],
+                        .len = span[1],
+                        .target = try p.a.dupe(u8, open.url),
+                        .title = try p.a.dupe(u8, open.title),
+                        .alt = try p.a.dupe(u8, open.alt),
+                    }),
                 }
             },
             .html, .soft, .hard => {},
@@ -813,7 +822,7 @@ fn parserOf(h: *const inl.Hooks) *Parser {
 
 fn linkHook(h: *const inl.Hooks, a: Allocator, src: []const u8, text_start: usize, close: usize, image: bool) Allocator.Error!?inl.LinkMatch {
     const p = parserOf(h);
-    const open = text_start - @as(usize, if (image) 2 else 1);
+    const open = text_start - 1;
     if (!image and text_start < close and src[text_start] == '^') {
         if (try p.refs.noteRef(src[text_start + 1 .. close])) |number| {
             return .{
@@ -932,6 +941,7 @@ const testing = std.testing;
 
 test {
     _ = inl;
+    _ = @import("images.zig");
     _ = highlight;
     _ = links;
     _ = @import("unicode_test.zig");
@@ -1390,11 +1400,40 @@ test "images keep alt text and source" {
     var doc = try parse(testing.allocator, "![alt *x*](pic.png \"t\") [![i](p.png)](/u)");
     defer doc.deinit();
     const c = doc.blocks[0].content;
-    try testing.expectEqualStrings("alt x i", c.text);
+    try testing.expectEqualStrings("\u{fffc} \u{fffc}", c.text);
     try testing.expectEqual(@as(usize, 2), c.images.len);
     try testing.expectEqualStrings("pic.png", c.images[0].target);
+    try testing.expectEqualStrings("t", c.images[0].title);
+    try testing.expectEqualStrings("alt x", c.images[0].alt);
+    try testing.expectEqualStrings("i", c.images[1].alt);
+    try testing.expect(c.imageAt(c.images[0].start) != null);
+    try testing.expect(c.linkAt(c.images[1].start) != null);
     try testing.expectEqual(@as(usize, 1), c.links.len);
     try testing.expectEqualStrings("/u", c.links[0].target);
+}
+
+test "reference images in all three forms resolve their definition" {
+    var doc = try parse(testing.allocator, "![one][a] ![two][] ![three] ![four][nope]\n\n[a]: a.png \"A\"\n[two]: two.png\n[three]: three.png\n");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqual(@as(usize, 3), c.images.len);
+    try testing.expectEqualStrings("a.png", c.images[0].target);
+    try testing.expectEqualStrings("A", c.images[0].title);
+    try testing.expectEqualStrings("two.png", c.images[1].target);
+    try testing.expectEqualStrings("three.png", c.images[2].target);
+    try testing.expectEqualStrings("three", c.images[2].alt);
+    try testing.expect(std.mem.endsWith(u8, c.text, " ![four][nope]"));
+}
+
+test "an image is one object in the text and nested markup only feeds its alt" {
+    var doc = try parse(testing.allocator, "a ![x *y* [z](u) ![n](m.png)](p.png) b");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqualStrings("a \u{fffc} b", c.text);
+    try testing.expectEqual(@as(usize, 0), c.italic.len);
+    try testing.expectEqual(@as(usize, 0), c.links.len);
+    try testing.expectEqual(@as(usize, 1), c.images.len);
+    try testing.expectEqualStrings("x y z n", c.images[0].alt);
 }
 
 test "extended autolinks work inside emphasis and not inside links" {

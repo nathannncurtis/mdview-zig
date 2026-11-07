@@ -28,7 +28,7 @@ fn escape(out: *std.ArrayList(u8), a: Allocator, s: []const u8, breaks: bool) !v
 
 const Tag = enum { strong, em, del, code, a, img };
 
-const Range = struct { start: u32, len: u32, tag: Tag, target: []const u8 = "", title: []const u8 = "" };
+const Range = struct { start: u32, len: u32, tag: Tag, target: []const u8 = "", title: []const u8 = "", alt: []const u8 = "" };
 
 fn rangeLess(_: void, x: Range, y: Range) bool {
     if (x.start != y.start) return x.start < y.start;
@@ -81,7 +81,7 @@ fn renderRanges(out: *std.ArrayList(u8), a: Allocator, text: []const u8, ranges:
                 try out.appendSlice(a, "<img src=\"");
                 try escape(out, a, try links.encodeUrl(a, r.target), false);
                 try out.appendSlice(a, "\" alt=\"");
-                try escape(out, a, inner, false);
+                try escape(out, a, r.alt, false);
                 try out.append(a, '"');
                 try titleAttr(out, a, r.title);
                 try out.appendSlice(a, " />");
@@ -100,7 +100,7 @@ fn inlineHtml(out: *std.ArrayList(u8), a: Allocator, c: md.Inline) !void {
     for (c.strike) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .del });
     for (c.code) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .code });
     for (c.links) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .a, .target = l.target, .title = l.title });
-    for (c.images) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .img, .target = l.target, .title = l.title });
+    for (c.images) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .img, .target = l.target, .title = l.title, .alt = l.alt });
     std.mem.sort(Range, ranges.items, {}, rangeLess);
     try renderRanges(out, a, c.text, ranges.items, 0, @intCast(c.text.len));
 }
@@ -297,7 +297,7 @@ test "spec examples for the block sections" {
     try testing.expect(pass >= 227 and loose_pass >= 239);
 }
 
-const link_floor = 144;
+const link_floor = 166;
 
 // Examples where GitHub's renderer (checked with its markdown API) differs from the spec text:
 // it removes raw HTML it does not allow, and the autolink extension links bare URLs and emails.

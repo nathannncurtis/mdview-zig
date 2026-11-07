@@ -28,10 +28,12 @@ pub var io: std.Io = undefined;
 pub var environ: *std.process.Environ.Map = undefined;
 pub var log_file: ?std.Io.File = null;
 var doc: ?md.Document = null;
+var last_doc_path: []const u8 = "";
 var data_dir: ?[]const u8 = null;
 var scroll_path: ?[]const u8 = null;
 
 const links = @import("markdown/links.zig");
+pub const images = @import("images.zig");
 
 pub const Font = enum { body, h1, h2, h3, h4, h5, h6 };
 
@@ -55,6 +57,7 @@ pub var full_layout = false;
 var pending_jump: ?[]const u8 = null;
 
 pub fn beginFrame() void {
+    images.beginFrame();
     hits.clearRetainingCapacity();
     block_y.clearRetainingCapacity();
 }
@@ -64,7 +67,26 @@ pub fn noteBlock(y: f32) void {
 }
 
 pub fn noteHit(h: Hit) void {
-    if (h.content.links.len > 0) hits.append(gpa, h) catch return;
+    if (h.content.links.len > 0 or hasTitledImage(h.content)) hits.append(gpa, h) catch return;
+}
+
+fn hasTitledImage(c: md.Inline) bool {
+    for (c.images) |im| if (im.title.len > 0) return true;
+    return false;
+}
+
+pub const Tooltip = struct { text: []const u8, x: f32, y: f32 };
+/// The title of the image under the pointer, drawn by the backend after the page.
+pub var tooltip: ?Tooltip = null;
+
+fn titleAt(px: f32, py: f32) ?[]const u8 {
+    const y = py + scroll_y;
+    for (hits.items) |h| {
+        if (px < h.x or px >= h.x + h.w or y < h.y or y >= h.y + h.h) continue;
+        const index = platform.textIndexAt(h, px - h.x, y - h.y) orelse continue;
+        if (h.content.imageAt(index)) |im| if (im.title.len > 0) return im.title;
+    }
+    return null;
 }
 
 pub fn isHover(content: md.Inline, l: md.Link) bool {
@@ -85,6 +107,10 @@ pub fn linkAt(px: f32, py: f32) ?LinkHit {
 }
 
 pub fn pointerMoved(px: f32, py: f32) bool {
+    const title = titleAt(px, py);
+    const had_tip = tooltip != null;
+    tooltip = if (title) |t| .{ .text = t, .x = px, .y = py } else null;
+    if (had_tip or title != null) platform.invalidate();
     const hit = linkAt(px, py);
     const now: ?Hover = if (hit) |h| .{ .text = h.content.text.ptr, .start = h.link.start } else null;
     const same = if (hover) |a| (if (now) |b| a.text == b.text and a.start == b.start else false) else now == null;
@@ -392,6 +418,9 @@ fn reload(mtime: std.Io.Timestamp) bool {
     if (doc) |*old| old.deinit();
     hits.clearRetainingCapacity();
     hover = null;
+    tooltip = null;
+    images.reset(std.fs.path.dirname(file_path) orelse "", std.mem.eql(u8, file_path, last_doc_path));
+    last_doc_path = file_path;
     doc = new_doc;
     blocks = new_doc.blocks;
     file_mtime = mtime;
@@ -450,6 +479,7 @@ pub fn main(init: std.process.Init) !void {
     gpa = init.gpa;
     io = init.io;
     environ = init.environ_map;
+    images.init(gpa, io);
     if (builtin.os.tag == .windows) {
         platform.hinstance = std.os.windows.peb().ImageBaseAddress;
     }
