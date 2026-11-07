@@ -973,3 +973,146 @@ a.b-c_d@a.b_
 <p>a.b-c_d@a.b-</p>
 <p>a.b-c_d@a.b_</p>
 @@END
+@@EX 572 images
+![foo](/url "title")
+@@HTML
+<p><img src="/url" alt="foo" title="title" /></p>
+@@END
+@@EX 573 images
+![foo *bar*]
+
+[foo *bar*]: train.jpg "train & tracks"
+@@HTML
+<p><img src="train.jpg" alt="foo bar" title="train &amp; tracks" /></p>
+@@END
+@@EX 574 images
+![foo ![bar](/url)](/url2)
+@@HTML
+<p><img src="/url2" alt="foo bar" /></p>
+@@END
+@@EX 575 images
+![foo [bar](/url)](/url2)
+@@HTML
+<p><img src="/url2" alt="foo bar" /></p>
+@@END
+@@EX 576 images
+![foo *bar*][]
+
+[foo *bar*]: train.jpg "train & tracks"
+@@HTML
+<p><img src="train.jpg" alt="foo bar" title="train &amp; tracks" /></p>
+@@END
+@@EX 577 images
+![foo *bar*][foobar]
+
+[FOOBAR]: train.jpg "train & tracks"
+@@HTML
+<p><img src="train.jpg" alt="foo bar" title="train &amp; tracks" /></p>
+@@END
+@@EX 578 images
+![foo](train.jpg)
+@@HTML
+<p><img src="train.jpg" alt="foo" /></p>
+@@END
+@@EX 579 images
+My ![foo bar](/path/to/train.jpg  "title"   )
+@@HTML
+<p>My <img src="/path/to/train.jpg" alt="foo bar" title="title" /></p>
+@@END
+@@EX 580 images
+![foo](<url>)
+@@HTML
+<p><img src="url" alt="foo" /></p>
+@@END
+@@EX 581 images
+![](/url)
+@@HTML
+<p><img src="/url" alt="" /></p>
+@@END
+@@EX 582 images
+![foo][bar]
+
+[bar]: /url
+@@HTML
+<p><img src="/url" alt="foo" /></p>
+@@END
+@@EX 583 images
+![foo][bar]
+
+[BAR]: /url
+@@HTML
+<p><img src="/url" alt="foo" /></p>
+@@END
+@@EX 584 images
+![foo][]
+
+[foo]: /url "title"
+@@HTML
+<p><img src="/url" alt="foo" title="title" /></p>
+@@END
+@@EX 585 images
+![*foo* bar][]
+
+[*foo* bar]: /url "title"
+@@HTML
+<p><img src="/url" alt="foo bar" title="title" /></p>
+@@END
+@@EX 586 images
+![Foo][]
+
+[foo]: /url "title"
+@@HTML
+<p><img src="/url" alt="Foo" title="title" /></p>
+@@END
+@@EX 587 images
+![foo] 
+[]
+
+[foo]: /url "title"
+@@HTML
+<p><img src="/url" alt="foo" title="title" />
+[]</p>
+@@END
+@@EX 588 images
+![foo]
+
+[foo]: /url "title"
+@@HTML
+<p><img src="/url" alt="foo" title="title" /></p>
+@@END
+@@EX 589 images
+![*foo* bar]
+
+[*foo* bar]: /url "title"
+@@HTML
+<p><img src="/url" alt="foo bar" title="title" /></p>
+@@END
+@@EX 590 images
+![[foo]]
+
+[[foo]]: /url "title"
+@@HTML
+<p>![[foo]]</p>
+<p>[[foo]]: /url &quot;title&quot;</p>
+@@END
+@@EX 591 images
+![Foo]
+
+[foo]: /url "title"
+@@HTML
+<p><img src="/url" alt="Foo" title="title" /></p>
+@@END
+@@EX 592 images
+!\[foo]
+
+[foo]: /url "title"
+@@HTML
+<p>![foo]</p>
+@@END
+@@EX 593 images
+\![foo]
+
+[foo]: /url "title"
+@@HTML
+<p>!<a href="/url" title="title">foo</a></p>
+@@END
