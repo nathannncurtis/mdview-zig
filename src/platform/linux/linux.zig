@@ -1358,7 +1358,7 @@ test "a missing image lays out its alt text and a reference image resolves" {
     while (app.images.now() < deadline) {
         _ = app.images.tick();
         if (app.images.look("gone.png", 400) == .missing) break;
-        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch {};
+        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
     }
     try std.testing.expect(app.images.look("gone.png", 400) == .missing);
     const alt = try imageLayoutSize(doc.blocks[0].content, 400);
