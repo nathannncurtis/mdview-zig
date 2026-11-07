@@ -406,6 +406,13 @@ const testing = std.testing;
 pub fn injectReady(key: []const u8, w: f32, h: f32) !void {
     const e = try gpa.create(Entry);
     e.* = .{ .key = try gpa.dupe(u8, key), .size = .{ .w = w, .h = h } };
+    const pw: u32 = @intFromFloat(w);
+    const ph: u32 = @intFromFloat(h);
+    const rgba = try gpa.alloc(u8, @as(usize, pw) * ph * 4);
+    @memset(rgba, 255);
+    const frames = try gpa.alloc(image.Frame, 1);
+    frames[0] = .{ .rgba = rgba, .delay_ms = 0 };
+    e.pic = try Picture.create(.{ .width = pw, .height = ph, .frames = frames, .loop_count = 0 });
     e.state.store(.ready, .release);
     try entries.put(gpa, e.key, e);
 }
@@ -413,7 +420,7 @@ pub fn injectReady(key: []const u8, w: f32, h: f32) !void {
 /// Frees what tests left behind once their loads have ended.
 pub fn clearAll() void {
     reset("", false);
-    while (active.load(.monotonic) > 0) std.Io.sleep(io, .fromMilliseconds(1), .awake) catch {};
+    while (active.load(.monotonic) > 0) std.Io.sleep(io, .fromMilliseconds(1), .awake) catch break;
     entries.deinit(gpa);
     pending.deinit(gpa);
     entries = .empty;
@@ -481,7 +488,7 @@ test "a missing local file ends as missing and an http one never loads" {
     while (now() < deadline) {
         _ = tick();
         if (look("nothing.png", 100) == .missing) break;
-        std.Io.sleep(io, .fromMilliseconds(10), .awake) catch {};
+        std.Io.sleep(io, .fromMilliseconds(10), .awake) catch break;
     }
     try testing.expect(look("nothing.png", 100) == .missing);
 }
