@@ -5,21 +5,16 @@ pub const Path = path_mod.Path;
 pub const Mat = path_mod.Mat;
 pub const Pt = path_mod.Pt;
 
-pub const Error = error{ Corrupt, Unsupported, OutOfMemory, TooLarge };
+const read = @import("read.zig");
+const cff_mod = @import("cff.zig");
+const math_mod = @import("math.zig");
 
-fn u16At(d: []const u8, off: usize) Error!u16 {
-    if (off > d.len or d.len - off < 2) return error.Corrupt;
-    return std.mem.readInt(u16, d[off..][0..2], .big);
-}
+pub const math = math_mod;
 
-fn i16At(d: []const u8, off: usize) Error!i16 {
-    return @bitCast(try u16At(d, off));
-}
-
-fn u32At(d: []const u8, off: usize) Error!u32 {
-    if (off > d.len or d.len - off < 4) return error.Corrupt;
-    return std.mem.readInt(u32, d[off..][0..4], .big);
-}
+pub const Error = read.Error;
+const u16At = read.u16At;
+const i16At = read.i16At;
+const u32At = read.u32At;
 
 fn findTable(d: []const u8, dir: usize, tag: *const [4]u8) Error!?usize {
     const n = try u16At(d, dir + 4);
@@ -65,6 +60,8 @@ pub const Font = struct {
     gpos_lookups: usize,
     kern_lookups: [max_kern_lookups]u16,
     kern_count: usize,
+    cff: ?cff_mod.Cff = null,
+    math: ?math_mod.Math = null,
     oblique: bool = false,
 
     pub fn init(d: []const u8, face: u32) Error!Font {
@@ -75,9 +72,7 @@ pub const Font = struct {
             dir = try u32At(d, 12 + @as(usize, face) * 4);
         } else if (face != 0) {
             return error.Corrupt;
-        } else if (std.mem.eql(u8, d[0..4], "OTTO")) {
-            return error.Unsupported;
-        } else if (!std.mem.eql(u8, d[0..4], &.{ 0, 1, 0, 0 }) and !std.mem.eql(u8, d[0..4], "true")) {
+        } else if (!std.mem.eql(u8, d[0..4], &.{ 0, 1, 0, 0 }) and !std.mem.eql(u8, d[0..4], "true") and !std.mem.eql(u8, d[0..4], "OTTO")) {
             return error.Corrupt;
         }
         const head = try needTable(d, dir, "head");
@@ -95,8 +90,8 @@ pub const Font = struct {
             .num_glyphs = try u16At(d, maxp + 4),
             .num_hmetrics = try u16At(d, hhea + 34),
             .long_loca = try i16At(d, head + 50) != 0,
-            .loca = (try findTable(d, dir, "loca")) orelse return error.Unsupported,
-            .glyf = (try findTable(d, dir, "glyf")) orelse return error.Unsupported,
+            .loca = (try findTable(d, dir, "loca")) orelse 0,
+            .glyf = (try findTable(d, dir, "glyf")) orelse 0,
             .hmtx = try needTable(d, dir, "hmtx"),
             .cmap = 0,
             .cmap_format = 0,
@@ -108,6 +103,10 @@ pub const Font = struct {
         };
         if (f.num_hmetrics == 0) return error.Corrupt;
         try f.pickCmap(cmap_t);
+        if (try findTable(d, dir, "CFF ")) |c| {
+            f.cff = try cff_mod.Cff.init(d, c);
+        } else if (f.glyf == 0 or f.loca == 0) return error.Unsupported;
+        if (try findTable(d, dir, "MATH")) |mt| f.math = math_mod.Math.parse(d, mt) catch null;
         if (try findTable(d, dir, "GPOS")) |gpos| f.findKernLookups(gpos) catch {
             f.kern_count = 0;
         };
@@ -158,6 +157,90 @@ pub const Font = struct {
             }
         }
         std.mem.sort(u16, f.kern_lookups[0..f.kern_count], {}, std.sort.asc(u16));
+    }
+
+    pub fn glyphFor(f: *const Font, cp: u32) u16 {
+        return f.glyphIndex(cp);
+    }
+
+    pub const BBox = struct { x0: i16 = 0, y0: i16 = 0, x1: i16 = 0, y1: i16 = 0 };
+
+    const BoxSink = struct {
+        x0: f64 = std.math.inf(f64),
+        y0: f64 = std.math.inf(f64),
+        x1: f64 = -std.math.inf(f64),
+        y1: f64 = -std.math.inf(f64),
+
+        fn add(s: *BoxSink, x: f64, y: f64) void {
+            s.x0 = @min(s.x0, x);
+            s.y0 = @min(s.y0, y);
+            s.x1 = @max(s.x1, x);
+            s.y1 = @max(s.y1, y);
+        }
+
+        pub fn moveTo(s: *BoxSink, _: std.mem.Allocator, x: f64, y: f64) Error!void {
+            s.add(x, y);
+        }
+
+        pub fn lineTo(s: *BoxSink, _: std.mem.Allocator, x: f64, y: f64) Error!void {
+            s.add(x, y);
+        }
+
+        pub fn quadTo(s: *BoxSink, _: std.mem.Allocator, x1: f64, y1: f64, x: f64, y: f64) Error!void {
+            s.add(x1, y1);
+            s.add(x, y);
+        }
+
+        pub fn cubicTo(s: *BoxSink, _: std.mem.Allocator, x1: f64, y1: f64, x2: f64, y2: f64, x: f64, y: f64) Error!void {
+            s.add(x1, y1);
+            s.add(x2, y2);
+            s.add(x, y);
+        }
+
+        pub fn close(_: *BoxSink, _: std.mem.Allocator) Error!void {}
+    };
+
+    pub fn bbox(f: *const Font, g: u16) BBox {
+        if (f.cff == null) {
+            const b = f.glyphBytes(g) catch return .{};
+            if (b.len < 10) return .{};
+            return .{ .x0 = i16At(b, 2) catch 0, .y0 = i16At(b, 4) catch 0, .x1 = i16At(b, 6) catch 0, .y1 = i16At(b, 8) catch 0 };
+        }
+        var s: BoxSink = .{};
+        f.outline(std.heap.smp_allocator, g, .{}, &s) catch return .{};
+        if (s.x1 < s.x0) return .{};
+        return .{ .x0 = @intFromFloat(@floor(s.x0)), .y0 = @intFromFloat(@floor(s.y0)), .x1 = @intFromFloat(@ceil(s.x1)), .y1 = @intFromFloat(@ceil(s.y1)) };
+    }
+
+    pub fn italicCorrection(f: *const Font, g: u16) i16 {
+        return if (f.math) |m| m.italicCorrection(g) else 0;
+    }
+
+    pub fn topAccent(f: *const Font, g: u16) i16 {
+        if (f.math) |m| if (m.topAccent(g)) |v| return v;
+        return @intFromFloat(f.advance(g) / 2);
+    }
+
+    pub fn vertVariants(f: *const Font, g: u16) math_mod.Variants {
+        return if (f.math) |m| m.variantsOf(g, .vert) else .{};
+    }
+
+    pub fn horizVariants(f: *const Font, g: u16) math_mod.Variants {
+        return if (f.math) |m| m.variantsOf(g, .horiz) else .{};
+    }
+
+    pub fn assembly(f: *const Font, g: u16, dir: math_mod.Dir) ?math_mod.Assembly {
+        return if (f.math) |m| m.assembly(g, dir) else null;
+    }
+
+    pub fn open(io: std.Io, alloc: std.mem.Allocator, path: []const u8) !Font {
+        return fromTtc(io, alloc, path, 0);
+    }
+
+    pub fn fromTtc(io: std.Io, alloc: std.mem.Allocator, path: []const u8, index: u32) !Font {
+        const data = try std.Io.Dir.cwd().readFileAlloc(io, path, alloc, .limited(64 << 20));
+        errdefer alloc.free(data);
+        return init(data, index);
     }
 
     pub fn glyphIndex(f: *const Font, cp: u32) u16 {
@@ -384,12 +467,13 @@ pub const Font = struct {
         return @as(usize, try u16At(f.data, f.loca + idx * 2)) * 2;
     }
 
-    pub fn outline(f: *const Font, alloc: std.mem.Allocator, g: u16, m: Mat, path: *Path) Error!void {
+    pub fn outline(f: *const Font, alloc: std.mem.Allocator, g: u16, m: Mat, path: anytype) Error!void {
+        if (f.cff) |c| return c.outline(alloc, g, m, path);
         var budget: u32 = 128;
         try f.outlineInner(alloc, g, m, path, 0, &budget);
     }
 
-    pub fn outlineAt(f: *const Font, alloc: std.mem.Allocator, g: u16, size: f64, x: f64, y: f64, path: *Path) Error!void {
+    pub fn outlineAt(f: *const Font, alloc: std.mem.Allocator, g: u16, size: f64, x: f64, y: f64, path: anytype) Error!void {
         const s = size / @as(f64, @floatFromInt(f.upem));
         const m: Mat = .{ .a = s, .d = -s, .c = if (f.oblique) oblique_skew * s else 0, .e = x, .f = y };
         try f.outline(alloc, g, m, path);
@@ -397,7 +481,7 @@ pub const Font = struct {
 
     const Point = struct { x: f64, y: f64, on: bool };
 
-    fn outlineInner(f: *const Font, alloc: std.mem.Allocator, g: u16, m: Mat, path: *Path, depth: u32, budget: *u32) Error!void {
+    fn outlineInner(f: *const Font, alloc: std.mem.Allocator, g: u16, m: Mat, path: anytype, depth: u32, budget: *u32) Error!void {
         if (depth > 6 or budget.* == 0) return error.Corrupt;
         budget.* -= 1;
         if (g >= f.num_glyphs) return error.Corrupt;
@@ -411,7 +495,7 @@ pub const Font = struct {
         try f.simple(alloc, start + 10, @intCast(nc), m, path);
     }
 
-    fn composite(f: *const Font, alloc: std.mem.Allocator, first: usize, m: Mat, path: *Path, depth: u32, budget: *u32) Error!void {
+    fn composite(f: *const Font, alloc: std.mem.Allocator, first: usize, m: Mat, path: anytype, depth: u32, budget: *u32) Error!void {
         const d = f.data;
         var p = first;
         while (true) {
@@ -449,7 +533,7 @@ pub const Font = struct {
         }
     }
 
-    fn simple(f: *const Font, alloc: std.mem.Allocator, first: usize, n: usize, m: Mat, path: *Path) Error!void {
+    fn simple(f: *const Font, alloc: std.mem.Allocator, first: usize, n: usize, m: Mat, path: anytype) Error!void {
         if (n == 0) return;
         const d = f.data;
         const end_pts = first;
@@ -511,7 +595,7 @@ pub const Font = struct {
         }
     }
 
-    fn contour(alloc: std.mem.Allocator, pts: []const Point, m: Mat, path: *Path) Error!void {
+    fn contour(alloc: std.mem.Allocator, pts: []const Point, m: Mat, path: anytype) Error!void {
         const n = pts.len;
         if (n < 2) return;
         const first_on = pts[0].on;
@@ -562,32 +646,7 @@ fn kernSubtable(d: []const u8, p: usize, l: u16, r: u16) i32 {
     return 0;
 }
 
-fn coverageIndex(d: []const u8, cov: usize, g: u16) Error!?u16 {
-    const fmt = try u16At(d, cov);
-    const n = try u16At(d, cov + 2);
-    var lo: usize = 0;
-    var hi: usize = n;
-    if (fmt == 1) {
-        while (lo < hi) {
-            const mid = (lo + hi) / 2;
-            const v = try u16At(d, cov + 4 + mid * 2);
-            if (v == g) return @intCast(mid);
-            if (v < g) lo = mid + 1 else hi = mid;
-        }
-        return null;
-    }
-    if (fmt != 2) return null;
-    while (lo < hi) {
-        const mid = (lo + hi) / 2;
-        const at = cov + 4 + mid * 6;
-        if (g < try u16At(d, at)) {
-            hi = mid;
-        } else if (g > try u16At(d, at + 2)) {
-            lo = mid + 1;
-        } else return (try u16At(d, at + 4)) +% (g - try u16At(d, at));
-    }
-    return null;
-}
+const coverageIndex = math_mod.coverage;
 
 fn classOf(d: []const u8, cd: usize, g: u16) Error!u16 {
     const fmt = try u16At(d, cd);

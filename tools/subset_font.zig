@@ -2,7 +2,14 @@ const std = @import("std");
 const ttf = @import("ttf");
 const files = @import("files.zig");
 
-const Buf = std.ArrayList(u8);
+const sfnt = @import("sfnt_write.zig");
+
+const Buf = sfnt.Buf;
+const Table = sfnt.Table;
+const put16 = sfnt.put16;
+const put32 = sfnt.put32;
+
+const copyright = "Digitized data copyright (c) 2010 Google Corporation. Copyright (c) 2012 Red Hat, Inc. Subset of Liberation Sans 2.1.5, renamed under the SIL Open Font License 1.1.";
 
 const ranges = [_][2]u32{
     .{ 0x20, 0x7E },     .{ 0xA0, 0xFF },     .{ 0x100, 0x17F },   .{ 0x192, 0x192 },   .{ 0x2C6, 0x2C6 },
@@ -12,62 +19,6 @@ const ranges = [_][2]u32{
 };
 
 const max_kern_pairs = 10920;
-
-fn put16(b: *Buf, a: std.mem.Allocator, v: anytype) !void {
-    var t: [2]u8 = undefined;
-    std.mem.writeInt(u16, &t, @truncate(@as(u32, @bitCast(@as(i32, @intCast(v))))), .big);
-    try b.appendSlice(a, &t);
-}
-
-fn put32(b: *Buf, a: std.mem.Allocator, v: u32) !void {
-    var t: [4]u8 = undefined;
-    std.mem.writeInt(u32, &t, v, .big);
-    try b.appendSlice(a, &t);
-}
-
-fn checksum(d: []const u8) u32 {
-    var sum: u32 = 0;
-    var i: usize = 0;
-    while (i < d.len) : (i += 4) {
-        var w: [4]u8 = .{ 0, 0, 0, 0 };
-        @memcpy(w[0..@min(4, d.len - i)], d[i..][0..@min(4, d.len - i)]);
-        sum +%= std.mem.readInt(u32, &w, .big);
-    }
-    return sum;
-}
-
-const Table = struct { tag: *const [4]u8, data: []const u8 };
-
-fn nameTable(a: std.mem.Allocator, family: []const u8, style: []const u8) ![]u8 {
-    const copyright = "Digitized data copyright (c) 2010 Google Corporation. Copyright (c) 2012 Red Hat, Inc. Subset of Liberation Sans 2.1.5, renamed under the SIL Open Font License 1.1.";
-    const full = try std.fmt.allocPrint(a, "{s} {s}", .{ family, style });
-    const ps = try std.fmt.allocPrint(a, "{s}-{s}", .{ family, style });
-    const strings = [_]struct { id: u16, s: []const u8 }{
-        .{ .id = 0, .s = copyright },
-        .{ .id = 1, .s = family },
-        .{ .id = 2, .s = style },
-        .{ .id = 4, .s = full },
-        .{ .id = 6, .s = ps },
-        .{ .id = 13, .s = "Licensed under the SIL Open Font License, Version 1.1." },
-        .{ .id = 14, .s = "https://openfontlicense.org" },
-    };
-    var head: Buf = .empty;
-    var store: Buf = .empty;
-    try put16(&head, a, 0);
-    try put16(&head, a, strings.len);
-    try put16(&head, a, 6 + strings.len * 12);
-    for (strings) |e| {
-        try put16(&head, a, 3);
-        try put16(&head, a, 1);
-        try put16(&head, a, 0x409);
-        try put16(&head, a, e.id);
-        try put16(&head, a, e.s.len * 2);
-        try put16(&head, a, store.items.len);
-        for (e.s) |c| try put16(&store, a, c);
-    }
-    try head.appendSlice(a, store.items);
-    return head.items;
-}
 
 fn cmapTable(a: std.mem.Allocator, cps: []const u32, gids: []const u16) ![]u8 {
     const Seg = struct { start: u32, end: u32, first: usize };
@@ -207,12 +158,12 @@ fn build(a: std.mem.Allocator, src: []const u8, family: []const u8, style: []con
     try put16(&kern, a, npairs * 6 - sr);
     try kern.appendSlice(a, pairs.items);
 
-    const head = try a.dupe(u8, src[(try tableAt(src, "head"))..][0..54]);
+    const head = try a.dupe(u8, src[(try sfnt.tableAt(src, "head"))..][0..54]);
     @memset(head[8..12], 0);
     std.mem.writeInt(i16, head[50..52], 1, .big);
-    const hhea = try a.dupe(u8, src[(try tableAt(src, "hhea"))..][0..36]);
+    const hhea = try a.dupe(u8, src[(try sfnt.tableAt(src, "hhea"))..][0..36]);
     std.mem.writeInt(u16, hhea[34..36], @intCast(n), .big);
-    const maxp = try a.dupe(u8, src[(try tableAt(src, "maxp"))..][0..32]);
+    const maxp = try a.dupe(u8, src[(try sfnt.tableAt(src, "maxp"))..][0..32]);
     std.mem.writeInt(u16, maxp[4..6], @intCast(n), .big);
 
     const tables = [_]Table{
@@ -224,39 +175,9 @@ fn build(a: std.mem.Allocator, src: []const u8, family: []const u8, style: []con
         .{ .tag = "kern", .data = kern.items },
         .{ .tag = "loca", .data = loca.items },
         .{ .tag = "maxp", .data = maxp },
-        .{ .tag = "name", .data = try nameTable(a, family, style) },
+        .{ .tag = "name", .data = try sfnt.nameTable(a, family, style, copyright) },
     };
-    var out: Buf = .empty;
-    try put32(&out, a, 0x00010000);
-    try put16(&out, a, tables.len);
-    try put16(&out, a, 128);
-    try put16(&out, a, 3);
-    try put16(&out, a, tables.len * 16 - 128);
-    var off: usize = 12 + tables.len * 16;
-    for (tables) |t| {
-        try out.appendSlice(a, t.tag);
-        try put32(&out, a, checksum(t.data));
-        try put32(&out, a, @intCast(off));
-        try put32(&out, a, @intCast(t.data.len));
-        off += (t.data.len + 3) & ~@as(usize, 3);
-    }
-    var head_off: usize = 0;
-    for (tables) |t| {
-        if (std.mem.eql(u8, t.tag, "head")) head_off = out.items.len;
-        try out.appendSlice(a, t.data);
-        while (out.items.len % 4 != 0) try out.append(a, 0);
-    }
-    std.mem.writeInt(u32, out.items[head_off + 8 ..][0..4], 0xB1B0AFBA -% checksum(out.items), .big);
-    return out.items;
-}
-
-fn tableAt(d: []const u8, tag: *const [4]u8) !usize {
-    const n = std.mem.readInt(u16, d[4..6], .big);
-    for (0..n) |i| {
-        const rec = 12 + i * 16;
-        if (std.mem.eql(u8, d[rec..][0..4], tag)) return std.mem.readInt(u32, d[rec + 8 ..][0..4], .big);
-    }
-    return error.MissingTable;
+    return sfnt.assemble(a, 0x00010000, &tables);
 }
 
 fn verify(a: std.mem.Allocator, src: []const u8, out: []const u8) !void {

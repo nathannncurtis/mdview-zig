@@ -174,7 +174,11 @@ var lock: std.Io.Mutex = .init;
 var file_cache: std.ArrayList(FileEntry) = .empty;
 var font_cache: std.ArrayList(FontEntry) = .empty;
 var requests: std.ArrayList(Request) = .empty;
-var linux_index: ?[]const Indexed = null;
+var font_index: std.ArrayList(Indexed) = .empty;
+var indexed_roots: std.ArrayList([]const u8) = .empty;
+var math_cache: ?*const Font = null;
+var math_searched = false;
+var embedded_math: ?*const Font = null;
 
 const bundled_regular: Font = comptimeInit(@embedFile("sans_regular.ttf"), false);
 const bundled_bold: Font = comptimeInit(@embedFile("sans_bold.ttf"), false);
@@ -221,29 +225,28 @@ fn lowerDup(s: []const u8) ?[]u8 {
     return out;
 }
 
-fn buildIndex(io: std.Io) []const Indexed {
-    var list: std.ArrayList(Indexed) = .empty;
-    for (dirs(.linux)) |root| {
-        var dir = std.Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch continue;
-        defer dir.close(io);
-        var walker = dir.walk(gpa) catch continue;
-        defer walker.deinit();
-        while (walker.next(io) catch null) |ent| {
-            if (ent.kind != .file or ent.depth() > 6) continue;
-            const lower = lowerDup(ent.basename) orelse continue;
-            const full = std.fs.path.join(gpa, &.{ root, ent.path }) catch continue;
-            list.append(gpa, .{ .lower = lower, .path = full }) catch continue;
-        }
+fn indexRoot(io: std.Io, root: []const u8) void {
+    for (indexed_roots.items) |r| if (std.mem.eql(u8, r, root)) return;
+    const owned = gpa.dupe(u8, root) catch return;
+    indexed_roots.append(gpa, owned) catch return;
+    var dir = std.Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+    var walker = dir.walk(gpa) catch return;
+    defer walker.deinit();
+    while (walker.next(io) catch null) |ent| {
+        if (ent.kind != .file or ent.depth() > 6) continue;
+        const lower = lowerDup(ent.basename) orelse continue;
+        const full = std.fs.path.join(gpa, &.{ root, ent.path }) catch continue;
+        font_index.append(gpa, .{ .lower = lower, .path = full }) catch continue;
     }
-    return list.items;
 }
 
 fn findLinux(io: std.Io, file: []const u8) ?[]const u8 {
-    if (linux_index == null) linux_index = buildIndex(io);
+    for (dirs(.linux)) |root| indexRoot(io, root);
     var lower: [160]u8 = undefined;
     if (file.len > lower.len) return null;
     for (file, 0..) |c, i| lower[i] = std.ascii.toLower(c);
-    for (linux_index.?) |ix| if (std.mem.eql(u8, ix.lower, lower[0..file.len])) return ix.path;
+    for (font_index.items) |ix| if (std.mem.eql(u8, ix.lower, lower[0..file.len])) return ix.path;
     return null;
 }
 
@@ -298,4 +301,88 @@ pub fn resolve(io: std.Io, families: []const u8, weight: u16, italic: bool) *con
     const owned = gpa.dupe(u8, key) catch return f;
     requests.append(gpa, .{ .key = owned, .font = f }) catch return f;
     return f;
+}
+
+const math_blob = @embedFile("stix_math.z");
+
+const linux_math_files = [_][]const u8{
+    "latinmodern-math.otf",
+    "stixtwomath-regular.otf",
+    "stixtwomath-regular.ttf",
+    "texgyrepagella-math.otf",
+    "texgyretermes-math.otf",
+    "texgyrebonum-math.otf",
+    "texgyreschola-math.otf",
+    "texgyredejavu-math.otf",
+    "notosansmath-regular.ttf",
+    "dejavumathtexgyre.ttf",
+    "xits-math.otf",
+    "xitsmath-regular.otf",
+    "libertinusmath-regular.otf",
+};
+
+fn inflateMath(io: std.Io) ?*const Font {
+    _ = io;
+    var reader = std.Io.Reader.fixed(math_blob);
+    var window: [std.compress.flate.max_window_len]u8 = undefined;
+    var dec = std.compress.flate.Decompress.init(&reader, .raw, &window);
+    const data = dec.reader.allocRemaining(gpa, .limited(16 << 20)) catch return null;
+    const f = gpa.create(Font) catch return null;
+    f.* = Font.init(data, 0) catch return null;
+    return f;
+}
+
+pub fn embeddedMathFont(io: std.Io) *const Font {
+    lock.lockUncancelable(io);
+    defer lock.unlock(io);
+    if (embedded_math == null) embedded_math = inflateMath(io);
+    return embedded_math orelse @panic("embedded math font is damaged");
+}
+
+fn systemMath(io: std.Io, home: ?[]const u8) ?*const Font {
+    switch (builtin.os.tag) {
+        .windows => {
+            const p = "C:\\Windows\\Fonts\\cambria.ttc";
+            const data = readFile(io, p) orelse return null;
+            const face = pickFace(data, "cambria math", false, false) orelse return null;
+            const f = fontFrom(p, data, face, false) orelse return null;
+            return if (f.math != null) f else null;
+        },
+        .macos => {
+            for ([_][]const u8{ "/System/Library/Fonts/Supplemental/STIXTwoMath-Regular.otf", "/Library/Fonts/STIXTwoMath-Regular.otf" }) |p| {
+                const data = readFile(io, p) orelse continue;
+                const f = fontFrom(p, data, 0, false) orelse continue;
+                if (f.math != null) return f;
+            }
+            return null;
+        },
+        else => {
+            if (home) |h| {
+                var buf: [512]u8 = undefined;
+                if (std.fmt.bufPrint(&buf, "{s}/.local/share/fonts", .{h})) |root| indexRoot(io, root) else |_| {}
+                if (std.fmt.bufPrint(&buf, "{s}/.fonts", .{h})) |root| indexRoot(io, root) else |_| {}
+            }
+            for ([_][]const u8{ "/usr/share/texmf/fonts", "/usr/share/texlive/texmf-dist/fonts" }) |root| indexRoot(io, root);
+            for (linux_math_files) |name| {
+                const p = findLinux(io, name) orelse continue;
+                const data = readFile(io, p) orelse continue;
+                const f = fontFrom(p, data, 0, false) orelse continue;
+                if (f.math != null) return f;
+            }
+            return null;
+        },
+    }
+}
+
+pub fn mathFont(io: std.Io, home: ?[]const u8) *const Font {
+    {
+        lock.lockUncancelable(io);
+        defer lock.unlock(io);
+        if (!math_searched) {
+            math_searched = true;
+            math_cache = systemMath(io, home);
+        }
+        if (math_cache) |f| return f;
+    }
+    return embeddedMathFont(io);
 }

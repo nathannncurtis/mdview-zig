@@ -28,7 +28,7 @@ pub const Mat = struct {
     }
 };
 
-pub const Seg = union(enum) { move: Pt, line: Pt, quad: [2]Pt, close };
+pub const Seg = union(enum) { move: Pt, line: Pt, quad: [2]Pt, cubic: [3]Pt, close };
 
 pub const max_segs = 1_000_000;
 
@@ -54,6 +54,10 @@ pub const Path = struct {
 
     pub fn quadTo(p: *Path, alloc: std.mem.Allocator, x1: f64, y1: f64, x: f64, y: f64) Error!void {
         try p.push(alloc, .{ .quad = .{ .{ .x = x1, .y = y1 }, .{ .x = x, .y = y } } });
+    }
+
+    pub fn cubicTo(p: *Path, alloc: std.mem.Allocator, x1: f64, y1: f64, x2: f64, y2: f64, x: f64, y: f64) Error!void {
+        try p.push(alloc, .{ .cubic = .{ .{ .x = x1, .y = y1 }, .{ .x = x2, .y = y2 }, .{ .x = x, .y = y } } });
     }
 
     pub fn close(p: *Path, alloc: std.mem.Allocator) Error!void {

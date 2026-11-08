@@ -10,6 +10,9 @@ pub const Pt = ttf.Pt;
 pub const Error = ttf.Error;
 pub const resolve = resolver.resolve;
 pub const bundled = resolver.bundled;
+pub const mathFont = resolver.mathFont;
+pub const embeddedMathFont = resolver.embeddedMathFont;
+pub const math = ttf.math;
 
 pub const Size = struct { w: f64, h: f64 };
 
@@ -189,4 +192,170 @@ test "installed fonts match DirectWrite advances on Windows" {
     const arial = resolve(io, "arial", 400, false);
     try std.testing.expectEqual(@as(f64, -152), arial.kern(arial.glyphIndex('A'), arial.glyphIndex('V')));
     try std.testing.expectEqual(@as(f64, 18), arial.lineHeight(16));
+}
+
+const ranges = @import("math_ranges.zig").ranges;
+
+test "embedded math font carries the MATH table" {
+    const f = embeddedMathFont(std.testing.io);
+    const m = f.math.?;
+    try std.testing.expect(f.cff != null);
+    try std.testing.expectEqual(@as(u16, 1000), f.upem);
+    try std.testing.expectEqual(@as(i16, 70), m.constants.script_percent_scale_down);
+    try std.testing.expectEqual(@as(i16, 55), m.constants.script_script_percent_scale_down);
+    try std.testing.expectEqual(@as(i16, 258), m.constants.axis_height);
+    try std.testing.expectEqual(@as(i16, 68), m.constants.fraction_rule_thickness);
+    try std.testing.expectEqual(@as(i16, 360), m.constants.superscript_shift_up);
+    try std.testing.expectEqual(@as(u16, 100), m.min_connector_overlap);
+    const lp = f.glyphFor('(');
+    try std.testing.expectEqual(Font.BBox{ .x0 = 45, .y0 = -196, .x1 = 327, .y1 = 736 }, f.bbox(lp));
+    const v = f.vertVariants(lp);
+    try std.testing.expectEqual(@as(usize, 13), v.count);
+    try std.testing.expectEqual(@as(u16, 933), v.get(0).?.advance);
+    try std.testing.expectEqual(@as(u16, 3821), v.get(12).?.advance);
+    const asm_ = f.assembly(lp, .vert).?;
+    try std.testing.expectEqual(@as(usize, 3), asm_.count);
+    try std.testing.expect(asm_.part(1).?.extender);
+    try std.testing.expectEqual(@as(u16, 1252), asm_.part(1).?.full_advance);
+    const integral = f.glyphFor(0x222B);
+    try std.testing.expectEqual(@as(i16, 230), f.italicCorrection(integral));
+    try std.testing.expectEqual(@as(i16, 342), f.topAccent(integral));
+    const arrow = f.glyphFor(0x2192);
+    try std.testing.expectEqual(@as(usize, 1), f.horizVariants(arrow).count);
+    try std.testing.expectEqual(Font.BBox{ .x0 = 71, .y0 = 58, .x1 = 876, .y1 = 459 }, f.bbox(arrow));
+}
+
+test "embedded math font renders every kept glyph and all variants" {
+    const a = std.testing.allocator;
+    const f = embeddedMathFont(std.testing.io);
+    var glyphs: usize = 0;
+    var constructions: usize = 0;
+    for (ranges) |r| {
+        var cp = r[0];
+        while (cp <= r[1]) : (cp += 1) {
+            const g = f.glyphFor(cp);
+            if (g == 0) continue;
+            glyphs += 1;
+            var p: Path = .{};
+            defer p.deinit(a);
+            try f.outline(a, g, .{}, &p);
+            for ([_]math.Dir{ .vert, .horiz }) |dir| {
+                const vs = f.math.?.variantsOf(g, dir);
+                for (0..vs.count) |i| {
+                    const e = vs.get(i).?;
+                    var q: Path = .{};
+                    defer q.deinit(a);
+                    try f.outline(a, e.gid, .{}, &q);
+                    try std.testing.expect(q.segs.items.len > 2);
+                    try std.testing.expect(e.advance > 0);
+                }
+                if (f.assembly(g, dir)) |as| {
+                    constructions += 1;
+                    for (0..as.count) |i| {
+                        var q: Path = .{};
+                        defer q.deinit(a);
+                        try f.outline(a, as.part(i).?.gid, .{}, &q);
+                        try std.testing.expect(q.segs.items.len > 2);
+                    }
+                }
+            }
+        }
+    }
+    try std.testing.expect(glyphs > 2500);
+    try std.testing.expect(constructions > 20);
+}
+
+test "embedded math font has the alphabets, digits and symbols" {
+    const f = embeddedMathFont(std.testing.io);
+    const starts = [_]u32{ 0x1D400, 0x1D434, 0x1D468, 0x1D49C, 0x1D4D0, 0x1D504, 0x1D538, 0x1D56C, 0x1D5A0, 0x1D5D4, 0x1D608, 0x1D63C, 0x1D670 };
+    for (starts) |s| {
+        var present: usize = 0;
+        for (0..52) |i| {
+            if (f.glyphFor(s + @as(u32, @intCast(i))) != 0) present += 1;
+        }
+        try std.testing.expect(present >= 40);
+    }
+    for ([_]u32{ 0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6 }) |s| {
+        for (0..10) |i| try std.testing.expect(f.glyphFor(s + @as(u32, @intCast(i))) != 0);
+    }
+    for ([_]u32{ 0x210E, 0x211D, 0x2115, 0x2124, 0x211A, 0x2102, 0x210F }) |cp| try std.testing.expect(f.glyphFor(cp) != 0);
+    for ("+-=<>()[]{}|/!,.:;?") |c| try std.testing.expect(f.glyphFor(c) != 0);
+    const symbols = [_]u32{
+        0x2211, 0x220F, 0x222B, 0x222E, 0x221E, 0x2202, 0x2207, 0x221A, 0xB1,   0xD7,   0xF7,   0x2264, 0x2265, 0x2260, 0x2248,
+        0x2261, 0x2208, 0x2209, 0x2282, 0x2283, 0x222A, 0x2229, 0x2227, 0x2228, 0xAC,   0x2200, 0x2203, 0x2192, 0x2190, 0x21D2,
+        0x21D4, 0x21A6, 0x22EF, 0x22EE, 0x22F1, 0x2225, 0x27E8, 0x27E9, 0x2308, 0x2309, 0x230A, 0x230B, 0x2016, 0x20D7, 0x302,
+        0x303,  0x304,  0x307,  0x2A00, 0x2A01, 0x2A02, 0x22C3, 0x22C2,
+    };
+    for (symbols) |cp| try std.testing.expect(f.glyphFor(cp) != 0);
+    for (0x3B1..0x3CA) |cp| try std.testing.expect(f.glyphFor(@intCast(cp)) != 0);
+    for (0x1D6FC..0x1D735) |cp| try std.testing.expect(f.glyphFor(@intCast(cp)) != 0);
+}
+
+test "math font discovery finds a system font or the embedded one" {
+    const io = std.testing.io;
+    const f = mathFont(io, null);
+    try std.testing.expect(f.math != null);
+    try std.testing.expect(f.glyphFor(0x2211) != 0);
+    const axis = @as(f64, @floatFromInt(f.math.?.constants.axis_height)) / @as(f64, @floatFromInt(f.upem));
+    try std.testing.expect(axis > 0.2 and axis < 0.35);
+    switch (builtin.os.tag) {
+        .windows, .macos => try std.testing.expect(f != embeddedMathFont(io)),
+        else => {},
+    }
+}
+
+test "Cambria Math MATH table on Windows" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+    const f = mathFont(std.testing.io, null);
+    try std.testing.expectEqual(@as(u16, 2048), f.upem);
+    try std.testing.expectEqual(@as(u16, 7614), f.num_glyphs);
+    const m = f.math.?;
+    try std.testing.expectEqual(@as(i16, 73), m.constants.script_percent_scale_down);
+    try std.testing.expectEqual(@as(i16, 60), m.constants.script_script_percent_scale_down);
+    try std.testing.expectEqual(@as(i16, 585), m.constants.axis_height);
+    try std.testing.expectEqual(@as(i16, 133), m.constants.fraction_rule_thickness);
+    try std.testing.expectEqual(@as(u16, 200), m.min_connector_overlap);
+    const lp = f.glyphFor('(');
+    try std.testing.expectEqual(Font.BBox{ .x0 = 180, .y0 = -452, .x1 = 812, .y1 = 1445 }, f.bbox(lp));
+    const v = f.vertVariants(lp);
+    try std.testing.expectEqual(@as(usize, 8), v.count);
+    try std.testing.expectEqual(@as(u16, 4666), v.get(0).?.gid);
+    try std.testing.expectEqual(@as(u16, 8881), v.get(7).?.advance);
+    const asm_ = f.assembly(lp, .vert).?;
+    try std.testing.expectEqual(@as(usize, 3), asm_.count);
+    try std.testing.expectEqual(@as(u16, 1736), asm_.part(1).?.gid);
+    try std.testing.expect(asm_.part(1).?.extender);
+    try std.testing.expectEqual(@as(i16, 415), f.italicCorrection(f.glyphFor(0x222B)));
+    try std.testing.expectEqual(@as(usize, 1), f.horizVariants(f.glyphFor(0x2192)).count);
+}
+
+test "damaged math fonts never crash the parser" {
+    const a = std.testing.allocator;
+    const src = embeddedMathFont(std.testing.io).data;
+    const buf = try a.dupe(u8, src);
+    defer a.free(buf);
+    var prng = std.Random.DefaultPrng.init(0x4d415448);
+    const r = prng.random();
+    for (0..200) |round| {
+        @memcpy(buf, src);
+        for (0..1 + round % 40) |_| buf[r.uintLessThan(usize, buf.len)] = r.int(u8);
+        const cut = if (round % 7 == 0) r.uintLessThan(usize, buf.len) else buf.len;
+        const f = Font.init(buf[0..cut], 0) catch continue;
+        for ([_]u32{ '(', 0x222B, 0x2192, 0x1D465, 0x302 }) |cp| {
+            const g = f.glyphFor(cp);
+            var p: Path = .{};
+            defer p.deinit(a);
+            f.outline(a, g, .{}, &p) catch {};
+            _ = f.bbox(g);
+            _ = f.italicCorrection(g);
+            _ = f.topAccent(g);
+            for ([_]math.Dir{ .vert, .horiz }) |dir| {
+                const v = f.vertVariants(g);
+                for (0..@min(v.count, 40)) |i| _ = v.get(i);
+                if (f.assembly(g, dir)) |as| {
+                    for (0..@min(as.count, 40)) |i| _ = as.part(i);
+                }
+            }
+        }
+    }
 }
