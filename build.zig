@@ -213,6 +213,15 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
         test_step.dependOn(&check.step);
     }
 
+    const all_dir = "testdata/mermaid/jison/";
+    for ([_][]const u8{ "agentflow", "block", "c4Diagram", "classDiagram", "erDiagram", "exampleDiagram", "gantt", "ishikawa", "journey", "kanban", "mindmap", "quadrant", "requirementDiagram", "sankey", "stateDiagram", "timeline", "venn", "xychart" }) |name| {
+        const check = b.addRunArtifact(gen);
+        check.addArg("check");
+        check.addFileArg(b.path(b.fmt("{s}{s}.jison", .{ all_dir, name })));
+        check.addFileArg(b.path(b.fmt("{s}{s}.tables.json", .{ all_dir, name })));
+        test_step.dependOn(&check.step);
+    }
+
     const regex_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/mermaid/jison/regex.zig"),
@@ -220,6 +229,14 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
         }),
     });
     test_step.dependOn(&b.addRunArtifact(regex_tests).step);
+
+    const runtime_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/jison/runtime.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(runtime_tests).step);
 
     const parity = b.addTest(.{
         .root_module = b.createModule(.{

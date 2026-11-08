@@ -648,7 +648,7 @@ fn parseLex(a: Allocator, block: []const u8) Fail!Lex {
     for (scan.options.items) |o| {
         if (std.mem.eql(u8, o, "case-insensitive")) case_insensitive = true else return bad("lexer option '{s}' is not supported", .{o});
     }
-    for (rules.items) |r| for ([_][]const u8{ "this.unput", "this.more", "this.reject", "this.less", "this.input(" }) |needle| {
+    for (rules.items) |r| for ([_][]const u8{ "this.more", "this.reject", "this.input(" }) |needle| {
         if (std.mem.indexOf(u8, r.action, needle) != null) return bad("lexer action uses {s}, which the runtime does not provide: {s}", .{ needle, r.action });
     };
     const macros = try expandMacros(a, defs.macros.items);
@@ -1334,7 +1334,7 @@ fn writeZig(a: Allocator, b: *const Built, source_name: []const u8) Allocator.Er
     return o.items;
 }
 
-const Statement = union(enum) { begin: []const u8, pop, ret: []const u8, clear_text, trim_text };
+const Statement = union(enum) { begin: []const u8, pop, ret: []const u8, clear_text, trim_text, less: usize, unput_text };
 
 fn translateLexAction(a: Allocator, action: []const u8) Allocator.Error!?[]const Statement {
     var clean: std.ArrayList(u8) = .empty;
@@ -1367,6 +1367,15 @@ fn translateLexAction(a: Allocator, action: []const u8) Allocator.Error!?[]const
         }
         if (std.mem.eql(u8, s, "yytext = yytext.trim()") or std.mem.eql(u8, s, "yytext=yytext.trim()")) {
             try out.append(a, .trim_text);
+            continue;
+        }
+        if (std.mem.eql(u8, s, "this.unput(yytext)")) {
+            try out.append(a, .unput_text);
+            continue;
+        }
+        if (std.mem.startsWith(u8, s, "this.less(") and std.mem.endsWith(u8, s, ")")) {
+            const n = std.fmt.parseInt(usize, std.mem.trim(u8, s[10 .. s.len - 1], " "), 10) catch return null;
+            try out.append(a, .{ .less = n });
             continue;
         }
         if (std.mem.eql(u8, s, "this.popState()")) {
@@ -1429,6 +1438,8 @@ fn writeStub(a: Allocator, b: *const Built, source_name: []const u8) Allocator.E
                     .pop => try o.appendSlice(a, "            lx.popState();\n"),
                     .clear_text => try o.appendSlice(a, "            lx.yytext = &.{};\n"),
                     .trim_text => try o.appendSlice(a, "            lx.yytext = rt.trim(lx.yytext);\n"),
+                    .unput_text => try o.appendSlice(a, "            try lx.unput(lx.yytext);\n"),
+                    .less => |n| try o.print(a, "            try lx.less({d});\n", .{n}),
                     .ret => |t| {
                         try o.appendSlice(a, "            return G.tok.");
                         try zigIdent(a, &o, t);
