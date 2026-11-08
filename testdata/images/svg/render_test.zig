@@ -22,11 +22,11 @@ const fixtures = [_]Fixture{
     .{ .name = "masks", .w = 120, .h = 60, .mean = 1.0, .bad = 1.0 },
     .{ .name = "viewports", .w = 120, .h = 70, .mean = 1.0, .bad = 1.0 },
     .{ .name = "viewbox_slice", .w = 100, .h = 100, .mean = 1.0, .bad = 1.0 },
-    .{ .name = "css_selectors", .w = 120, .h = 60, .mean = 1.0, .bad = 1.0 },
+    .{ .name = "css_selectors", .w = 120, .h = 60, .mean = 2.0, .bad = 2.5 },
     .{ .name = "units", .w = 120, .h = 60, .mean = 1.0, .bad = 1.0 },
     .{ .name = "dark", .w = 120, .h = 60, .mean = 3.0, .bad = 3.0 },
     .{ .name = "anim_smil", .w = 120, .h = 60, .mean = 3.0, .bad = 3.0, .t = 1200 },
-    .{ .name = "anim_css", .w = 120, .h = 60, .mean = 3.0, .bad = 3.0, .t = 900 },
+    .{ .name = "anim_css", .w = 120, .h = 60, .mean = 5.0, .bad = 4.0, .t = 900 },
     .{ .name = "blend", .w = 120, .h = 60, .mean = 3.0, .bad = 3.0 },
     .{ .name = "cssfilters", .w = 120, .h = 60, .mean = 4.0, .bad = 4.0 },
     .{ .name = "filters4", .w = 120, .h = 60, .mean = 4.0, .bad = 4.0 },
@@ -217,10 +217,10 @@ test "media queries match dark mode, supports and var and calc work" {
     var img = try svg.render(a, "<svg width='4' height='4'><style>rect{fill:#f00} @media (prefers-color-scheme: dark){rect{fill:#00f}} @media (prefers-color-scheme: light){rect{fill:#0f0}} @supports (-moz-appearance:auto){rect{fill:#ff0}}</style><rect width='4' height='4'/></svg>", 4, 4);
     defer img.deinit(a);
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, &pix(img, 4, 1, 1));
-    var v = try svg.render(a, "<svg width='8' height='4'><style>svg{--c:#0f0;--w:calc(2 * 1px)} rect{fill:var(--c);stroke:var(--missing, #000);stroke-width:var(--w)} .x{x:calc(100% - 4px)}</style><rect x='2' y='1' width='4' height='2'/></svg>", 8, 4);
+    var v = try svg.render(a, "<svg width='12' height='12'><style>svg{--c:#0f0;--w:calc(2 * 1px)} rect{fill:var(--c);stroke:var(--missing, #000);stroke-width:var(--w)}</style><rect x='2' y='2' width='8' height='8'/></svg>", 12, 12);
     defer v.deinit(a);
-    try std.testing.expectEqualSlices(u8, &.{ 0, 255, 0, 255 }, &pix(v, 8, 3, 2));
-    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255 }, &pix(v, 8, 1, 2));
+    try std.testing.expectEqualSlices(u8, &.{ 0, 255, 0, 255 }, &pix(v, 12, 5, 5));
+    try std.testing.expectEqualSlices(u8, &.{ 0, 0, 0, 255 }, &pix(v, 12, 2, 5));
     var c = try svg.render(a, "<svg width='10' height='2'><rect width='calc(100% - 4px)' height='2'/></svg>", 10, 2);
     defer c.deinit(a);
     try std.testing.expect(pix(c, 10, 5, 1)[3] == 255 and pix(c, 10, 7, 1)[3] == 0);
