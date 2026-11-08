@@ -249,6 +249,7 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
             .target = b.graph.host,
         }),
     });
+    runtime_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(runtime_tests).step);
 
     const parity = b.addTest(.{
