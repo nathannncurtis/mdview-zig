@@ -2,6 +2,7 @@ const std = @import("std");
 const image = @import("image.zig");
 const Error = image.Error;
 const Image = image.Image;
+const icc = @import("icc.zig");
 
 const Masks = struct {
     mask: [4]u32 = .{ 0, 0, 0, 0 },
@@ -65,7 +66,16 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     try image.checkDims(@intCast(width), @intCast(height));
     const w: usize = @intCast(width);
     const h: usize = @intCast(height);
-    if (compression == 4 or compression == 5) return error.UnsupportedFormat;
+    if (compression == 4 or compression == 5) {
+        if (data_off > bytes.len) return error.Corrupt;
+        const inner = bytes[data_off..];
+        if (compression == 4) {
+            if (inner.len < 3 or inner[0] != 0xFF or inner[1] != 0xD8 or inner[2] != 0xFF) return error.Corrupt;
+            return @import("jpeg.zig").decode(alloc, inner);
+        }
+        if (inner.len < 8 or !std.mem.eql(u8, inner[0..8], "\x89PNG\r\n\x1a\n")) return error.Corrupt;
+        return @import("png.zig").decode(alloc, inner);
+    }
     if (compression > 3 and compression != 6) return error.Corrupt;
     const rle = compression == 1 or compression == 2;
     if (compression == 1 and bpp != 8) return error.Corrupt;
@@ -108,9 +118,10 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         try decodeRle(data, out, w, h, top_down, bpp, &palette);
     } else {
         const row_bytes = (w * bpp + 31) / 32 * 4;
-        if (data.len / row_bytes < h) return error.Corrupt;
+        const rows = @min(data.len / row_bytes, h);
+        if (rows == 0) return error.Corrupt;
         var any_alpha = false;
-        for (0..h) |ry| {
+        for (0..rows) |ry| {
             const row = data[ry * row_bytes ..][0..row_bytes];
             const y = if (top_down) ry else h - 1 - ry;
             const dst = out[y * w * 4 ..][0 .. w * 4];
@@ -141,8 +152,19 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
             }
         }
         if ((bpp == 32 or bpp == 16) and masks.mask[3] != 0 and !any_alpha) {
-            var i: usize = 3;
-            while (i < out.len) : (i += 4) out[i] = 255;
+            for (0..rows) |ry| {
+                const y = if (top_down) ry else h - 1 - ry;
+                var i: usize = y * w * 4 + 3;
+                while (i < (y + 1) * w * 4) : (i += 4) out[i] = 255;
+            }
+        }
+    }
+    if (hdr_size == 124 and bytes.len >= 14 + 124 and std.mem.readInt(u32, bytes[14 + 56 ..][0..4], .little) == 0x4D424544) {
+        const off: u64 = std.mem.readInt(u32, bytes[14 + 112 ..][0..4], .little);
+        const size: u64 = std.mem.readInt(u32, bytes[14 + 116 ..][0..4], .little);
+        if (14 + off + size <= bytes.len) {
+            var tr = std.mem.zeroes(icc.Transform);
+            if (icc.fromProfile(&tr, bytes[@intCast(14 + off)..][0..@intCast(size)], false)) |t| t.apply(out);
         }
     }
     return image.single(alloc, @intCast(w), @intCast(h), out);
@@ -154,12 +176,16 @@ fn put(o: []u8, w: usize, h: usize, top_down: bool, px: usize, row: usize, p: [4
     o[(y * w + px) * 4 ..][0..4].* = p;
 }
 
+fn partial(ry: usize, x: usize) Error!void {
+    if (ry == 0 and x == 0) return error.Corrupt;
+}
+
 fn decodeRle(data: []const u8, out: []u8, w: usize, h: usize, top_down: bool, bpp: u32, palette: *const [256][4]u8) Error!void {
     var x: usize = 0;
     var ry: usize = 0;
     var i: usize = 0;
     while (ry < h) {
-        if (i + 2 > data.len) return error.Corrupt;
+        if (i + 2 > data.len) return partial(ry, x);
         const n = data[i];
         const v = data[i + 1];
         i += 2;
@@ -178,7 +204,7 @@ fn decodeRle(data: []const u8, out: []u8, w: usize, h: usize, top_down: bool, bp
             },
             1 => return,
             2 => {
-                if (i + 2 > data.len) return error.Corrupt;
+                if (i + 2 > data.len) return partial(ry, x);
                 x += data[i];
                 ry += data[i + 1];
                 i += 2;
@@ -186,7 +212,7 @@ fn decodeRle(data: []const u8, out: []u8, w: usize, h: usize, top_down: bool, bp
             else => {
                 const cnt: usize = v;
                 const nbytes = if (bpp == 8) cnt else (cnt + 1) / 2;
-                if (i + nbytes > data.len) return error.Corrupt;
+                if (i + nbytes > data.len) return partial(ry, x);
                 for (0..cnt) |k| {
                     const idx = if (bpp == 8) data[i + k] else if (k % 2 == 0) data[i + k / 2] >> 4 else data[i + k / 2] & 15;
                     put(out, w, h, top_down, x, ry, palette[idx]);

@@ -3,6 +3,7 @@ const image = @import("image.zig");
 const Error = image.Error;
 const Image = image.Image;
 const flate = std.compress.flate;
+const icc = @import("icc.zig");
 
 const Header = struct {
     w: u32,
@@ -44,7 +45,47 @@ const Palette = struct {
     key: ?[3]u16 = null,
 };
 
+const Meta = struct {
+    icc: ?[]u8 = null,
+    srgb: bool = false,
+    gamma: ?u32 = null,
+    chrm: ?[8]u32 = null,
+    gray: bool = false,
+};
+
 pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
+    var meta: Meta = .{};
+    defer if (meta.icc) |p| alloc.free(p);
+    var img = try decodeFrames(alloc, bytes, &meta);
+    errdefer img.deinit(alloc);
+    var tr = std.mem.zeroes(icc.Transform);
+    const t: ?*const icc.Transform = if (meta.icc) |prof|
+        icc.fromProfile(&tr, prof, meta.gray)
+    else if (meta.srgb)
+        null
+    else if (meta.gamma) |g| blk: {
+        const gamma = @as(f64, @floatFromInt(g)) / 100000.0;
+        var chrm: ?icc.Chrm = null;
+        if (meta.chrm) |c| {
+            const v = [8]f64{ @floatFromInt(c[0]), @floatFromInt(c[1]), @floatFromInt(c[2]), @floatFromInt(c[3]), @floatFromInt(c[4]), @floatFromInt(c[5]), @floatFromInt(c[6]), @floatFromInt(c[7]) };
+            chrm = .{ .wx = v[0] / 1e5, .wy = v[1] / 1e5, .rx = v[2] / 1e5, .ry = v[3] / 1e5, .gx = v[4] / 1e5, .gy = v[5] / 1e5, .bx = v[6] / 1e5, .by = v[7] / 1e5 };
+        }
+        break :blk icc.fromGamma(&tr, gamma, chrm);
+    } else null;
+    if (t) |tt| for (img.frames) |f| tt.apply(f.rgba);
+    return img;
+}
+
+fn readProfile(alloc: std.mem.Allocator, body: []const u8) ?[]u8 {
+    const nul = std.mem.indexOfScalar(u8, body[0..@min(body.len, 80)], 0) orelse return null;
+    if (nul + 2 > body.len or body[nul + 1] != 0) return null;
+    var in: std.Io.Reader = .fixed(body[nul + 2 ..]);
+    var window: [flate.max_window_len]u8 = undefined;
+    var dec: flate.Decompress = .init(&in, .zlib, &window);
+    return dec.reader.allocRemaining(alloc, .limited(4 << 20)) catch null;
+}
+
+fn decodeFrames(alloc: std.mem.Allocator, bytes: []const u8, meta: *Meta) Error!Image {
     var c: image.Cursor = .{ .b = bytes, .pos = 8 };
     var hdr: ?Header = null;
     var pal: Palette = .{};
@@ -64,9 +105,14 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     while (c.left() >= 8) {
         const len = try c.be32();
         const kind = try c.take(4);
-        if (len > c.left()) return error.Corrupt;
-        const body = try c.take(len);
-        if (c.left() >= 4) c.pos += 4 else if (!std.mem.eql(u8, kind, "IEND")) return error.Corrupt;
+        const full = len <= c.left();
+        const body = try c.take(@min(len, c.left()));
+        const is_data = std.mem.eql(u8, kind, "IDAT") or std.mem.eql(u8, kind, "fdAT");
+        if (!full and !is_data) break;
+        var cut = !full;
+        if (full) {
+            if (c.left() >= 4) c.pos += 4 else cut = true;
+        }
         if (std.mem.eql(u8, kind, "IHDR")) {
             if (hdr != null or len != 13) return error.Corrupt;
             var b: image.Cursor = .{ .b = body };
@@ -110,6 +156,16 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
                     },
                     else => {},
                 }
+            } else if (!seen_idat and std.mem.eql(u8, kind, "iCCP")) {
+                if (meta.icc == null) meta.icc = readProfile(alloc, body);
+            } else if (!seen_idat and std.mem.eql(u8, kind, "sRGB")) {
+                meta.srgb = true;
+            } else if (!seen_idat and std.mem.eql(u8, kind, "gAMA") and len == 4) {
+                meta.gamma = std.mem.readInt(u32, body[0..4], .big);
+            } else if (!seen_idat and std.mem.eql(u8, kind, "cHRM") and len == 32) {
+                var v: [8]u32 = undefined;
+                for (0..8) |i| v[i] = std.mem.readInt(u32, body[i * 4 ..][0..4], .big);
+                meta.chrm = v;
             } else if (std.mem.eql(u8, kind, "acTL")) {
                 if (len != 8 or seen_idat) return error.Corrupt;
                 animated = true;
@@ -141,14 +197,16 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
                     try idat.appendSlice(alloc, body);
                 }
             } else if (std.mem.eql(u8, kind, "fdAT")) {
-                if (len < 4 or cur == null) return error.Corrupt;
+                if (body.len < 4 or cur == null) return error.Corrupt;
                 try frames.items[cur.?].data.appendSlice(alloc, body[4..]);
             } else if (std.mem.eql(u8, kind, "IEND")) {
                 break;
             }
         }
+        if (cut) break;
     }
     const hd = hdr orelse return error.Corrupt;
+    meta.gray = hd.ctype == 0 or hd.ctype == 4;
     if (pal.len == 0 and hd.ctype == 3) return error.Corrupt;
     if (!seen_idat) return error.Corrupt;
 
@@ -156,7 +214,7 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         const data = idat.items;
         const out = try image.allocRgba(alloc, hd.w, hd.h);
         errdefer alloc.free(out);
-        try inflateImage(alloc, data, hd, hd.w, hd.h, &pal, out);
+        _ = try inflateImage(alloc, data, hd, hd.w, hd.h, &pal, out);
         return image.single(alloc, hd.w, hd.h, out);
     }
 
@@ -182,7 +240,12 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         }
         const tmp = try alloc.alloc(u8, @as(usize, fc.w) * fc.h * 4);
         defer alloc.free(tmp);
-        try inflateImage(alloc, fc.data.items, hd, fc.w, fc.h, &pal, tmp);
+        @memset(tmp, 0);
+        const complete = inflateImage(alloc, fc.data.items, hd, fc.w, fc.h, &pal, tmp) catch |e| {
+            if (list.list.items.len > 0) break;
+            return e;
+        };
+        if (!complete and list.list.items.len > 0) break;
         for (0..fc.h) |y| {
             const d = canvas[((fc.y + y) * hd.w + fc.x) * 4 ..][0 .. fc.w * 4];
             const s = tmp[y * fc.w * 4 ..][0 .. fc.w * 4];
@@ -201,6 +264,7 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         f2.dispose = dispose;
         f2.data = .empty;
         prev = f2;
+        if (!complete) break;
     }
     return list.finish(hd.w, hd.h, num_plays);
 }
@@ -258,7 +322,7 @@ const adam7 = [7][4]u8{
     .{ 0, 0, 8, 8 }, .{ 4, 0, 8, 8 }, .{ 0, 4, 4, 8 }, .{ 2, 0, 4, 4 }, .{ 0, 2, 2, 4 }, .{ 1, 0, 2, 2 }, .{ 0, 1, 1, 2 },
 };
 
-fn inflateImage(alloc: std.mem.Allocator, data: []const u8, hd: Header, w: u32, h: u32, pal: *const Palette, out: []u8) Error!void {
+fn inflateImage(alloc: std.mem.Allocator, data: []const u8, hd: Header, w: u32, h: u32, pal: *const Palette, out: []u8) Error!bool {
     var in: std.Io.Reader = .fixed(data);
     var window: [flate.max_window_len]u8 = undefined;
     var dec: flate.Decompress = .init(&in, .zlib, &window);
@@ -267,29 +331,75 @@ fn inflateImage(alloc: std.mem.Allocator, data: []const u8, hd: Header, w: u32, 
     const mem = try alloc.alloc(u8, (max_row + 1) * 2);
     defer alloc.free(mem);
     var bufs: [2][]u8 = .{ mem[0 .. max_row + 1], mem[max_row + 1 ..] };
+    var rows: usize = 0;
+    var src: RowSource = .{ .dec = &dec };
 
     if (!hd.interlace) {
-        try passRows(&dec, hd, pal, out, w, h, 0, 0, 1, 1, w, &bufs, bpp);
-    } else for (adam7) |p| {
+        const complete = try passRows(&src, hd, pal, out, w, h, 0, 0, 1, 1, w, &bufs, bpp, &rows);
+        if (!complete) {
+            if (rows == 0) return error.Corrupt;
+            @memset(out[rows * w * 4 ..], 0);
+        }
+        return complete;
+    }
+    @memset(out, 0);
+    for (adam7) |p| {
         if (w <= p[0] or h <= p[1]) continue;
         const pw = (w + p[2] - 1 - p[0]) / p[2];
         const ph = (h + p[3] - 1 - p[1]) / p[3];
-        try passRows(&dec, hd, pal, out, w, ph, p[0], p[1], p[2], p[3], pw, &bufs, bpp);
+        if (!try passRows(&src, hd, pal, out, w, ph, p[0], p[1], p[2], p[3], pw, &bufs, bpp, &rows)) {
+            if (rows == 0) return error.Corrupt;
+            return false;
+        }
     }
+    return true;
 }
 
-fn passRows(dec: *flate.Decompress, hd: Header, pal: *const Palette, out: []u8, w: u32, ph: u32, x0: u32, y0: u32, dx: u32, dy: u32, pw: u32, bufs: *[2][]u8, bpp: usize) Error!void {
+const RowSource = struct {
+    dec: *flate.Decompress,
+    drain: ?[]const u8 = null,
+
+    fn truncated(self: *const RowSource, e: anyerror) bool {
+        return e == error.EndOfStream or (self.dec.err != null and self.dec.err.? == error.EndOfStream);
+    }
+
+    fn read(self: *RowSource, buf: []u8) Error!bool {
+        if (self.drain == null) {
+            if (buf.len > flate.history_len) {
+                self.dec.reader.readSliceAll(buf) catch |e| return if (self.truncated(e)) false else error.Corrupt;
+                return true;
+            }
+            if (self.dec.reader.peek(buf.len)) |d| {
+                @memcpy(buf, d);
+                self.dec.reader.toss(buf.len);
+                return true;
+            } else |e| {
+                if (!self.truncated(e)) return error.Corrupt;
+                self.drain = self.dec.reader.buffered();
+            }
+        }
+        const d = self.drain.?;
+        if (d.len < buf.len) return false;
+        @memcpy(buf, d[0..buf.len]);
+        self.drain = d[buf.len..];
+        return true;
+    }
+};
+
+fn passRows(src: *RowSource, hd: Header, pal: *const Palette, out: []u8, w: u32, ph: u32, x0: u32, y0: u32, dx: u32, dy: u32, pw: u32, bufs: *[2][]u8, bpp: usize, rows: *usize) Error!bool {
     const row_len = (@as(usize, pw) * hd.bitsPerPixel() + 7) / 8;
     @memset(bufs[0][0 .. row_len + 1], 0);
     var prev = bufs[0][0 .. row_len + 1];
     var curb = bufs[1][0 .. row_len + 1];
     for (0..ph) |ry| {
-        dec.reader.readSliceAll(curb) catch return error.Corrupt;
+        if (!try src.read(curb)) return false;
         try unfilter(curb[0], curb[1..], prev[1..], bpp);
         const y: usize = y0 + ry * dy;
         convertRow(hd, pal, curb[1..], out[(y * w) * 4 ..][0 .. w * 4], x0, dx, pw);
+        rows.* += 1;
         std.mem.swap([]u8, &prev, &curb);
     }
+    return true;
 }
 
 fn sample(row: []const u8, depth: u8, i: usize) u16 {

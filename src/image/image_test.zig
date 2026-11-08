@@ -80,14 +80,18 @@ test "every format and variant has a fixture" {
     const text = try manifest(alloc);
     defer alloc.free(text);
     const required = [_][]const u8{
-        "png_gray1",           "png_gray2",        "png_gray4",        "png_gray8",           "png_gray16",         "png_graya8",          "png_graya16",
-        "png_pal1",            "png_pal2",         "png_pal4",         "png_pal8",            "png_rgb8",           "png_rgb16",           "png_rgba8",
-        "png_rgba16",          "png_rgb8_i",       "png_rgba16_i",     "png_gray8_trns",      "png_rgb16_trns",     "png_pal4_trns",       "apng_basic",
-        "apng_hidden_default", "jpeg_444",         "jpeg_422",         "jpeg_420",            "jpeg_gray",          "jpeg_cmyk",           "jpeg_prog_420",
-        "jpeg_prog_444",       "jpeg_restart",     "jpeg_exif_6",      "jpeg_exif_8",         "gif_static",         "gif_interlaced",      "gif_trans",
-        "gif_anim_disposal",   "gif_anim_forever", "gif_anim_once",    "bmp_pal1",            "bmp_pal4",           "bmp_pal8",            "bmp_rle4",
-        "bmp_rle8",            "bmp_rgb16_555",    "bmp_rgb16_565",    "bmp_rgb24",           "bmp_rgb32_alpha",    "bmp_rgb32_bitfields", "bmp_rgb24_topdown",
-        "webp_lossy_q75",      "webp_lossless",    "webp_lossy_alpha", "webp_lossless_alpha", "webp_anim_lossless", "webp_anim_lossy",
+        "png_gray1",           "png_gray2",                "png_gray4",          "png_gray8",           "png_gray16",               "png_graya8",          "png_graya16",
+        "png_pal1",            "png_pal2",                 "png_pal4",           "png_pal8",            "png_rgb8",                 "png_rgb16",           "png_rgba8",
+        "png_rgba16",          "png_rgb8_i",               "png_rgba16_i",       "png_gray8_trns",      "png_rgb16_trns",           "png_pal4_trns",       "apng_basic",
+        "apng_hidden_default", "jpeg_444",                 "jpeg_422",           "jpeg_420",            "jpeg_gray",                "jpeg_cmyk",           "jpeg_prog_420",
+        "jpeg_prog_444",       "jpeg_restart",             "jpeg_exif_6",        "jpeg_exif_8",         "gif_static",               "gif_interlaced",      "gif_trans",
+        "gif_anim_disposal",   "gif_anim_forever",         "gif_anim_once",      "bmp_pal1",            "bmp_pal4",                 "bmp_pal8",            "bmp_rle4",
+        "bmp_rle8",            "bmp_rgb16_555",            "bmp_rgb16_565",      "bmp_rgb24",           "bmp_rgb32_alpha",          "bmp_rgb32_bitfields", "bmp_rgb24_topdown",
+        "webp_lossy_q75",      "webp_lossless",            "webp_lossy_alpha",   "webp_lossless_alpha", "webp_anim_lossless",       "webp_anim_lossy",     "jpeg_arith_420",
+        "jpeg_arith_444",      "jpeg_arith_gray",          "jpeg_arith_prog",    "jpeg_arith_restart",  "jpeg_440",                 "jpeg_411",            "webp_simple_filter",
+        "png_icc_p3",          "png_gama_linear",          "png_gama22_chrm_p3", "jpeg_icc_p3",         "jpeg_icc_multichunk",      "webp_icc_p3_lossy",   "bmp_v5_icc_p3",
+        "png_truncated",       "png_interlaced_truncated", "jpeg_truncated",     "gif_truncated",       "gif_interlaced_truncated", "bmp_truncated",       "bmp_embedded_png",
+        "bmp_embedded_jpeg",
     };
     for (required) |name| {
         const key = try std.fmt.allocPrint(alloc, "{s}.", .{name});
@@ -104,7 +108,7 @@ test "every format and variant has a fixture" {
     }
 }
 
-test "truncated files return errors or decode without crashing" {
+test "truncated files decode what arrived or return an error" {
     const alloc = std.testing.allocator;
     const text = try manifest(alloc);
     defer alloc.free(text);
@@ -118,7 +122,7 @@ test "truncated files return errors or decode without crashing" {
             if (image.decode(alloc, bytes[0..n])) |img| {
                 var m = img;
                 m.deinit(alloc);
-                if (n < 8 or (e.frames == 1 and n == bytes.len / 2)) {
+                if (n < 8) {
                     std.debug.print("{s}: {d} bytes decoded\n", .{ e.name, n });
                     return error.TruncatedInputAccepted;
                 }
@@ -238,4 +242,42 @@ test "animation frame delays of 10 ms or less become 100 ms" {
     defer img.deinit(alloc);
     try std.testing.expectEqual(@as(u32, 100), img.frames[1].delay_ms);
     try std.testing.expectEqual(@as(u32, 50), img.frames[0].delay_ms);
+}
+
+fn expectPartial(name: []const u8, keep: usize) !void {
+    const alloc = std.testing.allocator;
+    const bytes = try readFile(alloc, name);
+    defer alloc.free(bytes);
+    var img = try image.decode(alloc, bytes[0..keep]);
+    defer img.deinit(alloc);
+    const f = img.frames[0].rgba;
+    var clear: usize = 0;
+    var set: usize = 0;
+    var px: usize = 0;
+    while (px < f.len) : (px += 4) {
+        if (f[px + 3] == 0) clear += 1 else set += 1;
+    }
+    try std.testing.expect(clear > 0 and set > 0);
+}
+
+test "a file cut after some pixel rows keeps them and leaves the rest transparent" {
+    try expectPartial("png_rgba8.png", 800);
+    try expectPartial("png_rgba8_i.png", 1000);
+    try expectPartial("gif_static.gif", 150);
+    try expectPartial("bmp_rgb32_alpha.bmp", 1200);
+}
+
+test "a file cut before any pixel data is an error" {
+    const alloc = std.testing.allocator;
+    const cuts = [_]struct { name: []const u8, keep: usize }{
+        .{ .name = "png_rgb8.png", .keep = 45 },
+        .{ .name = "jpeg_420.jpg", .keep = 200 },
+        .{ .name = "gif_static.gif", .keep = 40 },
+        .{ .name = "bmp_rgb24.bmp", .keep = 60 },
+    };
+    for (cuts) |c| {
+        const bytes = try readFile(alloc, c.name);
+        defer alloc.free(bytes);
+        try expectDecodeError(error.Corrupt, bytes[0..c.keep]);
+    }
 }

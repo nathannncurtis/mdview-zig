@@ -2,6 +2,7 @@ const std = @import("std");
 const image = @import("image.zig");
 const vp8 = @import("vp8.zig");
 const vp8l = @import("vp8l.zig");
+const icc = @import("icc.zig");
 const Error = image.Error;
 const Image = image.Image;
 
@@ -40,7 +41,16 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     const cw = u24le(first.data[4..7]) + 1;
     const ch = u24le(first.data[7..10]) + 1;
     try image.checkDims(cw, ch);
-    if (flags & 0x02 != 0) return decodeAnim(alloc, &it, cw, ch);
+    var iccp: ?[]const u8 = null;
+    var peek = it;
+    while (try peek.next()) |c| {
+        if (std.mem.eql(u8, &c.tag, "ICCP")) iccp = c.data;
+    }
+    if (flags & 0x02 != 0) {
+        var img = try decodeAnim(alloc, &it, cw, ch);
+        colorize(&img, iccp);
+        return img;
+    }
 
     var alph: ?[]const u8 = null;
     while (try it.next()) |c| {
@@ -50,10 +60,18 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
             const d = try decodeData(alloc, alph, c);
             errdefer alloc.free(d.rgba);
             if (d.width != cw or d.height != ch) return error.Corrupt;
-            return image.single(alloc, d.width, d.height, d.rgba);
+            var img = try image.single(alloc, d.width, d.height, d.rgba);
+            colorize(&img, iccp);
+            return img;
         }
     }
     return error.Corrupt;
+}
+
+fn colorize(img: *Image, profile: ?[]const u8) void {
+    const p = profile orelse return;
+    var tr = std.mem.zeroes(icc.Transform);
+    if (icc.fromProfile(&tr, p, false)) |t| for (img.frames) |f| t.apply(f.rgba);
 }
 
 fn decodeAnim(alloc: std.mem.Allocator, it: *ChunkIter, cw: u32, ch: u32) Error!Image {

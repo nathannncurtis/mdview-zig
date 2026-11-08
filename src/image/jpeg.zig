@@ -2,8 +2,10 @@ const std = @import("std");
 const image = @import("image.zig");
 const Error = image.Error;
 const Image = image.Image;
+const arith = @import("jpeg_arith.zig");
+const icc = @import("icc.zig");
 
-const zigzag = [64]u8{
+pub const zigzag = [64]u8{
     0,  1,  8,  16, 9,  2,  3,  10,
     17, 24, 32, 25, 18, 11, 4,  5,
     12, 19, 26, 33, 40, 48, 41, 34,
@@ -65,6 +67,7 @@ const Component = struct {
     q: [64]u16 = @splat(0),
     q_set: bool = false,
     pred: i32 = 0,
+    dc_ctx: usize = 0,
 };
 
 const Bits = struct {
@@ -145,17 +148,18 @@ const Bits = struct {
         return error.Corrupt;
     }
 
-    fn restart(self: *Bits) Error!void {
+    fn restart(self: *Bits) bool {
         self.buf = 0;
         self.cnt = 0;
         self.zeros = 0;
-        if (self.bad) return error.Corrupt;
-        if (self.pos + 2 > self.data.len or self.data[self.pos] != 0xFF) return error.Corrupt;
+        if (self.bad) return false;
+        if (self.pos + 2 > self.data.len or self.data[self.pos] != 0xFF) return false;
         var p = self.pos;
         while (p + 1 < self.data.len and self.data[p + 1] == 0xFF) p += 1;
-        if (p + 1 >= self.data.len or self.data[p + 1] < 0xD0 or self.data[p + 1] > 0xD7) return error.Corrupt;
+        if (p + 1 >= self.data.len or self.data[p + 1] < 0xD0 or self.data[p + 1] > 0xD7) return false;
         self.pos = p + 2;
         self.marker = false;
+        return true;
     }
 };
 
@@ -188,12 +192,22 @@ const Decoder = struct {
     eobrun: u32 = 0,
     allocated: bool = false,
     scans: usize = 0,
+    arith: bool = false,
+    dac_l: [4]u8 = @splat(0),
+    dac_u: [4]u8 = @splat(1),
+    dac_k: [4]u8 = @splat(5),
+    multi_scan: bool = false,
+    truncated: bool = false,
+    any_data: bool = false,
+    rows_ok: ?usize = null,
+    icc_parts: [256][]const u8 = @splat(&.{}),
+    icc_count: u8 = 0,
 
     fn deinit(self: *Decoder) void {
         for (self.comps[0..self.ncomp]) |c| self.alloc.free(c.coef);
     }
 
-    fn parseSof(self: *Decoder, seg: []const u8, progressive: bool) Error!void {
+    fn parseSof(self: *Decoder, seg: []const u8, progressive: bool, use_arith: bool) Error!void {
         if (self.ncomp != 0) return error.Corrupt;
         var c: image.Cursor = .{ .b = seg };
         const prec = try c.byte();
@@ -207,6 +221,7 @@ const Decoder = struct {
         self.width = w;
         self.height = h;
         self.progressive = progressive;
+        self.arith = use_arith;
         for (0..n) |i| {
             const id = try c.byte();
             const hv = try c.byte();
@@ -262,9 +277,28 @@ const Decoder = struct {
         }
     }
 
+    fn parseDac(self: *Decoder, seg: []const u8) Error!void {
+        var c: image.Cursor = .{ .b = seg };
+        while (c.left() > 0) {
+            const idx = try c.byte();
+            const val = try c.byte();
+            if (idx < 4) {
+                if ((val & 15) > (val >> 4)) return error.Corrupt;
+                self.dac_l[idx] = val & 15;
+                self.dac_u[idx] = val >> 4;
+            } else if (idx >= 16 and idx < 20) {
+                self.dac_k[idx - 16] = val;
+            } else return error.Corrupt;
+        }
+    }
+
     fn parseApp(self: *Decoder, marker: u8, seg: []const u8) void {
         if (marker == 0xE0 and seg.len >= 5 and std.mem.eql(u8, seg[0..5], "JFIF\x00")) self.jfif = true;
         if (marker == 0xEE and seg.len >= 12 and std.mem.eql(u8, seg[0..5], "Adobe")) self.adobe_transform = seg[11];
+        if (marker == 0xE2 and seg.len >= 14 and std.mem.eql(u8, seg[0..12], "ICC_PROFILE\x00") and seg[12] > 0) {
+            self.icc_parts[seg[12]] = seg[14..];
+            self.icc_count = seg[13];
+        }
         if (marker == 0xE1 and seg.len >= 14 and std.mem.eql(u8, seg[0..6], "Exif\x00\x00")) self.parseExif(seg[6..]);
     }
 
@@ -302,7 +336,8 @@ const Decoder = struct {
         var c: image.Cursor = .{ .b = seg };
         const ns = try c.byte();
         if (ns < 1 or ns > 4 or ns > self.ncomp) return error.Corrupt;
-        var idx: [4]usize = undefined;
+        var idx: [4]usize = @splat(0);
+        var mcu_blocks: usize = 0;
         for (0..ns) |i| {
             const id = try c.byte();
             const t = try c.byte();
@@ -316,7 +351,9 @@ const Decoder = struct {
             self.comps[j].td = t >> 4;
             self.comps[j].ta = t & 15;
             if (self.comps[j].td > 3 or self.comps[j].ta > 3) return error.Corrupt;
+            mcu_blocks += self.comps[j].h * self.comps[j].v;
         }
+        if (ns > 1 and mcu_blocks > 10) return error.Corrupt;
         var ss: u32 = try c.byte();
         var se: u32 = try c.byte();
         const a = try c.byte();
@@ -333,6 +370,8 @@ const Decoder = struct {
             if (ss > 0 and ns != 1) return error.Corrupt;
         }
         try self.allocCoefs();
+        const need_dc = !self.progressive or (ss == 0 and ah == 0);
+        const need_ac = !self.progressive or ss > 0;
         for (idx[0..ns]) |j| {
             const cp = &self.comps[j];
             if (!cp.q_set) {
@@ -340,34 +379,58 @@ const Decoder = struct {
                 cp.q = self.qt[cp.tq];
                 cp.q_set = true;
             }
-            const need_dc = !self.progressive or (ss == 0 and ah == 0);
-            const need_ac = !self.progressive or ss > 0;
+            if (self.arith) continue;
             if (need_dc and !self.dc[cp.td].present) return error.Corrupt;
             if (need_ac and !self.ac[cp.ta].present) return error.Corrupt;
         }
+        if (self.scans == 0) self.multi_scan = self.progressive or ns < self.ncomp;
 
         var br: Bits = .{ .data = self.data, .pos = entropy_start };
-        for (self.comps[0..self.ncomp]) |*cp| cp.pred = 0;
+        var ar = arith.Arith.init(self.data, entropy_start);
+        for (self.comps[0..self.ncomp]) |*cp| {
+            cp.pred = 0;
+            cp.dc_ctx = 0;
+        }
         self.eobrun = 0;
         var mcu_count: usize = 0;
         const first = &self.comps[idx[0]];
         const sw: usize = (first.cw + 7) / 8;
+        const per_row: usize = if (ns == 1) sw else self.mcus_x;
         const total_mcus: usize = if (ns == 1) sw * ((first.ch + 7) / 8) else self.mcus_x * self.mcus_y;
 
+        var done: usize = 0;
         var m: usize = 0;
         while (m < total_mcus) : (m += 1) {
             if (self.restart_interval != 0 and mcu_count == self.restart_interval) {
-                try br.restart();
-                for (self.comps[0..self.ncomp]) |*cp| cp.pred = 0;
+                const ok = if (self.arith) ar.restart() else br.restart();
+                if (!ok) {
+                    self.truncated = true;
+                    break;
+                }
+                for (self.comps[0..self.ncomp]) |*cp| {
+                    cp.pred = 0;
+                    cp.dc_ctx = 0;
+                }
+                if (self.arith) {
+                    for (idx[0..ns]) |j| {
+                        if (need_dc) ar.dc_stats[self.comps[j].td] = @splat(0);
+                        if (need_ac) ar.ac_stats[self.comps[j].ta] = @splat(0);
+                    }
+                }
                 self.eobrun = 0;
                 mcu_count = 0;
             }
             mcu_count += 1;
+            var blk: [10][]i16 = undefined;
+            var owner: [10]usize = undefined;
+            var nb: usize = 0;
             if (ns == 1) {
                 const cp = &self.comps[idx[0]];
                 const bx = m % sw;
                 const by = m / sw;
-                try self.block(&br, cp, cp.coef[(by * cp.bw + bx) * 64 ..][0..64], ss, se, ah, al);
+                blk[0] = cp.coef[(by * cp.bw + bx) * 64 ..][0..64];
+                owner[0] = idx[0];
+                nb = 1;
             } else {
                 const mx = m % self.mcus_x;
                 const my = m / self.mcus_x;
@@ -376,18 +439,79 @@ const Decoder = struct {
                     for (0..cp.v) |v| for (0..cp.h) |h| {
                         const bx = mx * cp.h + h;
                         const by = my * cp.v + v;
-                        try self.block(&br, cp, cp.coef[(by * cp.bw + bx) * 64 ..][0..64], ss, se, ah, al);
+                        blk[nb] = cp.coef[(by * cp.bw + bx) * 64 ..][0..64];
+                        owner[nb] = j;
+                        nb += 1;
                     };
                 }
             }
-            if (br.bad) return error.Corrupt;
+            var snap: [640]i16 = undefined;
+            if (self.multi_scan) {
+                for (0..nb) |i| @memcpy(snap[i * 64 ..][0..64], blk[i]);
+            }
+            for (0..nb) |i| {
+                const cp = &self.comps[owner[i]];
+                if (self.arith) {
+                    self.arithBlock(&ar, cp, blk[i], ss, se, ah, al);
+                } else if (self.block(&br, cp, blk[i], ss, se, ah, al)) |_| {} else |e| {
+                    if (!br.bad) return e;
+                }
+            }
+            if (if (self.arith) ar.bad else br.bad) {
+                if (self.multi_scan) {
+                    for (0..nb) |i| @memcpy(blk[i], snap[i * 64 ..][0..64]);
+                }
+                self.truncated = true;
+                break;
+            }
+            done += 1;
+            self.any_data = true;
         }
         self.scans += 1;
-        var p = br.pos;
+        if (self.truncated) {
+            if (!self.multi_scan) {
+                const rows_done = done / per_row;
+                if (rows_done < (total_mcus + per_row - 1) / per_row) {
+                    const lag: usize = if (self.needContext()) self.vmax else 0;
+                    self.rows_ok = (rows_done * 8 * self.vmax) -| lag;
+                }
+            }
+            return self.data.len;
+        }
+        const pos = if (self.arith) ar.pos else br.pos;
+        var p = pos;
         while (p + 1 < self.data.len) : (p += 1) {
             if (self.data[p] == 0xFF and self.data[p + 1] != 0 and self.data[p + 1] != 0xFF and !(self.data[p + 1] >= 0xD0 and self.data[p + 1] <= 0xD7)) break;
         }
         return @min(p, self.data.len);
+    }
+
+    fn needContext(self: *const Decoder) bool {
+        for (self.comps[0..self.ncomp]) |cp| {
+            if (self.hmax % cp.h != 0 or self.vmax % cp.v != 0) continue;
+            const hs = self.hmax / cp.h;
+            const vs = self.vmax / cp.v;
+            if ((hs == 2 and vs == 2 and cp.cw > 2) or (hs == 1 and vs == 2)) return true;
+        }
+        return false;
+    }
+
+    fn arithBlock(self: *Decoder, ar: *arith.Arith, cp: *Component, co: []i16, ss: u32, se: u32, ah: u32, al: u32) void {
+        const td: usize = cp.td;
+        const ta: usize = cp.ta;
+        const l: u5 = @intCast(self.dac_l[td]);
+        const u: u5 = @intCast(self.dac_u[td]);
+        const kx = self.dac_k[ta];
+        const sh: u5 = @intCast(al);
+        if (!self.progressive) {
+            ar.sequential(co, td, ta, &cp.dc_ctx, &cp.pred, l, u, kx);
+        } else if (ss == 0) {
+            if (ah == 0) ar.dcFirst(co, td, &cp.dc_ctx, &cp.pred, l, u, sh) else ar.dcRefine(co, sh);
+        } else if (ah == 0) {
+            ar.acFirst(co, ta, ss, se, kx, sh);
+        } else {
+            ar.acRefine(co, ta, ss, se, sh);
+        }
     }
 
     fn block(self: *Decoder, br: *Bits, cp: *Component, co: []i16, ss: u32, se: u32, ah: u32, al: u32) Error!void {
@@ -674,15 +798,19 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         pos += 1;
         if (m == 0xD9) break;
         if (m == 0 or m == 0x01 or (m >= 0xD0 and m <= 0xD8)) continue;
-        if (pos + 2 > bytes.len) return error.Corrupt;
+        if (pos + 2 > bytes.len) break;
         const len = std.mem.readInt(u16, bytes[pos..][0..2], .big);
-        if (len < 2 or pos + len > bytes.len) return error.Corrupt;
+        if (len < 2) return error.Corrupt;
+        if (pos + len > bytes.len) break;
         const seg = bytes[pos + 2 .. pos + len];
         pos += len;
         switch (m) {
-            0xC0, 0xC1 => try d.parseSof(seg, false),
-            0xC2 => try d.parseSof(seg, true),
-            0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF => return error.UnsupportedFormat,
+            0xC0, 0xC1 => try d.parseSof(seg, false, false),
+            0xC2 => try d.parseSof(seg, true, false),
+            0xC9 => try d.parseSof(seg, false, true),
+            0xCA => try d.parseSof(seg, true, true),
+            0xCC => try d.parseDac(seg),
+            0xC3, 0xC5, 0xC6, 0xC7, 0xCB, 0xCD, 0xCE, 0xCF => return error.UnsupportedFormat,
             0xC4 => try d.parseDht(seg),
             0xDB => try d.parseDqt(seg),
             0xDD => {
@@ -691,13 +819,13 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
             },
             0xDA => {
                 if (d.ncomp == 0) return error.Corrupt;
-                pos = try d.scan(seg, pos);
+                pos = d.scan(seg, pos) catch |e| if (d.any_data) break else return e;
             },
             0xE0...0xEF => d.parseApp(m, seg),
             else => {},
         }
     }
-    if (d.ncomp == 0 or d.scans == 0) return error.Corrupt;
+    if (d.ncomp == 0 or !d.any_data) return error.Corrupt;
     return render(&d);
 }
 
@@ -727,6 +855,8 @@ fn render(d: *Decoder) Error!Image {
     const ow: u32 = if (swap) d.height else d.width;
     const oh: u32 = if (swap) d.width else d.height;
     const out = try image.allocRgba(alloc, ow, oh);
+    const valid_rows = d.rows_ok orelse h;
+    if (valid_rows < h) @memset(out, 0);
     errdefer alloc.free(out);
 
     var lines: [4][]u8 = undefined;
@@ -743,7 +873,7 @@ fn render(d: *Decoder) Error!Image {
     };
     const inverted = d.ncomp == 4 and d.adobe_transform != null;
 
-    for (0..h) |y| {
+    for (0..valid_rows) |y| {
         for (d.comps[0..d.ncomp], 0..) |*cp, i| {
             const hs = if (d.hmax % cp.h == 0) d.hmax / cp.h else 0;
             const vs = if (d.vmax % cp.v == 0) d.vmax / cp.v else 0;
@@ -796,5 +926,25 @@ fn render(d: *Decoder) Error!Image {
             out[(dy * ow + dx) * 4 ..][0..4].* = rgba_row[x * 4 ..][0..4].*;
         }
     }
+    try applyProfile(d, out);
     return image.single(alloc, ow, oh, out);
+}
+
+fn applyProfile(d: *const Decoder, out: []u8) Error!void {
+    if (d.icc_count == 0 or (d.ncomp != 1 and d.ncomp != 3)) return;
+    var total: usize = 0;
+    for (1..@as(usize, d.icc_count) + 1) |i| {
+        if (d.icc_parts[i].len == 0) return;
+        total += d.icc_parts[i].len;
+    }
+    if (total > 4 << 20) return;
+    const prof = try d.alloc.alloc(u8, total);
+    defer d.alloc.free(prof);
+    var at: usize = 0;
+    for (1..@as(usize, d.icc_count) + 1) |i| {
+        @memcpy(prof[at..][0..d.icc_parts[i].len], d.icc_parts[i]);
+        at += d.icc_parts[i].len;
+    }
+    var tr = std.mem.zeroes(icc.Transform);
+    if (icc.fromProfile(&tr, prof, d.ncomp == 1)) |t| t.apply(out);
 }

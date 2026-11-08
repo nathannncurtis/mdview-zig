@@ -68,10 +68,13 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
             },
             0x2C => {
                 const frame_ok = decodeFrame(alloc, &c, global, canvas, sw, sh, transparent, dispose, prev_dispose, &prev_rect, &saved, &index_buf, lzw);
-                if (frame_ok) |_| {
-                    const copy = try alloc.dupe(u8, canvas);
-                    errdefer alloc.free(copy);
-                    try list.add(sw, sh, copy, delay);
+                if (frame_ok) |complete| {
+                    if (complete or list.list.items.len == 0) {
+                        const copy = try alloc.dupe(u8, canvas);
+                        errdefer alloc.free(copy);
+                        try list.add(sw, sh, copy, delay);
+                    }
+                    if (!complete) break;
                 } else |e| {
                     if (list.list.items.len == 0 or e == error.OutOfMemory or e == error.TooLarge) return e;
                     break;
@@ -113,7 +116,7 @@ fn decodeFrame(
     saved: *?[]u8,
     index_buf: *std.ArrayList(u8),
     lzw: *Lzw,
-) Error!void {
+) Error!bool {
     const fx = try c.le16();
     const fy = try c.le16();
     const fw = try c.le16();
@@ -148,8 +151,9 @@ fn decodeFrame(
     @memset(index_buf.items, 0);
     const got = try lzw.decode(c, min_code, index_buf.items);
     lzw.finish(c);
-    if (lzw.truncated) return error.Corrupt;
     if (got == 0 and npix > 0) return error.Corrupt;
+    const limit: usize = if (lzw.truncated) got else npix;
+    const rows_done: usize = if (fw == 0) fh else (limit + fw - 1) / fw;
 
     const tbl = table orelse return error.Corrupt;
     const ncol = tbl.len / 3;
@@ -158,28 +162,40 @@ fn decodeFrame(
     const pass_step = [4]usize{ 8, 8, 4, 2 };
     var pass: usize = 0;
     var y: usize = 0;
-    while (row_src < fh) : (row_src += 1) {
+    while (row_src < rows_done) : (row_src += 1) {
         var yy: usize = row_src;
+        var row_pass: usize = 3;
         if (interlaced) {
             yy = y;
+            row_pass = pass;
             y += pass_step[pass];
             while (y >= fh and pass < 3) {
                 pass += 1;
                 y = pass_start[pass];
             }
         }
-        const cy = fy + yy;
-        if (cy >= sh) continue;
-        const src = index_buf.items[row_src * fw ..][0..fw];
-        for (src, 0..) |idx, x| {
-            const cx = fx + x;
-            if (cx >= sw) break;
-            if (transparent != null and transparent.? == idx) continue;
-            if (idx >= ncol) continue;
-            const t = @as(usize, idx) * 3;
-            canvas[(cy * sw + cx) * 4 ..][0..4].* = .{ tbl[t], tbl[t + 1], tbl[t + 2], 255 };
+        const first_row: i64 = @intCast(yy);
+        var last_row: i64 = first_row;
+        if (interlaced and lzw.truncated and row_pass < 3 and limit - row_src * fw >= fw) {
+            const dup: i64 = if (row_pass == 0) 7 else if (row_pass == 1) 3 else 1;
+            last_row = @min(first_row + dup, @as(i64, @intCast(fh)) - 1);
+        }
+        const src = index_buf.items[row_src * fw ..][0..@min(fw, limit - row_src * fw)];
+        var ry = first_row;
+        while (ry <= last_row) : (ry += 1) {
+            const cy = fy + @as(usize, @intCast(ry));
+            if (cy >= sh) break;
+            for (src, 0..) |idx, x| {
+                const cx = fx + x;
+                if (cx >= sw) break;
+                if (transparent != null and transparent.? == idx) continue;
+                if (idx >= ncol) continue;
+                const t = @as(usize, idx) * 3;
+                canvas[(cy * sw + cx) * 4 ..][0..4].* = .{ tbl[t], tbl[t + 1], tbl[t + 2], 255 };
+            }
         }
     }
+    return !lzw.truncated;
 }
 
 const Lzw = struct {
