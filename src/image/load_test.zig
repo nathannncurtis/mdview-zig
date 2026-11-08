@@ -1,5 +1,5 @@
 const std = @import("std");
-const images = @import("../images.zig");
+const images = @import("images.zig");
 const testing = std.testing;
 
 fn waitFor(target: []const u8, avail: f32) !images.Look {
