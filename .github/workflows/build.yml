@@ -9,6 +9,9 @@ on:
       sign:
         type: boolean
         default: false
+      light:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       version:
@@ -23,6 +26,7 @@ permissions:
 
 jobs:
   windows:
+    if: ${{ !inputs.light }}
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -214,6 +218,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: ${{ !inputs.light }}
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
