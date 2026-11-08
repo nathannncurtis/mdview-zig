@@ -29,7 +29,8 @@ pub const kbd_font_px: f32 = 11;
 /// Byte offset and length within `Inline.text`.
 pub const Span = [2]u32;
 
-pub const StyleKind = enum { sub, kbd, underline, mark, tt };
+/// `semibold` is font-weight 600, which GitHub gives `dt`.
+pub const StyleKind = enum { sub, kbd, underline, mark, tt, semibold };
 pub const Styled = struct { span: Span, kind: StyleKind };
 /// What a block is within its HTML element: a `summary` or `dt` line.
 pub const Role = enum {
@@ -1242,6 +1243,7 @@ const Parser = struct {
         }
         var role = k.role;
         if (k.kind == .paragraph and role == .none and !k.in_p and std.mem.trim(u8, f.text.items, "\n").len == 0) role = .break_lines;
+        if (role == .dt and f.text.items.len > 0) try f.styles.append(f.a, .{ .span = .{ 0, @intCast(f.text.items.len) }, .kind = .semibold });
         const raw = try p.commit(f);
         f.reset();
         try p.emit(.{ .kind = k.kind, .role = role, .content = raw, .compact = k.compact });
@@ -2910,6 +2912,7 @@ test "html: lists, quotes and definition lists become frames" {
     try testing.expectEqual(FrameKind.quote, doc.blocks[2].frames[0].kind);
     try testing.expect(doc.blocks[2].muted());
     try testing.expectEqual(Role.dt, doc.blocks[3].role);
+    try testing.expect(hasStyle(doc.blocks[3].content, .semibold, "Term"));
     try testing.expectEqual(FrameKind.dd, doc.blocks[4].frames[0].kind);
     try testing.expectEqual(dd_inset, doc.blocks[4].inset());
 
