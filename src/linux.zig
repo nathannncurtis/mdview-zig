@@ -2043,7 +2043,11 @@ test "a closed details skips its content and its marker toggles it" {
 }
 
 fn floatBlocks(comptime side: []const u8) [2]md.Block {
-    const long = "first words " ++ ("lorem ipsum dolor sit amet " ** 60) ++ "last";
+    const long = comptime blk: {
+        var text: []const u8 = "first words ";
+        for (0..60) |_| text = text ++ "lorem ipsum dolor sit amet ";
+        break :blk text ++ "last";
+    };
     const image: md.Image = .{ .start = 0, .len = 3, .target = "logo.png", .float = if (std.mem.eql(u8, side, "left")) .left else .right };
     return .{
         .{ .kind = .paragraph, .content = .{ .text = "\u{fffc}", .images = &.{image} } },
