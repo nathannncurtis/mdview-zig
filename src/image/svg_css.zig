@@ -27,6 +27,8 @@ pub const Frame = struct { pct: f64, decls: []const Decl };
 
 pub const Keyframes = struct { name: []const u8, frames: []const Frame };
 
+pub const FontFace = struct { family: []const u8, src: []const u8, weight: u16, italic: bool };
+
 pub const Env = struct { vw: f64 = 300, vh: f64 = 150 };
 
 pub const max_rules = 1000;
@@ -204,6 +206,29 @@ fn parseKeyframes(arena: std.mem.Allocator, header: []const u8, body: []const u8
     try out.append(arena, .{ .name = name, .frames = frames.items });
 }
 
+fn parseFontFace(arena: std.mem.Allocator, body: []const u8, out: *std.ArrayList(FontFace)) std.mem.Allocator.Error!void {
+    var decls: std.ArrayList(Decl) = .empty;
+    try parseDecls(arena, body, &decls);
+    var family: ?[]const u8 = null;
+    var src: ?[]const u8 = null;
+    var weight: u16 = 400;
+    var italic = false;
+    for (decls.items) |d| {
+        if (std.mem.eql(u8, d.name, "font-family")) {
+            family = std.mem.trim(u8, d.value, " \t\r\n\"'");
+        } else if (std.mem.eql(u8, d.name, "src")) {
+            const open = std.mem.indexOf(u8, d.value, "url(") orelse continue;
+            const close = std.mem.indexOfScalarPos(u8, d.value, open, ')') orelse continue;
+            src = std.mem.trim(u8, d.value[open + 4 .. close], " \t\r\n\"'");
+        } else if (std.mem.eql(u8, d.name, "font-weight")) {
+            weight = if (std.mem.eql(u8, d.value, "bold")) 700 else std.fmt.parseInt(u16, std.mem.sliceTo(d.value, ' '), 10) catch 400;
+        } else if (std.mem.eql(u8, d.name, "font-style")) {
+            italic = std.mem.startsWith(u8, d.value, "italic") or std.mem.startsWith(u8, d.value, "oblique");
+        }
+    }
+    if (family != null and src != null and out.items.len < 32) try out.append(arena, .{ .family = family.?, .src = src.?, .weight = weight, .italic = italic });
+}
+
 fn lengthPx(v: []const u8, env: Env) ?f64 {
     var i: usize = 0;
     while (i < v.len and (std.ascii.isDigit(v[i]) or v[i] == '.' or v[i] == '-' or v[i] == '+')) i += 1;
@@ -365,11 +390,11 @@ fn supportsHolds(cond_in: []const u8, depth: u32) bool {
     return true;
 }
 
-pub fn parseStylesheet(arena: std.mem.Allocator, raw: []const u8, rules: *std.ArrayList(Rule), frames: *std.ArrayList(Keyframes), env: Env) std.mem.Allocator.Error!void {
-    return parseSheet(arena, raw, rules, frames, env, 0);
+pub fn parseStylesheet(arena: std.mem.Allocator, raw: []const u8, rules: *std.ArrayList(Rule), frames: *std.ArrayList(Keyframes), faces: *std.ArrayList(FontFace), env: Env) std.mem.Allocator.Error!void {
+    return parseSheet(arena, raw, rules, frames, faces, env, 0);
 }
 
-fn parseSheet(arena: std.mem.Allocator, raw: []const u8, rules: *std.ArrayList(Rule), frames: *std.ArrayList(Keyframes), env: Env, depth: u32) std.mem.Allocator.Error!void {
+fn parseSheet(arena: std.mem.Allocator, raw: []const u8, rules: *std.ArrayList(Rule), frames: *std.ArrayList(Keyframes), faces: *std.ArrayList(FontFace), env: Env, depth: u32) std.mem.Allocator.Error!void {
     const text = try stripComments(arena, raw);
     var i: usize = 0;
     while (i < text.len and rules.items.len < max_rules) {
@@ -384,13 +409,15 @@ fn parseSheet(arena: std.mem.Allocator, raw: []const u8, rules: *std.ArrayList(R
                 const body = text[brace + 1 .. @max(brace + 1, end - 1)];
                 if (std.mem.startsWith(u8, header, "@keyframes") or std.mem.startsWith(u8, header, "@-webkit-keyframes")) {
                     try parseKeyframes(arena, header, body, frames);
+                } else if (std.mem.startsWith(u8, header, "@font-face")) {
+                    try parseFontFace(arena, body, faces);
                 } else if (depth < 4) {
                     if (std.mem.startsWith(u8, header, "@media")) {
-                        if (mediaMatches(header[6..], env)) try parseSheet(arena, body, rules, frames, env, depth + 1);
+                        if (mediaMatches(header[6..], env)) try parseSheet(arena, body, rules, frames, faces, env, depth + 1);
                     } else if (std.mem.startsWith(u8, header, "@supports")) {
-                        if (supportsHolds(header[9..], 0)) try parseSheet(arena, body, rules, frames, env, depth + 1);
+                        if (supportsHolds(header[9..], 0)) try parseSheet(arena, body, rules, frames, faces, env, depth + 1);
                     } else if (std.mem.startsWith(u8, header, "@layer")) {
-                        try parseSheet(arena, body, rules, frames, env, depth + 1);
+                        try parseSheet(arena, body, rules, frames, faces, env, depth + 1);
                     }
                 }
                 i = end;
@@ -487,7 +514,10 @@ test "stylesheet matching" {
     const root = try xml.parse(a, "<svg><g class='a b'><rect id='r' class='x'/></g></svg>");
     var rules: std.ArrayList(Rule) = .empty;
     var frames: std.ArrayList(Keyframes) = .empty;
-    try parseStylesheet(a, "@keyframes pop { from { opacity: 0 } 50% { opacity: .5 } to { opacity: 1; fill: red } } /*c*/ @media print { rect { fill: blue } } g.a > rect, svg #r.x { fill: red; stroke : green !important } .zz{fill:blue} a:hover{fill:blue} @media (prefers-color-scheme: dark) { .q1 { fill: red } } @media (prefers-color-scheme: light) { .q2 { fill: red } } @supports (-moz-appearance: auto) { .q3 { fill: red } }", &rules, &frames, .{});
+    var faces: std.ArrayList(FontFace) = .empty;
+    try parseStylesheet(a, "@keyframes pop { from { opacity: 0 } 50% { opacity: .5 } to { opacity: 1; fill: red } } /*c*/ @font-face { font-family: T; src: url(data:font/ttf;base64,AAEAAA==) format(truetype); font-weight: bold } @media print { rect { fill: blue } } g.a > rect, svg #r.x { fill: red; stroke : green !important } .zz{fill:blue} a:hover{fill:blue} @media (prefers-color-scheme: dark) { .q1 { fill: red } } @media (prefers-color-scheme: light) { .q2 { fill: red } } @supports (-moz-appearance: auto) { .q3 { fill: red } }", &rules, &frames, &faces, .{});
+    try std.testing.expectEqual(@as(usize, 1), faces.items.len);
+    try std.testing.expectEqual(@as(u16, 700), faces.items[0].weight);
     try std.testing.expectEqual(@as(usize, 1), frames.items.len);
     try std.testing.expectEqualStrings("pop", frames.items[0].name);
     try std.testing.expectEqual(@as(usize, 3), frames.items[0].frames.len);

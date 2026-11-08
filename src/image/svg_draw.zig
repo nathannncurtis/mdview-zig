@@ -5,6 +5,7 @@ const css = @import("svg_css.zig");
 const raster = @import("svg_raster.zig");
 const sty = @import("svg_style.zig");
 const text = @import("svg_text.zig");
+const font = @import("font");
 const anim = @import("svg_anim.zig");
 
 const Mat = raster.Mat;
@@ -471,6 +472,8 @@ pub const Renderer = struct {
     ids: std.StringHashMapUnmanaged(*Node) = .empty,
     rules: std.ArrayList(css.Rule) = .empty,
     frames: std.ArrayList(css.Keyframes) = .empty,
+    faces: std.ArrayList(css.FontFace) = .empty,
+    loaded: std.ArrayList(?*const font.Font) = .empty,
     ras: raster.Raster,
     pa: raster.Polys = .{},
     pb: raster.Polys = .{},
@@ -512,7 +515,7 @@ pub const Renderer = struct {
         if (std.mem.eql(u8, node.tag, "style")) {
             const ty = node.attr("type") orelse "text/css";
             if (ty.len == 0 or std.mem.eql(u8, ty, "text/css")) {
-                for (node.children.items) |c| if (c.is_text) try css.parseStylesheet(r.arena, c.text, &r.rules, &r.frames, .{ .vw = @floatFromInt(r.w), .vh = @floatFromInt(r.h) });
+                for (node.children.items) |c| if (c.is_text) try css.parseStylesheet(r.arena, c.text, &r.rules, &r.frames, &r.faces, .{ .vw = @floatFromInt(r.w), .vh = @floatFromInt(r.h) });
             }
         }
         for (node.children.items) |c| try r.collect(c);
@@ -521,6 +524,28 @@ pub const Renderer = struct {
     pub fn charge(r: *Renderer, px: u64) Error!void {
         r.work += px;
         if (r.work > max_work) return error.TooLarge;
+    }
+
+    pub fn userFace(r: *Renderer, name: []const u8, weight: u16, italic: bool) ?*const font.Font {
+        var best: ?usize = null;
+        var best_score: u32 = std.math.maxInt(u32);
+        for (r.faces.items, 0..) |f, i| {
+            if (!std.ascii.eqlIgnoreCase(f.family, name)) continue;
+            const diff: u32 = @abs(@as(i32, f.weight) - weight);
+            const score = diff + (if (f.italic != italic) @as(u32, 1000) else 0);
+            if (score < best_score) {
+                best_score = score;
+                best = i;
+            }
+        }
+        const i = best orelse return null;
+        while (r.loaded.items.len <= i) r.loaded.append(r.arena, null) catch return null;
+        if (r.loaded.items[i]) |f| return f;
+        const bytes = (decodeDataUri(r.arena, r.faces.items[i].src) catch return null) orelse return null;
+        const f = r.arena.create(font.Font) catch return null;
+        f.* = font.Font.init(bytes, 0) catch return null;
+        r.loaded.items[i] = f;
+        return f;
     }
 
     pub fn lookup(r: *Renderer, id: []const u8) ?*Node {

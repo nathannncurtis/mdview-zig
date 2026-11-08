@@ -5,6 +5,7 @@ const raster = @import("svg_raster.zig");
 const sty = @import("svg_style.zig");
 const font = @import("font");
 const shape = @import("svg_shape.zig");
+const indic = @import("svg_indic.zig");
 const image = @import("image.zig");
 
 const Error = image.Error;
@@ -18,6 +19,39 @@ pub fn setIo(io: std.Io) void {
 
 fn currentIo() std.Io {
     return user_io orelse fallback_threaded.io();
+}
+
+const Faces = struct {
+    user: [4]?*const font.Font = .{ null, null, null, null },
+    chain: *const font.Chain,
+
+    fn glyphFor(f: *const Faces, cp: u32) font.Chain.Glyph {
+        for (f.user) |u| if (u) |uf| {
+            const g = uf.glyphIndex(cp);
+            if (g != 0) return .{ .font = uf, .gid = g };
+        };
+        return f.chain.glyphFor(cp);
+    }
+
+    fn primary(f: *const Faces) *const font.Font {
+        return f.user[0] orelse f.chain.primary;
+    }
+};
+
+fn facesFor(r: *draw.Renderer, style: *const sty.Style) Faces {
+    var out: Faces = .{ .chain = font.resolve(currentIo(), style.font_family, style.weight, style.italic) };
+    var n: usize = 0;
+    var it = std.mem.splitScalar(u8, style.font_family, ',');
+    while (it.next()) |raw| {
+        if (n >= out.user.len) break;
+        const name = std.mem.trim(u8, raw, " \t\r\n\"'");
+        if (name.len == 0) continue;
+        if (r.userFace(name, style.weight, style.italic)) |uf| {
+            out.user[n] = uf;
+            n += 1;
+        }
+    }
+    return out;
 }
 
 pub const ColorLayer = struct { path: raster.Path, color: [4]u8 };
@@ -43,6 +77,8 @@ const Glyph = struct {
     space: bool,
     run: u32,
     pidx: i32 = -1,
+    ox: f64 = 0,
+    oy: f64 = 0,
 };
 
 const PathLen = struct { pts: []const raster.Pt, cum: []const f64 };
@@ -93,11 +129,11 @@ const Layout = struct {
         return if (k < list.v.len) list.v[k] else null;
     }
 
-    fn baseline(style: *const sty.Style) f64 {
+    fn baseline(r: *draw.Renderer, style: *const sty.Style) f64 {
         const size = style.font_size;
         var off: f64 = 0;
         const b = style.baseline;
-        const f = font.resolve(currentIo(), style.font_family, style.weight, style.italic).primary;
+        const f = facesFor(r, style).primary();
         const upem: f64 = @floatFromInt(f.upem);
         const asc: f64 = @floatFromInt(f.ascent);
         const desc: f64 = @floatFromInt(f.descent);
@@ -136,27 +172,48 @@ const Layout = struct {
     fn shapeRun(l: *Layout, face: *const font.Font, cps: []const u32, gids: []const u16, rtl: bool, ligatures: bool, out: *std.ArrayList(shape.G)) Error!void {
         const a = l.a;
         for (cps, gids, 0..) |_, gid, i| try out.append(a, .{ .gid = gid, .first = @intCast(i), .last = @intCast(i) });
-        const gsub = shape.Gsub.init(face) orelse return;
+        const gsub = shape.Gsub.init(face);
         var arabic = false;
-        for (cps) |cp| arabic = arabic or shape.isArabic(cp);
-        var reqs: std.ArrayList(shape.Req) = .empty;
-        if (arabic) {
-            const forms = try a.alloc(shape.Form, cps.len);
-            shape.arabicForms(cps, forms);
-            for (out.items, 0..) |*g, i| g.form = @intFromEnum(forms[i]);
-            const feats = [_]shape.Feat{
-                feature("ccmp", 0xFF), feature("locl", 0xFF), feature("isol", 1), feature("init", 2), feature("medi", 4), feature("fina", 8),
-                feature("rlig", 0xFF), feature("calt", 0xFF), feature("liga", 0xFF), feature("clig", 0xFF),
-            };
-            try gsub.collect(&.{ "arab", "DFLT", "latn" }, &feats, &reqs, a);
-        } else {
-            const feats = if (ligatures)
-                [_]shape.Feat{ feature("ccmp", 0xFF), feature("locl", 0xFF), feature("rlig", 0xFF), feature("liga", 0xFF), feature("clig", 0xFF), feature("calt", 0xFF) }
-            else
-                [_]shape.Feat{ feature("ccmp", 0xFF), feature("locl", 0xFF), feature("rlig", 0xFF), feature("calt", 0xFF), feature("calt", 0xFF), feature("calt", 0xFF) };
-            try gsub.collect(&.{ "latn", "DFLT" }, &feats, &reqs, a);
+        var script: ?indic.Script = null;
+        for (cps) |cp| {
+            arabic = arabic or shape.isArabic(cp);
+            if (script == null) script = indic.scriptOf(cp);
         }
-        if (reqs.items.len > 0) try gsub.apply(a, out, reqs.items);
+        var pos_tags: [2]*const [4]u8 = .{ "latn", "DFLT" };
+        if (arabic) pos_tags = .{ "arab", "DFLT" };
+        if (script) |sc| {
+            pos_tags = sc.tags;
+            try indic.run(a, gsub, sc, cps, out);
+        } else if (gsub) |gs| {
+            var reqs: std.ArrayList(shape.Req) = .empty;
+            if (arabic) {
+                const forms = try a.alloc(shape.Form, cps.len);
+                shape.arabicForms(cps, forms);
+                for (out.items, 0..) |*g, i| g.form = @intFromEnum(forms[i]);
+                const feats = [_]shape.Feat{
+                    feature("ccmp", 0xFF), feature("locl", 0xFF), feature("isol", 1), feature("init", 2), feature("medi", 4), feature("fina", 8),
+                    feature("rlig", 0xFF), feature("calt", 0xFF), feature("liga", 0xFF), feature("clig", 0xFF),
+                };
+                try gs.collect(&.{ "arab", "DFLT", "latn" }, &feats, &reqs, a);
+            } else {
+                const feats = if (ligatures)
+                    [_]shape.Feat{ feature("ccmp", 0xFF), feature("locl", 0xFF), feature("rlig", 0xFF), feature("liga", 0xFF), feature("clig", 0xFF), feature("calt", 0xFF) }
+                else
+                    [_]shape.Feat{ feature("ccmp", 0xFF), feature("locl", 0xFF), feature("rlig", 0xFF), feature("calt", 0xFF), feature("calt", 0xFF), feature("calt", 0xFF) };
+                try gs.collect(&.{ "latn", "DFLT" }, &feats, &reqs, a);
+            }
+            if (reqs.items.len > 0) try gs.apply(a, out, reqs.items);
+        }
+        const gdef = shape.Gdef.init(face);
+        if (shape.Gsub.initTag(face, "GPOS")) |gp| {
+            var reqs: std.ArrayList(shape.Req) = .empty;
+            const feats = [_]shape.Feat{ feature("dist", 0xFF), feature("curs", 0xFF), feature("mark", 0xFF), feature("abvm", 0xFF), feature("blwm", 0xFF), feature("mkmk", 0xFF) };
+            try gp.collect(&.{ pos_tags[0], pos_tags[1], "DFLT", "latn" }, &feats, &reqs, a);
+            if (reqs.items.len > 0) shape.markPositions(gp, gdef, face, out.items, reqs.items, rtl);
+        }
+        for (out.items) |*g| if (shape.isMark(gdef, face, g.gid)) {
+            g.zero = true;
+        };
         if (rtl) std.mem.reverse(shape.G, out.items);
     }
 
@@ -164,14 +221,14 @@ const Layout = struct {
         const a = l.a;
         const run_idx: u32 = @intCast(l.runs.items.len);
         try l.runs.append(a, .{ .style = style.*, .first = l.glyphs.items.len });
-        const chain = font.resolve(currentIo(), style.font_family, style.weight, style.italic);
+        const chain = facesFor(l.r, style);
         var items: std.ArrayList(Item) = .empty;
         const view = std.unicode.Utf8View.init(str) catch return;
         var it = view.iterator();
         while (it.nextCodepoint()) |cp0| {
             var cp: u32 = cp0;
             if (cp == '\n' or cp == '\r' or cp == '\t') cp = ' ';
-            if (cp < 0x20 or cp == 0x7f or (cp >= 0xFE00 and cp <= 0xFE0F) or cp == 0x200B or cp == 0x200C or cp == 0x200D or cp == 0xFEFF) continue;
+            if (cp < 0x20 or cp == 0x7f or cp == 0x200B or cp == 0xFEFF) continue;
             if (cp == ' ' and !l.preserve) {
                 if (l.prev_space) continue;
                 l.prev_space = true;
@@ -197,7 +254,7 @@ const Layout = struct {
         return at(l.xs, idx) != null or at(l.ys, idx) != null or at(l.dxs, idx) != null or at(l.dys, idx) != null or at(l.rots, idx) != null or (l.rots.v.len > 0 and idx >= l.rots.start);
     }
 
-    fn emitSegment(l: *Layout, items: []const Item, style: *const sty.Style, chain: *const font.Chain, run_idx: u32) Error!void {
+    fn emitSegment(l: *Layout, items: []const Item, style: *const sty.Style, chain: Faces, run_idx: u32) Error!void {
         const a = l.a;
         const idx0 = items[0].idx;
         if (at(l.xs, idx0)) |x| {
@@ -215,16 +272,32 @@ const Layout = struct {
             l.chunk_pending = false;
         }
         const rot = if (at(l.rots, idx0)) |rv| rv else if (l.rots.v.len > 0 and idx0 >= l.rots.start) l.rots.v[l.rots.v.len - 1] else 0;
-        const n = items.len;
-        const cps = try a.alloc(u32, n);
-        const faces = try a.alloc(*const font.Font, n);
-        const gids = try a.alloc(u16, n);
-        for (items, 0..) |it, i| {
-            cps[i] = it.cp;
+        const cps = try a.alloc(u32, items.len);
+        const faces = try a.alloc(*const font.Font, items.len);
+        const gids = try a.alloc(u16, items.len);
+        var n: usize = 0;
+        for (items) |it| {
+            const ignorable = it.cp == 0x200D or it.cp == 0x200C or (it.cp >= 0xFE00 and it.cp <= 0xFE0F);
+            const joiner = ignorable or (it.cp >= 0x1F3FB and it.cp <= 0x1F3FF);
+            if (joiner and n > 0) {
+                const g = faces[n - 1].glyphIndex(it.cp);
+                if (g != 0) {
+                    cps[n] = it.cp;
+                    faces[n] = faces[n - 1];
+                    gids[n] = g;
+                    n += 1;
+                    continue;
+                }
+                if (ignorable) continue;
+            }
+            if (ignorable) continue;
+            cps[n] = it.cp;
             const g = chain.glyphFor(it.cp);
-            faces[i] = g.font;
-            gids[i] = g.gid;
+            faces[n] = g.font;
+            gids[n] = g.gid;
+            n += 1;
         }
+        if (n == 0) return;
         const ligs = style.letter_spacing == 0;
         var i: usize = 0;
         var prev_face: ?*const font.Font = null;
@@ -251,19 +324,23 @@ const Layout = struct {
                 var kern: f64 = 0;
                 if (prev_face == face) kern = face.kern(prev_gid, g.gid) * k;
                 l.pen_x += kern;
-                const is_space = cps[i + g.first] == ' ';
-                const adv = face.advance(g.gid) * k + style.letter_spacing + (if (is_space) style.word_spacing else 0);
+                const cp0 = cps[i + g.first];
+                const hidden = cp0 == 0x200D or cp0 == 0x200C or (cp0 >= 0xFE00 and cp0 <= 0xFE0F);
+                const is_space = cp0 == ' ' or hidden;
+                const adv = if (hidden or g.zero) 0 else face.advance(g.gid) * k + style.letter_spacing + (if (cp0 == ' ') style.word_spacing else 0);
                 try l.glyphs.append(a, .{
                     .face = face,
                     .gid = g.gid,
                     .size = style.font_size,
                     .x = l.pen_x,
-                    .y = l.pen_y + baseline(style),
+                    .y = l.pen_y + baseline(l.r, style),
                     .rot = rot * std.math.pi / 180.0,
                     .adv = adv,
                     .space = is_space,
                     .run = run_idx,
                     .pidx = l.cur_path,
+                    .ox = @as(f64, @floatFromInt(g.dx)) * k,
+                    .oy = @as(f64, @floatFromInt(g.dy)) * k,
                 });
                 l.pen_x += adv;
                 prev_face = face;
@@ -439,7 +516,7 @@ fn finish(l: *Layout, a: std.mem.Allocator, snap: ?raster.Mat) Error![]Run {
                 };
                 const cs = @cos(g.rot);
                 const sn = @sin(g.rot);
-                origin = raster.Mat.translate(g.x, gy).mul(.{ .a = cs, .b = sn, .c = -sn, .d = cs });
+                origin = raster.Mat.translate(g.x + g.ox, gy - g.oy).mul(.{ .a = cs, .b = sn, .c = -sn, .d = cs });
                 x_min = @min(x_min, g.x);
                 x_max = @max(x_max, g.x + g.adv);
                 base_y = g.y;
@@ -513,11 +590,10 @@ const Html = struct {
     forced: bool = false,
 
     fn measure(h: *Html, style: *const sty.Style, text: []const u8) f64 {
-        const chain = font.resolve(currentIo(), style.font_family, style.weight, style.italic);
+        const chain = facesFor(h.l.r, style);
         var w: f64 = 0;
         var prev: ?*const font.Font = null;
         var prev_gid: u16 = 0;
-        _ = h;
         const view = std.unicode.Utf8View.init(text) catch return 0;
         var it = view.iterator();
         while (it.nextCodepoint()) |cp| {
@@ -548,7 +624,7 @@ const Html = struct {
         var desc: f64 = 0;
         var line_h: f64 = 0;
         for (h.cur.items) |tk| {
-            const f = font.resolve(currentIo(), tk.style.font_family, tk.style.weight, tk.style.italic).primary;
+            const f = facesFor(h.l.r, &tk.style).primary();
             const k = tk.style.font_size / @as(f64, @floatFromInt(f.upem));
             const as_ = @as(f64, @floatFromInt(f.ascent)) * k;
             const de = -@as(f64, @floatFromInt(f.descent)) * k;

@@ -112,7 +112,7 @@ pub fn arabicForms(cps: []const u32, out: []Form) void {
 
 // GSUB
 
-pub const G = struct { gid: u16, form: u8 = 0, first: u32, last: u32 };
+pub const G = struct { gid: u16, form: u8 = 0, first: u32, last: u32, dx: i32 = 0, dy: i32 = 0, zero: bool = false, tag: u8 = 0 };
 
 pub const Req = struct { index: u16, mask: u8 };
 
@@ -125,7 +125,11 @@ pub const Gsub = struct {
     lookups: usize,
 
     pub fn init(f: *const Font) ?Gsub {
-        const base = findTable(f, "GSUB") orelse return null;
+        return initTag(f, "GSUB");
+    }
+
+    pub fn initTag(f: *const Font, tag: *const [4]u8) ?Gsub {
+        const base = findTable(f, tag) orelse return null;
         const d = f.data;
         const s = u16At(d, base + 4) catch return null;
         const fe = u16At(d, base + 6) catch return null;
@@ -276,7 +280,7 @@ pub const Gsub = struct {
                     if (n == 0 or n > 8) continue;
                     const base = glyphs.items[i];
                     glyphs.items[i].gid = u16At(d, seq + 2) catch continue;
-                    for (1..n) |k| try glyphs.insert(alloc, i + k, .{ .gid = u16At(d, seq + 2 + k * 2) catch continue, .form = base.form, .first = base.first, .last = base.last });
+                    for (1..n) |k| try glyphs.insert(alloc, i + k, .{ .gid = u16At(d, seq + 2 + k * 2) catch continue, .form = base.form, .first = base.first, .last = base.last, .tag = base.tag });
                     return n;
                 },
                 3 => {
@@ -306,6 +310,7 @@ pub const Gsub = struct {
                         if (!ok) continue;
                         glyphs.items[i].gid = lig;
                         glyphs.items[i].last = glyphs.items[i + cc - 1].last;
+                        for (1..cc) |q| glyphs.items[i].tag |= glyphs.items[i + q].tag;
                         for (1..cc) |_| _ = glyphs.orderedRemove(i + 1);
                         return 1;
                     }
@@ -367,6 +372,143 @@ pub const Gsub = struct {
         return null;
     }
 };
+
+// GDEF and GPOS
+
+pub const Gdef = struct {
+    d: []const u8,
+    classes: usize,
+
+    pub fn init(f: *const Font) ?Gdef {
+        const base = findTable(f, "GDEF") orelse return null;
+        const co = u16At(f.data, base + 4) catch return null;
+        if (co == 0) return null;
+        return .{ .d = f.data, .classes = base + co };
+    }
+
+    pub fn classOf(g: Gdef, gid: u16) u16 {
+        const fmt = u16At(g.d, g.classes) catch return 0;
+        if (fmt == 1) {
+            const start = u16At(g.d, g.classes + 2) catch return 0;
+            const n = u16At(g.d, g.classes + 4) catch return 0;
+            if (gid < start or gid - start >= n) return 0;
+            return u16At(g.d, g.classes + 6 + (gid - start) * 2) catch 0;
+        }
+        if (fmt == 2) {
+            const n = u16At(g.d, g.classes + 2) catch return 0;
+            var lo: usize = 0;
+            var hi: usize = n;
+            while (lo < hi) {
+                const mid = (lo + hi) / 2;
+                const rec = g.classes + 4 + mid * 6;
+                const s0 = u16At(g.d, rec) catch return 0;
+                const e0 = u16At(g.d, rec + 2) catch return 0;
+                if (gid < s0) {
+                    hi = mid;
+                } else if (gid > e0) {
+                    lo = mid + 1;
+                } else return u16At(g.d, rec + 4) catch 0;
+            }
+        }
+        return 0;
+    }
+};
+
+fn anchorAt(d: []const u8, off: usize) ?[2]i32 {
+    const fmt = u16At(d, off) catch return null;
+    if (fmt < 1 or fmt > 3) return null;
+    const x = i16At(d, off + 2) catch return null;
+    const y = i16At(d, off + 4) catch return null;
+    return .{ x, y };
+}
+
+pub fn isMark(gdef: ?Gdef, f: *const Font, gid: u16) bool {
+    if (gdef) |g| return g.classOf(gid) == 3;
+    return f.advance(gid) == 0 and gid != 0;
+}
+
+pub fn markPositions(gpos: Gsub, gdef: ?Gdef, f: *const Font, glyphs: []G, reqs: []const Req, rtl: bool) void {
+    const d = gpos.d;
+    for (reqs) |rq| {
+        const lo = gpos.lookupOffset(rq.index) orelse continue;
+        const ty = u16At(d, lo) catch continue;
+        const nsub = u16At(d, lo + 4) catch continue;
+        for (0..nsub) |s_i| {
+            var st = lo + (u16At(d, lo + 6 + s_i * 2) catch continue);
+            var sty_ty = ty;
+            if (ty == 9) {
+                if ((u16At(d, st) catch continue) != 1) continue;
+                sty_ty = u16At(d, st + 2) catch continue;
+                st += u32At(d, st + 4) catch continue;
+            }
+            if ((u16At(d, st) catch continue) != 1) continue;
+            switch (sty_ty) {
+                3 => curs: {
+                    const cov = st + (u16At(d, st + 2) catch break :curs);
+                    var i: usize = 1;
+                    while (i < glyphs.len) : (i += 1) {
+                        const prev = glyphs[i - 1];
+                        const cur = glyphs[i];
+                        const pc = gpos.coverage(cov, prev.gid) orelse continue;
+                        const cc = gpos.coverage(cov, cur.gid) orelse continue;
+                        const exit_off = u16At(d, st + 4 + pc * 4 + 2) catch continue;
+                        const entry_off = u16At(d, st + 4 + cc * 4) catch continue;
+                        if (exit_off == 0 or entry_off == 0) continue;
+                        const ex = anchorAt(d, st + exit_off) orelse continue;
+                        const en = anchorAt(d, st + entry_off) orelse continue;
+                        glyphs[i].dy = prev.dy + ex[1] - en[1];
+                    }
+                },
+                4, 5, 6 => {
+                    const mark_cov = st + (u16At(d, st + 2) catch continue);
+                    const base_cov = st + (u16At(d, st + 4) catch continue);
+                    const classes = u16At(d, st + 6) catch continue;
+                    const mark_arr = st + (u16At(d, st + 8) catch continue);
+                    const base_arr = st + (u16At(d, st + 10) catch continue);
+                    var i: usize = 1;
+                    while (i < glyphs.len) : (i += 1) {
+                        const mi = gpos.coverage(mark_cov, glyphs[i].gid) orelse continue;
+                        var j: usize = i - 1;
+                        if (sty_ty == 6) {
+                            if (!isMark(gdef, f, glyphs[j].gid)) continue;
+                        } else {
+                            while (isMark(gdef, f, glyphs[j].gid)) {
+                                if (j == 0) break;
+                                j -= 1;
+                            }
+                            if (isMark(gdef, f, glyphs[j].gid)) continue;
+                        }
+                        const bi = gpos.coverage(base_cov, glyphs[j].gid) orelse continue;
+                        const mrec = mark_arr + 2 + mi * 4;
+                        const mclass = u16At(d, mrec) catch continue;
+                        if (mclass >= classes) continue;
+                        const manchor = anchorAt(d, mark_arr + (u16At(d, mrec + 2) catch continue)) orelse continue;
+                        var banchor = [2]i32{ 0, 0 };
+                        if (sty_ty == 5) {
+                            const lig = base_arr + (u16At(d, base_arr + 2 + bi * 2) catch continue);
+                            const comps = u16At(d, lig) catch continue;
+                            if (comps == 0) continue;
+                            const ao = u16At(d, lig + 2 + (@as(usize, comps) - 1) * classes * 2 + @as(usize, mclass) * 2) catch continue;
+                            if (ao == 0) continue;
+                            banchor = anchorAt(d, lig + ao) orelse continue;
+                        } else {
+                            const ao = u16At(d, base_arr + 2 + bi * classes * 2 + @as(usize, mclass) * 2) catch continue;
+                            if (ao == 0) continue;
+                            banchor = anchorAt(d, base_arr + ao) orelse continue;
+                        }
+                        var adv_sum: i32 = 0;
+                        if (!rtl) {
+                            for (glyphs[j..i]) |gg| adv_sum += if (gg.zero) 0 else @as(i32, @intFromFloat(f.advance(gg.gid)));
+                        }
+                        glyphs[i].dx = banchor[0] - manchor[0] + glyphs[j].dx - adv_sum;
+                        glyphs[i].dy = banchor[1] - manchor[1] + glyphs[j].dy;
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+}
 
 // Colour glyphs
 
