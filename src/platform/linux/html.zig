@@ -795,8 +795,7 @@ pub const break_line_h: f32 = 24;
 
 /// A block of only line breaks is one 24px line per break.
 pub fn breakLinesHeight(content: md.Inline) f32 {
-    return break_line_h * @as(f32, @floatFromInt(std.mem.count(u8, content.text, "
-")));
+    return break_line_h * @as(f32, @floatFromInt(std.mem.count(u8, content.text, "\n")));
 }
 
 test "a cell holds blocks laid out inside it and not noted as top-level blocks" {
@@ -937,10 +936,7 @@ test "a block of line breaks is one 24px line per break with no gap after" {
     defer resetBoxes();
     const blocks = [_]md.Block{
         .{ .kind = .paragraph, .content = .{ .text = "above" } },
-        .{ .kind = .paragraph, .role = .break_lines, .content = .{ .text = "
-
-
-" } },
+        .{ .kind = .paragraph, .role = .break_lines, .content = .{ .text = "\n\n\n" } },
         .{ .kind = .paragraph, .content = .{ .text = "below" } },
     };
     const p = try Probe.init(600, 600);
