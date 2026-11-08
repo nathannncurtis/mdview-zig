@@ -554,7 +554,11 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content_in: md.In
     }
 }
 
-fn renderTextBlock(
+fn renderTextBlock(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32, max_width: f32, color: Color, font_desc_str: [*:0]const u8) f32 {
+    return renderFlowed(cr, pango_layout, app.images.flow(content_in), x, y, max_width, color, font_desc_str);
+}
+
+fn renderFlowed(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
     content: md.Inline,
@@ -736,7 +740,11 @@ fn padUnits(desc: *const c.PangoFontDescription) c_int {
     return @intFromFloat(md.code_pad_em * md.code_scale * @as(f32, @floatFromInt(c.pango_font_description_get_size(desc))) * 96.0 / 72.0);
 }
 
-const ImageKind = enum { pending, picture, alt };
+const ImageKind = enum { pending, picture, broken };
+
+/// Width of the broken image glyph with its gap to the alt text that follows, and its height.
+const broken_w: f32 = 18;
+const broken_h: f32 = 16;
 
 /// One image in a layout, found again by the shape renderer through the attribute's data pointer.
 const ImageBox = struct { w: f32, h: f32, kind: ImageKind, image: *const md.Image };
@@ -756,17 +764,6 @@ fn setAlt(layout: *c.PangoLayout, alt: []const u8, width: f32) void {
     c.pango_layout_set_text(layout, alt.ptr, @intCast(alt.len));
 }
 
-fn altSize(alt: []const u8, avail: f32) [2]f32 {
-    const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return .{ 0, 0 };
-    defer c.cairo_surface_destroy(surface);
-    const cr = c.cairo_create(surface) orelse return .{ 0, 0 };
-    defer c.cairo_destroy(cr);
-    const layout = c.pango_cairo_create_layout(cr) orelse return .{ 0, 0 };
-    defer c.g_object_unref(layout);
-    setAlt(layout, alt, avail);
-    return layoutPixelSize(layout);
-}
-
 fn imageBox(im: *const md.Image, avail: f32) ?*ImageBox {
     if (boxes == null) boxes = .init(app.gpa);
     const box = boxes.?.allocator().create(ImageBox) catch return null;
@@ -775,16 +772,15 @@ fn imageBox(im: *const md.Image, avail: f32) ?*ImageBox {
     switch (app.images.look(im.target, avail)) {
         .pending => {},
         .picture => |s| {
-            const size = if (im.width > 0 or im.height > 0) requestedSize(naturalSize(im.target), im.width, im.height, avail) else s;
+            const size = if (im.width > 0 or im.height > 0) app.images.requested(naturalSize(im.target), im.width, im.height, avail) else s;
             box.w = size.w;
             box.h = size.h;
             box.kind = if (size.w > 0) .picture else .pending;
         },
         .missing => if (im.alt.len > 0) {
-            const size = altSize(im.alt, avail);
-            box.w = @min(size[0], avail);
-            box.h = size[1];
-            box.kind = .alt;
+            box.w = broken_w;
+            box.h = broken_h;
+            box.kind = .broken;
         },
     }
     return box;
@@ -819,18 +815,23 @@ fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: ?*an
             c.cairo_scale(ctx, box.w / iw, box.h / ih);
             c.cairo_set_source_surface(ctx, native.surface, 0, 0);
             const pattern = c.cairo_get_source(ctx);
-            c.cairo_pattern_set_filter(pattern, c.CAIRO_FILTER_GOOD);
+            c.cairo_pattern_set_filter(pattern, c.CAIRO_FILTER_BEST);
             c.cairo_pattern_set_extend(pattern, c.CAIRO_EXTEND_PAD);
             c.cairo_rectangle(ctx, 0, 0, iw, ih);
             c.cairo_fill(ctx);
             c.cairo_restore(ctx);
         },
-        .alt => {
-            const layout = c.pango_cairo_create_layout(ctx) orelse return;
-            defer c.g_object_unref(layout);
-            setAlt(layout, box.image.alt, box.w);
-            c.cairo_move_to(ctx, x, top);
-            c.pango_cairo_show_layout(ctx, layout);
+        .broken => {
+            setColor(ctx, col_quote);
+            c.cairo_new_path(ctx);
+            for (alerts.brokenImage()) |op| switch (op) {
+                .move => |p| c.cairo_move_to(ctx, x + p[0], top + p[1]),
+                .line => |p| c.cairo_line_to(ctx, x + p[0], top + p[1]),
+                .cubic => |q| c.cairo_curve_to(ctx, x + q[0], top + q[1], x + q[2], top + q[3], x + q[4], top + q[5]),
+                .close => c.cairo_close_path(ctx),
+            };
+            c.cairo_set_fill_rule(ctx, c.CAIRO_FILL_RULE_WINDING);
+            c.cairo_fill(ctx);
         },
     }
 }
@@ -968,7 +969,7 @@ const cell_pad_y: f32 = 6;
 
 fn setCell(pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: ?f32) void {
     const bold = (row == 0 and t.header_row) or (col == 0 and t.header_col);
-    setInline(pango_layout, t.cell(row, col), width, if (bold) "Sans Bold 12" else "Sans 12");
+    setInline(pango_layout, app.images.flow(t.cell(row, col)), width, if (bold) "Sans Bold 12" else "Sans 12");
     setAlign(pango_layout, t.alignAt(row, col));
 }
 
@@ -1049,14 +1050,15 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
                 if (t.nestedAt(row, col)) |nt| {
                     _ = renderTable(cr, pango_layout, nt, cx + cell_pad_x, ty, w - cell_pad_x * 2, true, null);
                 } else {
+                    const cell = app.images.flow(t.cell(row, col));
                     setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
-                    drawCodeBackgrounds(cr, pango_layout, t.cell(row, col), cx + cell_pad_x, ty);
-                    drawStyleRects(cr, pango_layout, t.cell(row, col), cx + cell_pad_x, ty, col_text);
+                    drawCodeBackgrounds(cr, pango_layout, cell, cx + cell_pad_x, ty);
+                    drawStyleRects(cr, pango_layout, cell, cx + cell_pad_x, ty, col_text);
                     setColor(cr, col_text);
                     c.cairo_move_to(cr, cx + cell_pad_x, ty);
                     c.pango_cairo_show_layout(cr, pango_layout);
                     app.noteHit(.{
-                        .content = t.cell(row, col), .x = cx + cell_pad_x, .y = ty + app.scroll_y, .w = w - cell_pad_x * 2,
+                        .content = cell, .x = cx + cell_pad_x, .y = ty + app.scroll_y, .w = w - cell_pad_x * 2,
                         .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.alignAt(row, col),
                     });
                 }
@@ -1160,7 +1162,8 @@ fn drawAlertIcon(cr: *c.cairo_t, alert: md.Alert, x: f32, y: f32) void {
     c.cairo_fill(cr);
 }
 
-fn renderErrorBox(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32, w: f32) f32 {
+fn renderErrorBox(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32, w: f32) f32 {
+    const content = app.images.flow(content_in);
     setInline(pango_layout, content, @max(w - 34, 20), "Sans 12");
     const h = layoutPixelSize(pango_layout)[1] + 32;
     drawRoundedRect(cr, x, y, w, h, 6);
@@ -1467,9 +1470,10 @@ fn cutFrom(content: md.Inline, from: u32) ?md.Inline {
 }
 
 /// Text next to a float is laid out narrow; from the first line that starts below the float the rest is laid out at full width.
-fn renderBeside(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32, w: f32, color: Color, font: [*:0]const u8, beside: Beside) f32 {
+fn renderBeside(cr: *c.cairo_t, layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32, w: f32, color: Color, font: [*:0]const u8, beside: Beside) f32 {
+    const content = app.images.flow(content_in);
     const shrink = beside.left + beside.right;
-    if (shrink <= 0) return renderTextBlock(cr, layout, content, x, y, w, color, font);
+    if (shrink <= 0) return renderFlowed(cr, layout, content, x, y, w, color, font);
     const nx = x + beside.left;
     const nw = @max(w - shrink, 60);
     const rel = beside.bottom - y;
@@ -1486,18 +1490,18 @@ fn renderBeside(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f
             break;
         }
     }
-    const at = cut orelse return renderTextBlock(cr, layout, content, nx, y, nw, color, font);
-    const rest = cutFrom(content, @intCast(unmap(padded(content).code, at.start))) orelse return renderTextBlock(cr, layout, content, nx, y, nw, color, font);
+    const at = cut orelse return renderFlowed(cr, layout, content, nx, y, nw, color, font);
+    const rest = cutFrom(content, @intCast(unmap(padded(content).code, at.start))) orelse return renderFlowed(cr, layout, content, nx, y, nw, color, font);
 
     const hits_before = app.hits.items.len;
     c.cairo_save(cr);
     c.cairo_rectangle(cr, x, y, w, at.y);
     c.cairo_clip(cr);
-    _ = renderTextBlock(cr, layout, content, nx, y, nw, color, font);
+    _ = renderFlowed(cr, layout, content, nx, y, nw, color, font);
     c.cairo_restore(cr);
     if (app.hits.items.len > hits_before) app.hits.items[hits_before].h = at.y;
     if (rest.text.len == 0) return at.y;
-    return at.y + renderTextBlock(cr, layout, rest, x, y + at.y, w, color, font);
+    return at.y + renderFlowed(cr, layout, rest, x, y + at.y, w, color, font);
 }
 
 fn drawSummaryMarker(cr: *c.cairo_t, block: *const md.Block, x: f32, top: f32, h: f32, w: f32) void {
@@ -1722,21 +1726,6 @@ fn naturalSize(target: []const u8) app.images.Size {
     };
 }
 
-/// A `width` and/or `height` attribute as CSS applies it: one side keeps the aspect ratio, never wider than `avail`, upscaling allowed.
-fn requestedSize(natural: app.images.Size, width: f32, height: f32, avail: f32) app.images.Size {
-    if (natural.w <= 0 or natural.h <= 0 or avail <= 0) return .{ .w = 0, .h = 0 };
-    var w = width;
-    var h = height;
-    if (w > 0 and h <= 0) h = natural.h * w / natural.w;
-    if (h > 0 and w <= 0) w = natural.w * h / natural.h;
-    if (w <= 0) return app.images.fit(natural, avail);
-    if (w > avail) {
-        h = h * avail / w;
-        w = avail;
-    }
-    return .{ .w = w, .h = h };
-}
-
 fn measureText(layout: *c.PangoLayout, content: md.Inline, width: ?f32, font: [*:0]const u8) [2]f32 {
     setInline(layout, content, width, font);
     const size = layoutPixelSize(layout);
@@ -1833,7 +1822,7 @@ test "an image scales down to the layout width and is hit like a character" {
     try std.testing.expect(content.imageAt(index) != null);
 }
 
-test "a missing image lays out its alt text and a reference image resolves" {
+test "a missing image lays out a glyph and its alt text in the flow and a reference image resolves" {
     app.gpa = std.testing.allocator;
     app.images.init(std.testing.allocator, std.testing.io);
     app.images.reset("", false);
@@ -1849,9 +1838,9 @@ test "a missing image lays out its alt text and a reference image resolves" {
         std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
     }
     try std.testing.expect(app.images.look("gone.png", 400) == .missing);
-    const alt = try imageLayoutSize(doc.blocks[0].content, 400);
+    const alt = try imageLayoutSize(app.images.flow(doc.blocks[0].content), 400);
     const plain = try imageLayoutSize(.{ .text = "a long alt text" }, 400);
-    try std.testing.expectApproxEqAbs(plain[0], alt[0], 2);
+    try std.testing.expectApproxEqAbs(plain[0] + broken_w, alt[0], 2);
     try std.testing.expectApproxEqAbs(plain[1], alt[1], 2);
 }
 
@@ -1990,25 +1979,6 @@ test "sub, small, underline and mark set their Pango attributes on their own ran
     const back: *c.PangoAttrColor = @ptrCast(@alignCast(attrAt(p.layout, 7, c.PANGO_ATTR_BACKGROUND) orelse return error.TestUnexpectedResult));
     try std.testing.expectEqual(@as(u16, 0xbbbb), back.color.red);
     try std.testing.expect(attrAt(p.layout, 8, c.PANGO_ATTR_BACKGROUND) == null);
-}
-
-test "a requested image size follows the CSS rules" {
-    const nat: app.images.Size = .{ .w = 1000, .h = 500 };
-    const a = requestedSize(nat, 200, 0, 800);
-    try std.testing.expectEqual(@as(f32, 200), a.w);
-    try std.testing.expectEqual(@as(f32, 100), a.h);
-    const b = requestedSize(nat, 0, 100, 800);
-    try std.testing.expectEqual(@as(f32, 200), b.w);
-    try std.testing.expectEqual(@as(f32, 100), b.h);
-    const both = requestedSize(nat, 300, 300, 800);
-    try std.testing.expectEqual(@as(f32, 300), both.w);
-    try std.testing.expectEqual(@as(f32, 300), both.h);
-    const capped = requestedSize(nat, 2000, 0, 800);
-    try std.testing.expectEqual(@as(f32, 800), capped.w);
-    try std.testing.expectEqual(@as(f32, 400), capped.h);
-    const up = requestedSize(.{ .w = 100, .h = 50 }, 300, 0, 800);
-    try std.testing.expectEqual(@as(f32, 300), up.w);
-    try std.testing.expectEqual(@as(f32, 150), up.h);
 }
 
 test "an image with a width attribute is laid out at that width" {

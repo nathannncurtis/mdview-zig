@@ -53,6 +53,34 @@ const Hover = struct { text: [*]const u8, start: u32 };
 pub var hits: std.ArrayList(Hit) = .empty;
 pub var block_y: std.ArrayList(f32) = .empty;
 pub var hover: ?Hover = null;
+
+pub const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
+const Toggle = struct { rect: Rect, frame: md.Frame };
+
+/// Click targets of the summary markers drawn this frame, in document coordinates.
+var toggles: std.ArrayList(Toggle) = .empty;
+pub var details_open: md.DetailsState = .empty;
+
+pub fn noteToggle(rect: Rect, frame: md.Frame) void {
+    toggles.append(gpa, .{ .rect = rect, .frame = frame }) catch return;
+}
+
+pub fn isOpen(frame: md.Frame) bool {
+    return md.detailsOpen(frame, &details_open);
+}
+
+/// True for a block the backend skips: inside a details element that is closed.
+pub fn collapsed(b: md.Block) bool {
+    return md.collapsed(b, &details_open);
+}
+
+fn toggleAt(px: f32, py: f32) ?md.Frame {
+    const y = py + scroll_y;
+    for (toggles.items) |t| {
+        if (px >= t.rect.x and px < t.rect.x + t.rect.w and y >= t.rect.y and y < t.rect.y + t.rect.h) return t.frame;
+    }
+    return null;
+}
 pub var full_layout = false;
 var pending_jump: ?[]const u8 = null;
 
@@ -60,6 +88,7 @@ pub fn beginFrame() void {
     images.beginFrame();
     hits.clearRetainingCapacity();
     block_y.clearRetainingCapacity();
+    toggles.clearRetainingCapacity();
 }
 
 pub fn noteBlock(y: f32) void {
@@ -76,7 +105,7 @@ fn hasTitledImage(c: md.Inline) bool {
 }
 
 pub const Tooltip = struct { text: []const u8, x: f32, y: f32 };
-/// The title of the image under the pointer, drawn by the backend after the page.
+/// The title of the image or link under the pointer, drawn by the backend after the page.
 pub var tooltip: ?Tooltip = null;
 
 fn titleAt(px: f32, py: f32) ?[]const u8 {
@@ -85,6 +114,7 @@ fn titleAt(px: f32, py: f32) ?[]const u8 {
         if (px < h.x or px >= h.x + h.w or y < h.y or y >= h.y + h.h) continue;
         const index = platform.textIndexAt(h, px - h.x, y - h.y) orelse continue;
         if (h.content.imageAt(index)) |im| if (im.title.len > 0) return im.title;
+        if (h.content.linkAt(index)) |l| if (l.title.len > 0) return l.title;
     }
     return null;
 }
@@ -112,6 +142,7 @@ pub fn pointerMoved(px: f32, py: f32) bool {
     tooltip = if (title) |t| .{ .text = t, .x = px, .y = py } else null;
     if (had_tip or title != null) platform.invalidate();
     const hit = linkAt(px, py);
+    if (hit == null and toggleAt(px, py) != null) return true;
     const now: ?Hover = if (hit) |h| .{ .text = h.content.text.ptr, .start = h.link.start } else null;
     const same = if (hover) |a| (if (now) |b| a.text == b.text and a.start == b.start else false) else now == null;
     hover = now;
@@ -124,6 +155,12 @@ var pressed: ?Press = null;
 
 /// Remembers the link under a button press; true when the press is on a link.
 pub fn mouseDown(px: f32, py: f32) bool {
+    if (toggleAt(px, py)) |f| {
+        pressed = null;
+        details_open.put(gpa, f.key, !isOpen(f)) catch return true;
+        platform.invalidate();
+        return true;
+    }
     const hit = linkAt(px, py) orelse {
         pressed = null;
         return false;
@@ -246,6 +283,10 @@ fn targetBlock(target: []const u8) ?usize {
         const nth = std.fmt.parseInt(u32, parts.next() orelse return null, 10) catch return null;
         return nthReference(n, nth);
     }
+    if (d.anchorBlock(name)) |i| return i;
+    var arena: std.heap.ArenaAllocator = .init(gpa);
+    defer arena.deinit();
+    if (links.percentDecode(arena.allocator(), name) catch null) |decoded| if (d.anchorBlock(decoded)) |i| return i;
     return headingBlock(name);
 }
 
@@ -420,6 +461,7 @@ fn reload(mtime: std.Io.Timestamp) bool {
     hover = null;
     tooltip = null;
     images.reset(std.fs.path.dirname(file_path) orelse "", std.mem.eql(u8, file_path, last_doc_path));
+    if (!std.mem.eql(u8, file_path, last_doc_path)) details_open.clearRetainingCapacity();
     last_doc_path = file_path;
     doc = new_doc;
     blocks = new_doc.blocks;

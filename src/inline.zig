@@ -66,6 +66,34 @@ pub fn parseWithHeap(a: Allocator, heap: Allocator, src: []const u8, hooks: *con
     return s.flatten();
 }
 
+pub const CharRef = struct { end: usize, text: []const u8 };
+
+/// The character reference starting at `src[i]` (an `&`); numeric ones are encoded into `buf`.
+pub fn charRef(src: []const u8, i: usize, buf: *[4]u8) ?CharRef {
+    var j = i + 1;
+    if (j < src.len and src[j] == '#') {
+        j += 1;
+        const hex = j < src.len and (src[j] == 'x' or src[j] == 'X');
+        if (hex) j += 1;
+        const start = j;
+        var v: u32 = 0;
+        const limit: usize = if (hex) 6 else 7;
+        while (j < src.len and j - start < limit) : (j += 1) {
+            const d = std.fmt.charToDigit(src[j], if (hex) 16 else 10) catch break;
+            v = v * (if (hex) @as(u32, 16) else 10) + d;
+        }
+        if (j == start or j >= src.len or src[j] != ';') return null;
+        const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
+        const n = std.unicode.utf8Encode(cp, buf) catch return null;
+        return .{ .end = j + 1, .text = buf[0..n] };
+    }
+    const start = j;
+    while (j < src.len and j - start < 32 and std.ascii.isAlphanumeric(src[j])) j += 1;
+    if (j == start or j >= src.len or src[j] != ';') return null;
+    const v = entities.lookup(src[start..j]) orelse return null;
+    return .{ .end = j + 1, .text = v };
+}
+
 const none: u32 = std.math.maxInt(u32);
 
 const NodeTag = enum { text, open, close, html, soft, hard };
@@ -278,32 +306,10 @@ const Scanner = struct {
     }
 
     fn entity(s: *Scanner, i: usize) Allocator.Error!?usize {
-        const src = s.src;
-        var j = i + 1;
-        if (j < src.len and src[j] == '#') {
-            j += 1;
-            const hex = j < src.len and (src[j] == 'x' or src[j] == 'X');
-            if (hex) j += 1;
-            const start = j;
-            var v: u32 = 0;
-            const limit: usize = if (hex) 6 else 7;
-            while (j < src.len and j - start < limit) : (j += 1) {
-                const d = std.fmt.charToDigit(src[j], if (hex) 16 else 10) catch break;
-                v = v * (if (hex) @as(u32, 16) else 10) + d;
-            }
-            if (j == start or j >= src.len or src[j] != ';') return null;
-            const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
-            const buf = try s.a.alloc(u8, 4);
-            const n = std.unicode.utf8Encode(cp, buf) catch return null;
-            try s.text(buf[0..n]);
-            return j + 1;
-        }
-        const start = j;
-        while (j < src.len and j - start < 32 and std.ascii.isAlphanumeric(src[j])) j += 1;
-        if (j == start or j >= src.len or src[j] != ';') return null;
-        const v = entities.lookup(src[start..j]) orelse return null;
-        try s.text(v);
-        return j + 1;
+        var buf: [4]u8 = undefined;
+        const r = charRef(s.src, i, &buf) orelse return null;
+        try s.text(try s.a.dupe(u8, r.text));
+        return r.end;
     }
 
     fn codeSpan(s: *Scanner, i: usize) Allocator.Error!usize {

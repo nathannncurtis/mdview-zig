@@ -245,3 +245,22 @@ test "icons end where they start and stay on the grid" {
     try std.testing.expectEqual(@as(f32, 16), info[2].cubic[4]);
     try std.testing.expectEqual(@as(f32, 8), info[2].cubic[5]);
 }
+
+// A page with a torn corner holding a hill and a sun; the frame is wound against its hole.
+const broken_image = "M1 1H15V9L9 15H1ZM2.5 2.5V13.5H8.4L13.5 8.4V2.5ZM3.8 12L6.4 7.6L8.3 10.4L9.7 8.8L10.8 10.6L10.2 12ZM10.2 3.8L11.2 4.2L11.6 5.2L11.2 6.2L10.2 6.6L9.2 6.2L8.8 5.2L9.2 4.2Z";
+
+pub fn brokenImage() []const Op {
+    const b = comptime build(broken_image);
+    const out = b.ops[0..b.n].*;
+    return &out;
+}
+
+test "the broken image glyph stays on the grid" {
+    const o = brokenImage();
+    try std.testing.expect(o.len > 20);
+    try std.testing.expect(o[0] == .move);
+    for (o) |op| switch (op) {
+        .move, .line => |p| try std.testing.expect(p[0] >= 0 and p[0] <= 16 and p[1] >= 0 and p[1] <= 16),
+        .cubic, .close => {},
+    };
+}
