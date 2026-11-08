@@ -391,6 +391,7 @@ pub fn applyStyles(attr_list: *c.PangoAttrList, content: md.Inline, spans: []con
                 insertRange(attr_list, c.pango_attr_background_new(0xbbbb, 0x8080, 0x0909), start, end);
                 insertRange(attr_list, c.pango_attr_background_alpha_new(0x2626), start, end);
             },
+            .semibold => insertRange(attr_list, c.pango_attr_weight_new(c.PANGO_WEIGHT_SEMIBOLD), start, end),
             .kbd, .tt => {},
         }
     }
@@ -1039,4 +1040,17 @@ test "a dt block hits as italic, and the hit is laid out italic" {
     try std.testing.expectEqual(@as(usize, 2), app.hits.items.len);
     try std.testing.expect(app.hits.items[0].italic);
     try std.testing.expect(!app.hits.items[1].italic);
+}
+
+test "dt text is semibold on its own range" {
+    app.gpa = std.heap.page_allocator;
+    defer resetBoxes();
+    const content: md.Inline = .{ .text = "a term b", .styles = &.{.{ .span = .{ 2, 4 }, .kind = .semibold }} };
+    const p = try Probe.init(400, 100);
+    defer p.deinit();
+    setInline(p.layout, content, 400, "Sans Italic 12");
+    const weight: *c.PangoAttrInt = @ptrCast(@alignCast(attrAt(p.layout, 3, c.PANGO_ATTR_WEIGHT) orelse return error.TestUnexpectedResult));
+    try std.testing.expectEqual(@as(c_int, c.PANGO_WEIGHT_SEMIBOLD), weight.value);
+    try std.testing.expect(attrAt(p.layout, 0, c.PANGO_ATTR_WEIGHT) == null);
+    try std.testing.expect(attrAt(p.layout, 7, c.PANGO_ATTR_WEIGHT) == null);
 }

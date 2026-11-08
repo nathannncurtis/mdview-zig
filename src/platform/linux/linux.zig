@@ -503,7 +503,7 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
             } else if (block.role == .break_lines) {
                 y += html.breakLinesHeight(block.content);
             } else if (!floatOnly(block.content)) {
-                const font: [*:0]const u8 = if (block.role == .dt) "Sans Bold Italic 12" else "Sans 12";
+                const font: [*:0]const u8 = if (block.role == .dt) "Sans Italic 12" else "Sans 12";
                 const before = y;
                 y += renderBeside(cr, pango_layout, block.content, x, y, cw, text_col, font, beside);
                 if (block.role == .summary) drawSummaryMarker(cr, pango_layout, block, x + beside.left, before, y - before, cw - beside.left - beside.right);
@@ -661,7 +661,6 @@ fn fontOfDesc(desc: [*:0]const u8) app.Font {
         .{ "Sans Bold 12", .h4 },
         .{ "Sans Bold 10.5", .h5 },
         .{ "Sans Bold 10.2", .h6 },
-        .{ "Sans Bold Italic 12", .h4 },
     };
     for (names) |n| if (std.mem.eql(u8, std.mem.span(desc), n[0])) return n[1];
     return .body;
