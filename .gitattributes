@@ -2,3 +2,12 @@
 *.in text eol=lf
 testdata/spec/spec_links.txt text eol=lf
 testdata/mermaid/jison/* text eol=lf
+testdata/mermaid/cases/* -text
+testdata/mermaid/refs/* -text
+testdata/mermaid/errors.txt -text
+testdata/images/* binary
+testdata/images/manifest.txt text eol=lf
+src/image/fuzz_seeds.zig text eol=lf
+testdata/images/ref/* binary
+testdata/images/refs.txt text eol=lf
+testdata/math/* text eol=lf

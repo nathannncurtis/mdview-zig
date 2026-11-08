@@ -1,0 +1,27 @@
+{
+ "diagram-outer": {
+  "w": 38.625,
+  "h": 19,
+  "text": "outer"
+ },
+ "diagram-inner": {
+  "w": 37,
+  "h": 19,
+  "text": "inner"
+ },
+ "diagram-flowchart-a1-0": {
+  "w": 16.7969,
+  "h": 19,
+  "text": "a1"
+ },
+ "diagram-flowchart-a2-1": {
+  "w": 16.7969,
+  "h": 19,
+  "text": "a2"
+ },
+ "diagram-flowchart-b1-3": {
+  "w": 17.3125,
+  "h": 19,
+  "text": "b1"
+ }
+}

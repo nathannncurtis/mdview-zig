@@ -1,0 +1,12 @@
+{
+ "diagram-flowchart-A-0": {
+  "w": 61.7969,
+  "h": 43,
+  "text": "Line oneLine two"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 111.0469,
+  "h": 139,
+  "text": "a long label that wraps because it is long enough to need wrapping for sure"
+ }
+}
