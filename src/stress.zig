@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const markdown = @import("markdown.zig");
+const markdown = @import("markdown/markdown.zig");
 
 const worker_stack = 1 << 20;
 const seconds_per_file = 30;

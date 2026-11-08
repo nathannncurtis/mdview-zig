@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const testdata = b.createModule(.{ .root_source_file = b.path("testdata/embed.zig") });
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -22,7 +23,7 @@ pub fn build(b: *std.Build) void {
         exe_mod.linkSystemLibrary("advapi32", .{});
     } else if (resolved.os.tag == .linux) {
         const c = b.addTranslateC(.{
-            .root_source_file = b.path("src/linux_c.h"),
+            .root_source_file = b.path("src/platform/linux/linux_c.h"),
             .target = target,
             .optimize = optimize,
         });
@@ -34,7 +35,7 @@ pub fn build(b: *std.Build) void {
         exe_mod.addImport("c", c.createModule());
     } else if (resolved.os.tag == .macos) {
         const c = b.addTranslateC(.{
-            .root_source_file = b.path("src/macos_c.h"),
+            .root_source_file = b.path("src/platform/macos/macos_c.h"),
             .target = target,
             .optimize = optimize,
         });
@@ -66,11 +67,12 @@ pub fn build(b: *std.Build) void {
 
     const parser_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/markdown.zig"),
+            .root_source_file = b.path("src/markdown_test.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
+    parser_tests.root_module.addImport("testdata", testdata);
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
     const dagre_tests = b.addTest(.{
@@ -80,19 +82,21 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
-    addTools(b, test_step);
+    addTools(b, test_step, testdata);
 
     if (linux_c) |c| {
         const layout_tests = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/linux.zig"),
+                .root_source_file = b.path("src/platform_test.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
         });
         for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
         layout_tests.root_module.addImport("c", c.createModule());
+        layout_tests.root_module.addImport("testdata", testdata);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
@@ -104,6 +108,7 @@ pub fn build(b: *std.Build) void {
         }),
         .filters = &.{"stress files"},
     });
+    stress_tests.root_module.addImport("testdata", testdata);
     const run_stress = b.addRunArtifact(stress_tests);
     if (b.option([]const u8, "stress-dir", "Directory of files from gen-stress for the stress step")) |dir| {
         run_stress.setEnvironmentVariable("MDVIEW_STRESS_DIR", dir);
@@ -116,7 +121,7 @@ pub fn build(b: *std.Build) void {
     if (resolved.os.tag == .windows) {
         const hit_tests = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/win32.zig"),
+                .root_source_file = b.path("src/platform_test.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
@@ -124,6 +129,7 @@ pub fn build(b: *std.Build) void {
         for ([_][]const u8{ "d2d1", "dwrite", "user32", "gdi32", "ole32", "shell32", "advapi32" }) |lib| {
             hit_tests.root_module.linkSystemLibrary(lib, .{});
         }
+        hit_tests.root_module.addImport("testdata", testdata);
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
 
@@ -134,13 +140,14 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    fuzz_tests.root_module.addImport("testdata", testdata);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
     b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
-    return b.addExecutable(.{
+    const exe = b.addExecutable(.{
         .name = name,
         .root_module = b.createModule(.{
             .root_source_file = b.path(file),
@@ -148,6 +155,11 @@ fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Co
             .optimize = .ReleaseSafe,
         }),
     });
+    exe.root_module.addImport("files", b.createModule(.{
+        .root_source_file = b.path("tools/files.zig"),
+        .target = b.graph.host,
+    }));
+    return exe;
 }
 
 fn toolStep(b: *std.Build, step_name: []const u8, description: []const u8, exe: *std.Build.Step.Compile) *std.Build.Step.Run {
@@ -158,18 +170,18 @@ fn toolStep(b: *std.Build, step_name: []const u8, description: []const u8, exe: 
     return run;
 }
 
-fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
+fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) void {
     const generators = [_]struct { step: []const u8, file: []const u8, what: []const u8 }{
-        .{ .step = "gen-entities", .file = "tools/gen_entities.zig", .what = "Regenerate src/entities.zig: <entities.json> <out.zig>" },
-        .{ .step = "gen-emoji", .file = "tools/gen_emoji.zig", .what = "Regenerate src/emoji.zig: <emoji.json> <out.zig>" },
-        .{ .step = "gen-unicode", .file = "tools/gen_unicode.zig", .what = "Regenerate src/unicode.zig: <UnicodeData.txt> <out.zig>" },
-        .{ .step = "gen-highlight-colors", .file = "tools/gen_highlight_colors.zig", .what = "Regenerate src/highlight_colors.zig: <primer-dark.json> <out.zig>" },
-        .{ .step = "gen-spec-cases", .file = "tools/gen_spec_cases.zig", .what = "Regenerate src/spec_inline_cases.zig: <spec.txt> <out.zig>" },
-        .{ .step = "gen-stress", .file = "tools/gen_stress.zig", .what = "Write adversarial Markdown files: <outdir> [small]" },
-        .{ .step = "stress-app", .file = "tools/stress_app.zig", .what = "Run the built app on the gen-stress files: <mdview exe> <stress dir> <work dir> [options]" },
-        .{ .step = "release-notes", .file = "tools/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
-        .{ .step = "msix-assets", .file = "tools/make_assets.zig", .what = "Write the MSIX PNG assets from icon.ico into msix/Assets" },
-        .{ .step = "pack-msix", .file = "tools/pack_msix.zig", .what = "Build the MSIX: <mdview.exe> <version> <output.msix> <work dir>" },
+        .{ .step = "gen-entities", .file = "tools/gen/gen_entities.zig", .what = "Regenerate src/data/entities.zig: <entities.json> <out.zig>" },
+        .{ .step = "gen-emoji", .file = "tools/gen/gen_emoji.zig", .what = "Regenerate src/data/emoji.zig: <emoji.json> <out.zig>" },
+        .{ .step = "gen-unicode", .file = "tools/gen/gen_unicode.zig", .what = "Regenerate src/data/unicode.zig: <UnicodeData.txt> <out.zig>" },
+        .{ .step = "gen-highlight-colors", .file = "tools/gen/gen_highlight_colors.zig", .what = "Regenerate src/data/highlight_colors.zig: <primer-dark.json> <out.zig>" },
+        .{ .step = "gen-spec-cases", .file = "tools/gen/gen_spec_cases.zig", .what = "Regenerate src/markdown/spec_inline_cases.zig: <spec.txt> <out.zig>" },
+        .{ .step = "gen-stress", .file = "tools/gen/gen_stress.zig", .what = "Write adversarial Markdown files: <outdir> [small]" },
+        .{ .step = "stress-app", .file = "tools/check/stress_app.zig", .what = "Run the built app on the gen-stress files: <mdview exe> <stress dir> <work dir> [options]" },
+        .{ .step = "release-notes", .file = "tools/release/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
+        .{ .step = "msix-assets", .file = "tools/release/make_assets.zig", .what = "Write the MSIX PNG assets from icon.ico into msix/Assets" },
+        .{ .step = "pack-msix", .file = "tools/release/pack_msix.zig", .what = "Build the MSIX: <mdview.exe> <version> <output.msix> <work dir>" },
     };
     for (generators) |g| _ = toolStep(b, g.step, g.what, toolExe(b, g.step, g.file));
 
@@ -177,19 +189,19 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
         .root_source_file = b.path("src/mermaid/jison/runtime.zig"),
         .target = b.graph.host,
     });
-    const jison = toolExe(b, "gen-jison", "tools/gen_jison.zig");
+    const jison = toolExe(b, "gen-jison", "tools/gen/gen_jison.zig");
     jison.root_module.addImport("jison_runtime", jison_runtime);
     _ = toolStep(b, "gen-jison", "Generate jison tables: <grammar.jison> <out.zig> [stub=<stub.zig>] [json=<tables.json>], or check <grammar.jison> <jison-tables.json>", jison);
-    addJisonTests(b, test_step, jison, jison_runtime);
+    addJisonTests(b, test_step, jison, jison_runtime, testdata);
 
-    const languages = toolExe(b, "gen-languages", "tools/gen_languages.zig");
+    const languages = toolExe(b, "gen-languages", "tools/gen/gen_languages.zig");
     languages.root_module.addImport("yaml", b.createModule(.{
-        .root_source_file = b.path("src/yaml.zig"),
+        .root_source_file = b.path("src/yaml_api.zig"),
         .target = b.graph.host,
     }));
-    _ = toolStep(b, "gen-languages", "Regenerate src/languages.zig: <languages.yml> <out.zig>", languages);
+    _ = toolStep(b, "gen-languages", "Regenerate src/data/languages.zig: <languages.yml> <out.zig>", languages);
 
-    const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen_growth.zig"));
+    const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen/gen_growth.zig"));
     const growth_dir = growth.addOutputDirectoryArg("growth");
     for ([_][]const u8{ "packed_four_times", "packed_u32_restarts", "packed_u64_refs", "unicode_wide" }) |name| {
         const t = b.addTest(.{
@@ -203,8 +215,8 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
     }
 }
 
-fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module) void {
-    const dir = "src/mermaid/jison/testdata/";
+fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module, testdata: *std.Build.Module) void {
+    const dir = "testdata/mermaid/jison/";
     for ([_][]const u8{ "flow", "sequenceDiagram", "expr", "dangling" }) |name| {
         const check = b.addRunArtifact(gen);
         check.addArg("check");
@@ -228,6 +240,7 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
             .target = b.graph.host,
         }),
     });
+    regex_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(regex_tests).step);
 
     const runtime_tests = b.addTest(.{
@@ -245,6 +258,7 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
         }),
     });
     parity.root_module.addImport("jison_runtime", runtime);
+    parity.root_module.addImport("testdata", testdata);
     for ([_]struct { name: []const u8, prefix: []const u8 }{
         .{ .name = "flow", .prefix = "flow" },
         .{ .name = "sequenceDiagram", .prefix = "seq" },

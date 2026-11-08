@@ -1,4 +1,5 @@
 const std = @import("std");
+const testdata = @import("testdata");
 const layout_mod = @import("dagre/layout.zig");
 const graph_mod = @import("graph.zig");
 
@@ -188,7 +189,7 @@ fn runFile(comptime name: []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const cases = try std.json.parseFromSliceLeaky([]const Case, a, @embedFile("dagre/fixtures/" ++ name ++ ".json"), .{});
+    const cases = try std.json.parseFromSliceLeaky([]const Case, a, testdata.file("mermaid/dagre/" ++ name ++ ".json"), .{});
     var failed: usize = 0;
     for (cases) |c| {
         var case_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -234,7 +235,7 @@ test "dagre parity: 500 edge graphs" {
 test "dagre: inputs that make dagre throw return an error" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cases = try std.json.parseFromSliceLeaky([]const CrashCase, arena.allocator(), @embedFile("dagre/fixtures/crash.json"), .{});
+    const cases = try std.json.parseFromSliceLeaky([]const CrashCase, arena.allocator(), testdata.file("mermaid/dagre/crash.json"), .{});
     try std.testing.expect(cases.len > 0);
     for (cases) |c| {
         var case_arena = std.heap.ArenaAllocator.init(std.testing.allocator);

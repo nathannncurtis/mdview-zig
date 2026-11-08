@@ -1,12 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-pub const md = @import("markdown.zig");
+pub const md = @import("markdown/markdown.zig");
 
 // Platform-specific backend
 pub const platform = switch (builtin.os.tag) {
-    .windows => @import("win32.zig"),
-    .linux => @import("linux.zig"),
-    .macos => @import("macos.zig"),
+    .windows => @import("platform/win32/win32.zig"),
+    .linux => @import("platform/linux/linux.zig"),
+    .macos => @import("platform/macos/macos.zig"),
     else => @compileError("Unsupported platform"),
 };
 
@@ -31,7 +31,7 @@ var doc: ?md.Document = null;
 var data_dir: ?[]const u8 = null;
 var scroll_path: ?[]const u8 = null;
 
-const links = @import("links.zig");
+const links = @import("markdown/links.zig");
 
 pub const Font = enum { body, h1, h2, h3, h4, h5, h6 };
 
