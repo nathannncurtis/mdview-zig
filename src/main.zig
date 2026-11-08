@@ -76,7 +76,7 @@ fn hasTitledImage(c: md.Inline) bool {
 }
 
 pub const Tooltip = struct { text: []const u8, x: f32, y: f32 };
-/// The title of the image under the pointer, drawn by the backend after the page.
+/// The title of the image or link under the pointer, drawn by the backend after the page.
 pub var tooltip: ?Tooltip = null;
 
 fn titleAt(px: f32, py: f32) ?[]const u8 {
@@ -85,6 +85,7 @@ fn titleAt(px: f32, py: f32) ?[]const u8 {
         if (px < h.x or px >= h.x + h.w or y < h.y or y >= h.y + h.h) continue;
         const index = platform.textIndexAt(h, px - h.x, y - h.y) orelse continue;
         if (h.content.imageAt(index)) |im| if (im.title.len > 0) return im.title;
+        if (h.content.linkAt(index)) |l| if (l.title.len > 0) return l.title;
     }
     return null;
 }

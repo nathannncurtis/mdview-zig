@@ -8,7 +8,7 @@ fn waitFor(target: []const u8, avail: f32) !images.Look {
         _ = images.tick();
         const l = images.look(target, avail);
         if (l != .pending) return l;
-        std.Io.sleep(images.io, .fromMilliseconds(5), .awake) catch {};
+        std.Io.sleep(images.io, .fromMilliseconds(5), .awake) catch break;
     }
     return error.Timeout;
 }
