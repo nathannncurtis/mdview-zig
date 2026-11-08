@@ -105,17 +105,13 @@ pub const LayerSweepCrossingMinimizer = struct {
         var forward = self.random.nextBoolean();
         const initial = try self.countCurrentNumberOfCrossings(gd);
         if (initial == 0 and p.first_try_with_initial_order) return 0;
-        if ((!p.first_try_with_initial_order and !p.second_try_with_initial_order) or p.consider_model_order == .none) {
+        if (!p.first_try_with_initial_order or p.consider_model_order == .none) {
             _ = try gd.cross_minimizer.setFirstLayerOrder(gd.current_node_order, forward);
         } else {
             forward = p.first_try_with_initial_order;
         }
         _ = try self.sweepReducingCrossings(gd, forward, true);
-        if (p.second_try_with_initial_order) p.second_try_with_initial_order = false;
-        if (p.first_try_with_initial_order) {
-            p.first_try_with_initial_order = false;
-            p.second_try_with_initial_order = true;
-        }
+        p.first_try_with_initial_order = false;
         var crossings = try self.countCurrentNumberOfCrossings(gd);
         // SAFETY: assigned in the loop before it is read
         var old: i32 = undefined;
@@ -152,7 +148,7 @@ pub const LayerSweepCrossingMinimizer = struct {
         var i: isize = if (forward) 1 else @as(isize, @intCast(length)) - 2;
         while (if (forward) i < length else i >= 0) : (i += step) {
             const li: usize = @intCast(i);
-            if (try gd.cross_minimizer.minimizeCrossings(nodes, li, forward, first_sweep and !p.first_try_with_initial_order and !p.second_try_with_initial_order)) improved = true;
+            if (try gd.cross_minimizer.minimizeCrossings(nodes, li, forward, first_sweep and !p.first_try_with_initial_order)) improved = true;
             if (try gd.port_distributor.distributePortsWhileSweeping(nodes, li, forward)) improved = true;
             if (try self.sweepInHierarchicalNodes(nodes[li], forward, first_sweep)) improved = true;
         }

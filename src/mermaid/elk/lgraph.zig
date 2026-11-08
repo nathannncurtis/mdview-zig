@@ -285,7 +285,7 @@ pub const Props = struct {
     original_port_constraints: PortConstraints = .undefined,
     model_order: ?i32 = null,
     first_try_with_initial_order: bool = false,
-    second_try_with_initial_order: bool = false,
+    // ELK declares SECOND_TRY_WITH_INITIAL_ORDER with the same id as FIRST_TRY_WITH_INITIAL_ORDER, so they are one property
     original_label_edge: ?*LEdge = null,
     end_label_edge: ?*LEdge = null,
     original_dummy_node_position: ?f64 = null,
