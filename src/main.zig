@@ -46,6 +46,7 @@ pub const Hit = struct {
     font: Font = .body,
     header: bool = false,
     alignment: md.Align = .none,
+    italic: bool = false,
 };
 
 const Hover = struct { text: [*]const u8, start: u32 };
