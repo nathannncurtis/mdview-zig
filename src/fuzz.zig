@@ -1,6 +1,7 @@
 const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
 const html = @import("markdown/html.zig");
+const elk_fuzz = @import("mermaid/elk/fuzz.zig");
 const font = @import("font/font.zig");
 const image = @import("image/image.zig");
 const fuzz_images = @import("image/fuzz_seeds.zig");
@@ -137,6 +138,10 @@ fn buildOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz html.Builder" {
     try std.testing.fuzz({}, buildOne, .{ .corpus = &html_corpus });
+}
+
+test "fuzz mermaid.elk" {
+    try std.testing.fuzz({}, elk_fuzz.fuzzOne, .{ .corpus = &elk_fuzz.corpus });
 }
 
 const font_corpus = [_][]const u8{
