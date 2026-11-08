@@ -150,20 +150,21 @@ const Bits = struct {
             self.fill(0);
             if (self.bad) return 0;
         }
+        var l: u7 = 1;
         if (self.cnt >= 8) {
             const look = h.lookup[self.peek(8)];
             if (look != 0) {
                 self.consume(@intCast(look >> 8));
                 return @intCast(look & 0xFF);
             }
+            l = 9;
         }
-        if (self.cnt < 9) {
-            self.fill(9);
+        if (self.cnt < l) {
+            self.fill(l);
             if (self.bad) return 0;
         }
-        var l: u7 = 9;
-        var code: i32 = @intCast(self.peek(9));
-        self.consume(9);
+        var code: i32 = @intCast(self.peek(l));
+        self.consume(l);
         while (code > h.maxcode[l]) {
             l += 1;
             if (l > 16) return error.Corrupt;
