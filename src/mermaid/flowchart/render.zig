@@ -519,6 +519,20 @@ fn resolveDir(by_id: *const std.StringHashMapUnmanaged(*NodeData), node: *const 
     return diagram_dir;
 }
 
+fn leafOf(nodes: []const NodeData, id: []const u8) []const u8 {
+    var cur = id;
+    var hops: usize = 0;
+    while (hops < 64) : (hops += 1) {
+        var next: ?[]const u8 = null;
+        for (nodes) |n| if (n.parent_id) |p| if (std.mem.eql(u8, p, cur)) {
+            next = n.id;
+            break;
+        };
+        cur = next orelse return cur;
+    }
+    return cur;
+}
+
 // shortcut: ELK is the 12.2.0 default layout; until src/mermaid/elk lands this runs dagre over the flat compound graph and paints the common path
 fn renderFlat(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
     const al = r.a();
@@ -565,7 +579,13 @@ fn renderFlat(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
     for (data.edges) |e0| {
         const edge = try copyEdge(al, e0);
         if (hasLabel(edge)) try edges_mod.insertEdgeLabel(ctx, edge_labels, edge);
-        try g.setEdge(.{ .v = edge.start, .w = edge.end, .name = edge.id }, edge);
+        const v = leafOf(data.nodes, edge.start);
+        const w = leafOf(data.nodes, edge.end);
+        if (!std.mem.eql(u8, v, edge.start)) edge.from_cluster = edge.start;
+        if (!std.mem.eql(u8, w, edge.end)) edge.to_cluster = edge.end;
+        edge.start = v;
+        edge.end = w;
+        try g.setEdge(.{ .v = v, .w = w, .name = edge.id }, edge);
     }
 
     try r.runDagre(g);
