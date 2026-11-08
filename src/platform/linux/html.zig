@@ -830,8 +830,8 @@ test "a nested table inside a cell block sets the cell width" {
     defer p.deinit();
     const inner_cells = [_]md.Inline{ .{ .text = "a fairly wide inner cell" }, .{ .text = "b" } };
     const inner: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &inner_cells };
-    const nested = [_]md.Block{.{ .kind = .table, .table = inner }};
-    const measured = measureFlat(p.layout, &nested);
+    const holder = [_]md.Block{.{ .kind = .table, .table = inner }};
+    const measured = measureFlat(p.layout, &holder);
     var inner_w: f32 = 0;
     _ = renderTable(p.cr, p.layout, inner, 0, 0, 100000, false, &inner_w);
     try std.testing.expectApproxEqAbs(inner_w, measured.w, 1);
