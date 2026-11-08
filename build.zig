@@ -84,7 +84,29 @@ pub fn build(b: *std.Build) void {
     });
     dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
-    addTools(b, test_step, testdata);
+    const flowchart_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/flowchart_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const yaml_api = b.createModule(.{
+        .root_source_file = b.path("src/yaml_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const html_api = b.createModule(.{
+        .root_source_file = b.path("src/html_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    flowchart_tests.root_module.addImport("yaml", yaml_api);
+    flowchart_tests.root_module.addImport("html", html_api);
+    flowchart_tests.root_module.addImport("testdata", testdata);
+    test_step.dependOn(&b.addRunArtifact(flowchart_tests).step);
+    const flow_grammar = addTools(b, test_step, testdata);
+    flowchart_tests.root_module.addImport("flow_grammar", flow_grammar);
 
     if (linux_c) |c| {
         const layout_tests = b.addTest(.{
@@ -145,7 +167,23 @@ pub fn build(b: *std.Build) void {
     fuzz_tests.root_module.addImport("testdata", testdata);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
-    b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
+    const mermaid_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    mermaid_fuzz.root_module.addImport("testdata", testdata);
+    mermaid_fuzz.root_module.addImport("yaml", yaml_api);
+    mermaid_fuzz.root_module.addImport("html", html_api);
+    mermaid_fuzz.root_module.addImport("flow_grammar", flow_grammar);
+    const run_mermaid_fuzz = b.addRunArtifact(mermaid_fuzz);
+    test_step.dependOn(&run_mermaid_fuzz.step);
+    const fuzz_step = b.step("fuzz", "Fuzz the parsers (zig build fuzz --fuzz=N)");
+    fuzz_step.dependOn(&run_fuzz.step);
+    fuzz_step.dependOn(&run_mermaid_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
@@ -172,7 +210,7 @@ fn toolStep(b: *std.Build, step_name: []const u8, description: []const u8, exe: 
     return run;
 }
 
-fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) void {
+fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) *std.Build.Module {
     const generators = [_]struct { step: []const u8, file: []const u8, what: []const u8 }{
         .{ .step = "gen-entities", .file = "tools/gen/gen_entities.zig", .what = "Regenerate src/data/entities.zig: <entities.json> <out.zig>" },
         .{ .step = "gen-emoji", .file = "tools/gen/gen_emoji.zig", .what = "Regenerate src/data/emoji.zig: <emoji.json> <out.zig>" },
@@ -194,7 +232,7 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
     const jison = toolExe(b, "gen-jison", "tools/gen/gen_jison.zig");
     jison.root_module.addImport("jison_runtime", jison_runtime);
     _ = toolStep(b, "gen-jison", "Generate jison tables: <grammar.jison> <out.zig> [stub=<stub.zig>] [json=<tables.json>], or check <grammar.jison> <jison-tables.json>", jison);
-    addJisonTests(b, test_step, jison, jison_runtime, testdata);
+    const flow_grammar_module = addJisonTests(b, test_step, jison, jison_runtime, testdata);
 
     const languages = toolExe(b, "gen-languages", "tools/gen/gen_languages.zig");
     languages.root_module.addImport("yaml", b.createModule(.{
@@ -215,9 +253,29 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         });
         test_step.dependOn(&b.addRunArtifact(t).step);
     }
+    const yaml_module = b.createModule(.{
+        .root_source_file = b.path("src/yaml_api.zig"),
+        .target = b.graph.host,
+    });
+    const flowchart_lib = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/flowchart_lib.zig"),
+        .target = b.graph.host,
+    });
+    flowchart_lib.addImport("yaml", yaml_module);
+    flowchart_lib.addImport("testdata", testdata);
+    flowchart_lib.addImport("html", b.createModule(.{
+        .root_source_file = b.path("src/html_api.zig"),
+        .target = b.graph.host,
+    }));
+    flowchart_lib.addImport("flow_grammar", flow_grammar_module);
+    const flow_render = toolExe(b, "mermaid-flow-render", "tools/check/mermaid_flow_render.zig");
+    flow_render.root_module.addImport("mermaid_flowchart", flowchart_lib);
+    _ = toolStep(b, "mermaid-flow-render", "Render flowchart cases to SVG: <cases dir> <refs dir> <out dir> [name prefix]", flow_render);
+    return flow_grammar_module;
 }
 
-fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module, testdata: *std.Build.Module) void {
+fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module, testdata: *std.Build.Module) *std.Build.Module {
+    var flow_module: ?*std.Build.Module = null;
     const dir = "testdata/mermaid/jison/";
     for ([_][]const u8{ "flow", "sequenceDiagram", "expr", "dangling" }) |name| {
         const check = b.addRunArtifact(gen);
@@ -274,8 +332,10 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
         const stub_module = b.createModule(.{ .root_source_file = stub });
         stub_module.addImport("jison_runtime", runtime);
         stub_module.addImport("grammar", grammar_module);
+        if (std.mem.eql(u8, g.prefix, "flow")) flow_module = grammar_module;
         parity.root_module.addImport(b.fmt("{s}_grammar", .{g.prefix}), grammar_module);
         parity.root_module.addImport(b.fmt("{s}_stub", .{g.prefix}), stub_module);
     }
     test_step.dependOn(&b.addRunArtifact(parity).step);
+    return flow_module.?;
 }
