@@ -1061,9 +1061,7 @@ fn lineIntersect(p1: P, p2: P, q1: P, q2: P) ?P {
     const a2 = q2.y - q1.y;
     const b2 = q1.x - q2.x;
     const c2 = q2.x * q1.y - q1.x * q2.y;
-    const r1 = a2 * p1.x + b2 * p1.y + c2;
-    const r2 = a2 * p2.x + b2 * p2.y + c2;
-    if (r1 != 0 and r2 != 0 and r1 * r2 > 0) return null;
+    // the references show the line through p1 and p2 is not clipped to the segment: a probe inside the shape still finds the outline
     const denom = a1 * b2 - a2 * b1;
     if (denom == 0) return null;
     const offset = @abs(denom / 2);
