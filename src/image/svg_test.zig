@@ -76,6 +76,25 @@ fn checkFixture(comptime f: Fixture) !void {
     std.debug.print("{s}: mean {d:.3}, bad {d:.3}%\n", .{ f.name, mean, bad_pct });
     if (mean > f.mean or bad_pct > f.bad) {
         if (std.mem.eql(u8, f.name, "marks") or std.mem.eql(u8, f.name, "indic")) {
+            var band: usize = 0;
+            while (band + 12 <= f.h) : (band += 12) {
+                var gl: usize = f.w;
+                var rl: usize = f.w;
+                var gr: usize = 0;
+                var rr: usize = 0;
+                for (band..band + 12) |yy| for (0..f.w) |xx| {
+                    const o = (yy * f.w + xx) * 4 + 3;
+                    if (got[o] > 60) {
+                        gl = @min(gl, xx);
+                        gr = @max(gr, xx);
+                    }
+                    if (ref[o] > 60) {
+                        rl = @min(rl, xx);
+                        rr = @max(rr, xx);
+                    }
+                };
+                std.debug.print("band {d}: got {d}..{d} ref {d}..{d}\n", .{ band, gl, gr, rl, rr });
+            }
             var yy: usize = 0;
             while (yy + 2 <= f.h) : (yy += 2) {
                 var line: [128]u8 = @splat(0);
