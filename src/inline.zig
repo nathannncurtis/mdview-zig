@@ -142,7 +142,7 @@ const Scanner = struct {
     dtail: u32 = none,
     brackets: std.ArrayList(Bracket) = .empty,
     bare_count: u32 = 0,
-    html_miss: [3]usize = @splat(std.math.maxInt(usize)),
+    html_miss: [4]usize = @splat(std.math.maxInt(usize)),
     /// Once a backtick run finds no closer, the last start of every run length from there on.
     tick_last: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     tick_from: usize = std.math.maxInt(usize),
@@ -639,7 +639,7 @@ fn findFrom(src: []const u8, from: usize, needle: []const u8, miss: *usize) ?usi
 }
 
 /// `miss` remembers where a terminator was last found absent, so unclosed constructs do not rescan the rest of the text.
-fn htmlEnd(src: []const u8, i: usize, miss: *[3]usize) ?usize {
+fn htmlEnd(src: []const u8, i: usize, miss: *[4]usize) ?usize {
     var j = i + 1;
     if (j >= src.len) return null;
     const c = src[j];
@@ -659,9 +659,10 @@ fn htmlEnd(src: []const u8, i: usize, miss: *[3]usize) ?usize {
     j += 1;
     if (std.mem.startsWith(u8, src[j..], "--")) {
         const body = j + 2;
-        if (std.mem.startsWith(u8, src[body..], ">") or std.mem.startsWith(u8, src[body..], "->")) return null;
-        const e = std.mem.indexOfPos(u8, src, body, "--") orelse return null;
-        return if (std.mem.startsWith(u8, src[e..], "-->")) e + 3 else null;
+        if (std.mem.startsWith(u8, src[body..], ">")) return body + 1;
+        if (std.mem.startsWith(u8, src[body..], "->")) return body + 2;
+        const e = findFrom(src, body, "-->", &miss[3]) orelse return null;
+        return e + 3;
     }
     if (std.mem.startsWith(u8, src[j..], "[CDATA[")) {
         const e = findFrom(src, j + 7, "]]>", &miss[1]) orelse return null;

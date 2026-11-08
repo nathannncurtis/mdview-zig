@@ -132,7 +132,7 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
         var want_ordered: std.ArrayList(md.Frame) = .empty;
         for (b.frames) |f| {
             switch (f.kind) {
-                .details, .dd, .figure => continue,
+                .details, .dd => continue,
                 .quote => try want.append(a, .{ .kind = .quote, .id = f.id }),
                 .list => {
                     try want.append(a, .{ .kind = .list, .id = f.group });
@@ -351,4 +351,9 @@ test "spec examples for links, definitions and autolinks" {
     }
     if (show_failures > 0) std.debug.print("\nlink spec: {d}/{d}\nfailing: {any}\n", .{ passed, total, failed.items });
     try testing.expect(passed >= link_floor);
+}
+
+test {
+    _ = @import("html_test.zig");
+    _ = @import("spec_html_test.zig");
 }
