@@ -20,8 +20,15 @@ pub const Image = struct {
     alt: []const u8 = "",
     /// Requested size in pixels from `width`/`height` attributes; 0 for unset.
     width: f32 = 0,
+    /// `width="50%"`: percent of the space available to the image, with `width` left 0.
+    width_pct: f32 = 0,
     height: f32 = 0,
     float: Float = .none,
+
+    /// The width attribute in pixels for a line `avail` wide, 0 when unset.
+    pub fn requestedWidth(self: Image, avail: f32) f32 {
+        return if (self.width_pct > 0) avail * self.width_pct / 100 else self.width;
+    }
 };
 
 pub const Def = struct { dest: []const u8, title: []const u8 };
