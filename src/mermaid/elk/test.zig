@@ -175,7 +175,6 @@ test "elk layout matches elkjs on the fixtures" {
         const out = field(doc, "output").?;
         layered.trace = isTraced(name);
         lgraph_mod.JavaRandom.trace_draws = layered.trace;
-        lg.JavaRandom.trace_draws = layered.trace;
         layered.layout(a, root) catch |err| {
             std.debug.print("  {s}: layout failed: {s}\n", .{ name, @errorName(err) });
             stats.failed += 1;
