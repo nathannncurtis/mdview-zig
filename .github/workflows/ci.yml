@@ -145,6 +145,8 @@ jobs:
             iterations: 2M
           - target: image.decode
             iterations: 400K
+          - target: svg.render
+            iterations: 300K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
