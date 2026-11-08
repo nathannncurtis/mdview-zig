@@ -339,8 +339,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             .paragraph => if (block.role == .empty) {
                 gap = block.paragraphGap();
             } else if (block.role == .break_lines) {
-                y += breakLineHeight * (f32, (std.mem.count(u8, content.text, "
-")));
+                y += breakLineHeight * @as(f32, @floatFromInt(std.mem.count(u8, content.text, "\n")));
             } else if (block.role == .summary) {
                 gap = summaryBlock(g, draw, block, x, &y, w, text_brush);
                 natural = win.g_last_text_w + md.details_marker_inset;
