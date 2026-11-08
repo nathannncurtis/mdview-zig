@@ -1,0 +1,14 @@
+sequenceDiagram
+  actor User
+  participant Browser
+  participant Auth
+  User->>Browser: enter credentials
+  Browser->>+Auth: POST /login
+  alt valid
+    Auth-->>Browser: 200 token
+  else invalid
+    Auth-->>-Browser: 401
+  end
+  opt remember me
+    Browser->>Browser: store token
+  end
