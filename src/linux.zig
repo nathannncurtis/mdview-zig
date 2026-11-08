@@ -1656,11 +1656,14 @@ fn lineXRanges(layout: *c.PangoLayout, lines: []const LineInfo, text_len: usize,
         c.pango_layout_line_get_x_ranges(line, @intCast(a), @intCast(b), &found, &n);
         const ranges = found orelse continue;
         defer c.g_free(@ptrCast(ranges));
+        var left: f32 = std.math.floatMax(f32);
+        var right: f32 = 0;
         for (0..@as(usize, @intCast(n))) |i| {
-            const left = @as(f32, @floatFromInt(ranges[i * 2])) / scale;
-            const right = @as(f32, @floatFromInt(ranges[i * 2 + 1])) / scale;
-            out.append(app.gpa, .{ .x = left, .y = box.y, .w = right - left, .h = box.height, .baseline = box.baseline, .kbd = kbd }) catch return;
+            left = @min(left, @as(f32, @floatFromInt(ranges[i * 2])) / scale);
+            right = @max(right, @as(f32, @floatFromInt(ranges[i * 2 + 1])) / scale);
         }
+        if (right <= left) continue;
+        out.append(app.gpa, .{ .x = left, .y = box.y, .w = right - left, .h = box.height, .baseline = box.baseline, .kbd = kbd }) catch return;
     }
 }
 
@@ -2050,7 +2053,7 @@ fn floatBlocks(comptime side: []const u8) [2]md.Block {
         for (0..60) |_| text = text ++ "lorem ipsum dolor sit amet ";
         break :blk text ++ "last";
     };
-    const image: md.Image = .{ .start = 0, .len = 3, .target = "logo.png", .float = if (std.mem.eql(u8, side, "left")) .left else .right };
+    const image = comptime md.Image{ .start = 0, .len = 3, .target = "logo.png", .float = if (std.mem.eql(u8, side, "left")) .left else .right };
     return .{
         .{ .kind = .paragraph, .content = .{ .text = "\u{fffc}", .images = &.{image} } },
         .{ .kind = .paragraph, .content = .{ .text = long, .links = &.{
