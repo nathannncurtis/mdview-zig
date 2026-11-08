@@ -64,12 +64,12 @@ pub fn cellHeight(t: md.Table, heights: []const f32, row: usize, col: usize) f32
 
 const testing = std.testing;
 
-fn testTable(columns: usize, spans: []const [2]u16) md.Table {
-    return .{ .columns = columns, .cells = &.{}, .spans = spans };
+fn testTable(columns: usize, extra: *const md.Table.Extra) md.Table {
+    return .{ .columns = columns, .cells = &.{}, .ext = extra };
 }
 
 test "a spanning cell widens its columns only by what is missing" {
-    var t = testTable(2, &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 1 } });
+    var t = testTable(2, &.{ .spans = &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 1 } } });
     var cells: [4]md.Inline = undefined;
     t.cells = &cells;
     var w: [2]f32 = undefined;
@@ -82,7 +82,7 @@ test "a spanning cell widens its columns only by what is missing" {
 }
 
 test "rowspan shares the height of the rows it covers" {
-    var t = testTable(2, &.{ .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 } });
+    var t = testTable(2, &.{ .spans = &.{ .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 } } });
     var cells: [4]md.Inline = undefined;
     t.cells = &cells;
     var h: [2]f32 = undefined;
