@@ -452,6 +452,7 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
         var gap: f32 = 0;
         const text_col = if (block.muted()) col_quote else col_text;
         html.block_align = block.alignment;
+        html.block_italic = block.role == .dt;
         for (block.marks) |l| drawMarker(cr, pango_layout, l.mark, left + l.inset, y);
 
         if (block.kind == .paragraph) placeFloats(cr, block, x, cw, y, &bands);
@@ -505,7 +506,7 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
                 const font: [*:0]const u8 = if (block.role == .dt) "Sans Bold Italic 12" else "Sans 12";
                 const before = y;
                 y += renderBeside(cr, pango_layout, block.content, x, y, cw, text_col, font, beside);
-                if (block.role == .summary) drawSummaryMarker(cr, pango_layout, block, x, before, y - before, cw);
+                if (block.role == .summary) drawSummaryMarker(cr, pango_layout, block, x + beside.left, before, y - before, cw - beside.left - beside.right);
                 gap = block.paragraphGap();
             },
             .alert_title => {
@@ -558,6 +559,7 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
         prev_gap = gap;
     }
     html.block_align = .none;
+    html.block_italic = false;
     return y;
 }
 
@@ -647,7 +649,7 @@ pub fn renderFlowed(
     c.pango_layout_set_attributes(pango_layout, null);
     setAlign(pango_layout, .left);
 
-    html.noteHit(.{ .content = content, .x = x, .y = y + app.scroll_y, .w = max_width, .h = @floatFromInt(ph), .font = fontOfDesc(font_desc_str), .alignment = html.block_align });
+    html.noteHit(.{ .content = content, .x = x, .y = y + app.scroll_y, .w = max_width, .h = @floatFromInt(ph), .font = fontOfDesc(font_desc_str), .alignment = html.block_align, .italic = html.block_italic });
     return @floatFromInt(ph);
 }
 
@@ -663,6 +665,11 @@ fn fontOfDesc(desc: [*:0]const u8) app.Font {
     };
     for (names) |n| if (std.mem.eql(u8, std.mem.span(desc), n[0])) return n[1];
     return .body;
+}
+
+fn hitFont(hit: app.Hit) [*:0]const u8 {
+    if (!hit.italic) return fontDesc(hit.font);
+    return if (hit.font == .body) "Sans Italic 12" else "Sans Bold Italic 12";
 }
 
 fn fontDesc(font: app.Font) [*:0]const u8 {
@@ -686,7 +693,7 @@ pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
     const layout = c.pango_cairo_create_layout(cr) orelse return null;
     defer c.g_object_unref(layout);
 
-    setInline(layout, hit.content, hit.w, if (hit.header) "Sans Bold 12" else fontDesc(hit.font));
+    setInline(layout, hit.content, hit.w, if (hit.header) "Sans Bold 12" else hitFont(hit));
     c.pango_layout_set_alignment(layout, @intCast(switch (hit.alignment) {
         .none, .left => c.PANGO_ALIGN_LEFT,
         .center => c.PANGO_ALIGN_CENTER,

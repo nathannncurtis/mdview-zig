@@ -77,6 +77,7 @@ pub const Bands = struct {
 
 pub var sizing_float = false;
 pub var measuring = false;
+pub var block_italic = false;
 pub var nested: u32 = 0;
 pub var extent: f32 = 0;
 pub var splits: ?std.heap.ArenaAllocator = null;
@@ -270,24 +271,26 @@ pub fn drawSummaryMarker(cr: *c.cairo_t, layout: *c.PangoLayout, block: *const m
         }
         c.cairo_close_path(cr);
         c.cairo_fill(cr);
-        if (!measuring) noteSummaryToggles(layout, app.images.flow(block.content), f, x, top, w);
+        if (!measuring) noteSummaryToggles(layout, app.images.flow(block.content), block.alignment, f, x, top, w);
         return;
     }
 }
 
 /// The summary row toggles the details everywhere except on its links, which keep their own click.
-fn noteSummaryToggles(layout: *c.PangoLayout, content: md.Inline, f: md.Frame, x: f32, top: f32, w: f32) void {
+fn noteSummaryToggles(layout: *c.PangoLayout, content: md.Inline, alignment: md.Align, f: md.Frame, x: f32, top: f32, w: f32) void {
     var lines: std.ArrayList(LineInfo) = .empty;
     defer lines.deinit(app.gpa);
     var holes: std.ArrayList(StyleRect) = .empty;
     defer holes.deinit(app.gpa);
     setInline(layout, content, w, "Sans 12");
+    setAlign(layout, alignment);
     collectLines(layout, &lines);
     const merged = padded(content);
     const spans = merged.code;
     const text_len = content.text.len + 2 * pad_len * spans.len;
     for (content.links) |l| lineXRanges(layout, lines.items, text_len, mapStart(spans, l.start), mapEnd(spans, l.start + l.len), false, &holes);
     c.pango_layout_set_attributes(layout, null);
+    setAlign(layout, .left);
     const edge = x - md.details_marker_inset - 4;
     for (lines.items, 0..) |ln, i| {
         var cursor: f32 = if (i == 0) edge else x;
@@ -986,4 +989,54 @@ test "a table with align right floats and the text beside it is narrower" {
     try std.testing.expectEqual(@as(usize, 1), app.hits.items.len);
     try std.testing.expectEqual(@as(f32, 0), app.hits.items[0].x);
     try std.testing.expectApproxEqAbs(600 - table_w - md.float_gap, app.hits.items[0].w, 0.01);
+}
+
+test "a centred summary toggles everywhere except where its link is drawn" {
+    app.gpa = std.heap.page_allocator;
+    defer app.details_open.clearAndFree(app.gpa);
+    defer app.hits.clearAndFree(app.gpa);
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const frames = [_]md.Frame{.{ .kind = .details, .key = 92 }};
+    const links = [_]md.Link{.{ .start = 0, .len = 4, .target = "https://example.com" }};
+    const blocks = [_]md.Block{.{ .kind = .paragraph, .content = .{ .text = "link", .links = &links }, .frames = &frames, .role = .summary, .alignment = .center }};
+    const p = try Probe.init(800, 800);
+    defer p.deinit();
+    app.hits.clearRetainingCapacity();
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 40, 500, 600);
+    try std.testing.expectEqual(@as(usize, 1), app.hits.items.len);
+    const hit = app.hits.items[0];
+    var link_x: f32 = -1;
+    var x: f32 = hit.x;
+    while (x < hit.x + hit.w) : (x += 2) {
+        if (textIndexAt(hit, x - hit.x, 8) != null) {
+            link_x = x;
+            break;
+        }
+    }
+    try std.testing.expect(link_x > hit.x + 100);
+
+    try std.testing.expect(app.mouseDown(link_x + 3, 608));
+    try std.testing.expect(!app.isOpen(frames[0]));
+    try std.testing.expect(app.mouseDown(45, 608));
+    try std.testing.expect(app.isOpen(frames[0]));
+}
+
+test "a dt block hits as italic, and the hit is laid out italic" {
+    app.gpa = std.heap.page_allocator;
+    defer app.hits.clearAndFree(app.gpa);
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const link: md.Link = .{ .start = 0, .len = 4, .target = "x" };
+    const blocks = [_]md.Block{
+        .{ .kind = .paragraph, .role = .dt, .content = .{ .text = "term", .links = &.{link} } },
+        .{ .kind = .paragraph, .content = .{ .text = "text", .links = &.{link} } },
+    };
+    const p = try Probe.init(800, 800);
+    defer p.deinit();
+    app.hits.clearRetainingCapacity();
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 500, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.hits.items.len);
+    try std.testing.expect(app.hits.items[0].italic);
+    try std.testing.expect(!app.hits.items[1].italic);
 }
