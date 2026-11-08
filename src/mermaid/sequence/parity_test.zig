@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const sequence = @import("sequence.zig");
+const preprocess = @import("../preprocess.zig");
 const env = sequence.env;
 const testdata = @import("testdata");
 
@@ -72,6 +73,17 @@ const Xml = struct {
             if (v[i] == '&') {
                 const subs = [_][2][]const u8{ .{ "&amp;", "&" }, .{ "&lt;", "<" }, .{ "&gt;", ">" }, .{ "&quot;", "\"" }, .{ "&nbsp;", "\u{a0}" } };
                 var hit = false;
+                if (v[i + 1 ..].len > 1 and v[i + 1] == '#') {
+                    if (std.mem.indexOfScalar(u8, v[i..], ';')) |semi| {
+                        const num = v[i + 2 .. i + semi];
+                        const cp = (if (num.len > 0 and (num[0] == 'x' or num[0] == 'X')) std.fmt.parseInt(u21, num[1..], 16) else std.fmt.parseInt(u21, num, 10)) catch 0xFFFD;
+                        var buf: [4]u8 = undefined;
+                        const n = std.unicode.utf8Encode(cp, &buf) catch 0;
+                        try out.appendSlice(x.a, buf[0..n]);
+                        i += semi + 1;
+                        continue;
+                    }
+                }
                 for (subs) |sb| if (std.mem.startsWith(u8, v[i..], sb[0])) {
                     try out.appendSlice(x.a, sb[1]);
                     i += sb[0].len;
@@ -179,7 +191,8 @@ fn compare(a: Allocator, mine: *const Elem, ref: *const Elem, path: []const u8, 
         for (mine.attrs) |x| try report.print(a, "     mine {s}=\"{s}\"\n", .{ x[0], x[1] });
         for (ref.attrs) |x| try report.print(a, "     ref  {s}=\"{s}\"\n", .{ x[0], x[1] });
     } else for (mine.attrs, ref.attrs) |x, y| {
-        if (!std.mem.eql(u8, x[0], y[0]) or !close(x[1], y[1], 0.5)) {
+        const same_value = if (std.mem.eql(u8, x[0], "id")) sameId(x[1], y[1]) else close(x[1], y[1], 0.5);
+        if (!std.mem.eql(u8, x[0], y[0]) or !same_value) {
             ok = false;
             try report.print(a, "  {s}: {s}=\"{s}\" vs ref {s}=\"{s}\"\n", .{ here, x[0], x[1], y[0], y[1] });
         }
@@ -195,6 +208,21 @@ fn compare(a: Allocator, mine: *const Elem, ref: *const Elem, path: []const u8, 
         return;
     }
     for (mine.children, ref.children) |m, r| try compare(a, m, r, here, st, report);
+}
+
+// The reference run kept one actor counter across many diagrams in a page; a frame renders one, so ids are compared without their numbers.
+fn sameId(a: []const u8, b: []const u8) bool {
+    var i: usize = 0;
+    var j: usize = 0;
+    while (i < a.len or j < b.len) {
+        while (i < a.len and std.ascii.isDigit(a[i])) i += 1;
+        while (j < b.len and std.ascii.isDigit(b[j])) j += 1;
+        if (i == a.len or j == b.len) return i == a.len and j == b.len;
+        if (a[i] != b[j]) return false;
+        i += 1;
+        j += 1;
+    }
+    return true;
 }
 
 fn readFile(a: Allocator, path: []const u8) ![]u8 {
@@ -265,7 +293,7 @@ fn runSet(a: Allocator, replay: *Replay, theme: []const u8, manifest_path: []con
         };
         const tctx: ThemeCtx = .{ .vars = tv.object };
         replay.misses = 0;
-        const res = try sequence.render(a, try decodeEntities(a, bodyOf(src)), .{ .id = "diagram", .conf = conf, .theme = .{ .ctx = &tctx, .getFn = ThemeCtx.get }, .measurer = replay.measurer(), .title = fm.title });
+        const res = try sequence.render(a, try preprocess.encodeEntities(a, bodyOf(src)), .{ .id = "diagram", .conf = conf, .theme = .{ .ctx = &tctx, .getFn = ThemeCtx.get }, .measurer = replay.measurer(), .title = fm.title });
         var st: Stats = .{};
         var local: std.ArrayList(u8) = .empty;
         switch (res) {
@@ -274,7 +302,7 @@ fn runSet(a: Allocator, replay: *Replay, theme: []const u8, manifest_path: []con
                 try local.print(a, "  render error: {s}\n", .{m});
             },
             .ok => |o| {
-                var xm: Xml = .{ .a = a, .s = try decodeOut(a, o.svg) };
+                var xm: Xml = .{ .a = a, .s = try preprocess.decodeEntities(a, o.svg) };
                 const mine = try xm.element();
                 keepRootAttrs(a, mine);
                 try compare(a, mine, ref, "", &st, &local);
@@ -331,50 +359,4 @@ fn stripA11y(a: Allocator, ref: *Elem) void {
     var kids: std.ArrayList(*Elem) = .empty;
     for (ref.children) |c| if (!std.mem.eql(u8, c.tag, "title") and !std.mem.eql(u8, c.tag, "desc")) kids.append(a, c) catch return;
     ref.children = kids.items;
-}
-
-// Core encodes #NNN; entities before the parser (layout measures the encoded text) and decodes them in the SVG.
-const enc_open = "\u{fb02}\u{b0}\u{b0}";
-const enc_close = "\u{b6}\u{df}";
-
-fn decodeEntities(a: Allocator, s: []const u8) ![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    var i: usize = 0;
-    while (i < s.len) {
-        if (s[i] == '#') {
-            var j = i + 1;
-            while (j < s.len and std.ascii.isDigit(s[j])) j += 1;
-            if (j > i + 1 and j < s.len and s[j] == ';') {
-                try out.appendSlice(a, enc_open);
-                try out.appendSlice(a, s[i + 1 .. j]);
-                try out.appendSlice(a, enc_close);
-                i = j + 1;
-                continue;
-            }
-        }
-        try out.append(a, s[i]);
-        i += 1;
-    }
-    return out.items;
-}
-
-fn decodeOut(a: Allocator, s: []const u8) ![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    var i: usize = 0;
-    while (i < s.len) {
-        if (std.mem.startsWith(u8, s[i..], enc_open)) {
-            const st = i + enc_open.len;
-            if (std.mem.indexOf(u8, s[st..], enc_close)) |e| {
-                const cp = std.fmt.parseInt(u21, s[st .. st + e], 10) catch 0xFFFD;
-                var buf: [4]u8 = undefined;
-                const n = std.unicode.utf8Encode(cp, &buf) catch 0;
-                try out.appendSlice(a, buf[0..n]);
-                i = st + e + enc_close.len;
-                continue;
-            }
-        }
-        try out.append(a, s[i]);
-        i += 1;
-    }
-    return out.items;
 }
