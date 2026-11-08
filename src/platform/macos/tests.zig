@@ -541,3 +541,29 @@ test "a floated image inside a table cell floats within the cell" {
     try testing.expectEqual(@as(f32, cell_pad_x + 50 + md.float_gap), app.hits.items[0].x);
     try testing.expect(height >= 50 + 2 * 6);
 }
+
+test "a float inside a nested table cell uses the bands of that cell" {
+    var canvas = try Canvas.init(800, 600);
+    defer canvas.deinit();
+    const font = createFont("Helvetica Neue", font_size_body, false, false);
+    defer c.CFRelease(font);
+    try app.images.injectReady("logo.png", 200, 200);
+    const images = [_]md.Image{.{ .start = 0, .len = 3, .target = "logo.png", .width = 50, .float = .left }};
+    const inner: md.Table = .{
+        .columns = 1,
+        .aligns = &.{.none},
+        .header_row = false,
+        .cells = &.{.{ .text = "\u{FFFC}beside", .images = &images, .links = &.{testLink(3, 6)} }},
+    };
+    const outer: md.Table = .{
+        .columns = 1,
+        .aligns = &.{.none},
+        .header_row = false,
+        .cells = &.{.{ .text = "" }},
+        .nested = &.{inner},
+    };
+    const height = drawTable(canvas.ctx, outer, 0, 600, 600, font, true, null);
+    try testing.expectEqual(@as(usize, 1), app.hits.items.len);
+    try testing.expectEqual(@as(f32, 2 * cell_pad_x + 50 + md.float_gap), app.hits.items[0].x);
+    try testing.expect(height >= 50 + 4 * 6);
+}
