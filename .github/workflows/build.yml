@@ -219,7 +219,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
-      - run: sw_vers; find /System/Library /Library -iname '*stix*' 2>/dev/null | head -20
       - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
       - name: Instruction set
