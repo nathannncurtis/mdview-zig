@@ -73,6 +73,15 @@ pub fn build(b: *std.Build) void {
     });
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+
+    const font_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/font/font.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(font_tests).step);
     addTools(b, test_step);
 
     if (linux_c) |c| {
@@ -171,6 +180,13 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
         .target = b.graph.host,
     }));
     _ = toolStep(b, "gen-languages", "Regenerate src/languages.zig: <languages.yml> <out.zig>", languages);
+
+    const subset = toolExe(b, "subset-font", "tools/subset_font.zig");
+    subset.root_module.addImport("ttf", b.createModule(.{
+        .root_source_file = b.path("src/font/ttf.zig"),
+        .target = b.graph.host,
+    }));
+    _ = toolStep(b, "subset-font", "Write the Latin subset of a TrueType font: <in.ttf> <out.ttf> <family> <style>", subset);
 
     const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen_growth.zig"));
     const growth_dir = growth.addOutputDirectoryArg("growth");
