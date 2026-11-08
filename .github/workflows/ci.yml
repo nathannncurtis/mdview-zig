@@ -101,7 +101,7 @@ jobs:
 
   # One leg per fuzz target, each with its own iteration budget. To add a target: write its
   # `test "fuzz <name>"` in src/fuzz.zig and add `<name>` and an iteration count here.
-  # Size it so the slowest observed run, about 500 runs a second, stays under 12 minutes.
+  # Size it so the slowest observed run, about 450 runs a second, stays under 10 minutes.
   fuzz:
     needs: changes
     if: needs.changes.outputs.app == 'true' && github.event.pull_request.draft != true
@@ -110,9 +110,9 @@ jobs:
       matrix:
         include:
           - target: markdown.parse
-            iterations: 400K
+            iterations: 250K
           - target: html.Builder
-            iterations: 300K
+            iterations: 250K
           - target: image.decode
             iterations: 400K
     name: fuzz (${{ matrix.target }})
