@@ -33,7 +33,7 @@ Case 0 of each theme is listed in full; the other cases list what differs from i
 ## `unicode/`
 
 `GraphemeBreakTest.txt` and `WordBreakTest.txt` from `https://www.unicode.org/Public/17.0.0/ucd/auxiliary/`, with the trailing comments removed.
-`src/mermaid/segment_data.zig` is generated from the 17.0.0 property files by `tools/gen_segment.zig`.
+`src/mermaid/segment_data.zig` is generated from the 17.0.0 property files by `tools/gen/gen_segment.zig`.
 
 ## Regenerating the tables
 
