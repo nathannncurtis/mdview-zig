@@ -126,10 +126,11 @@ pub const BBox = struct {
     }
 };
 
-const Stop = struct { off: f32, c: [4]f32 };
+pub const Stop = struct { off: f32, c: [4]f32 };
 
-const Grad = struct {
+pub const Grad = struct {
     radial: bool,
+    sweep: ?[2]f64 = null,
     p: [6]f64,
     stops: []const Stop,
     spread: u8,
@@ -139,7 +140,7 @@ const Grad = struct {
 
 const Tex = struct { px: []const u8, w: usize, h: usize, inv: Mat, repeat: bool, opacity: f32 };
 
-const Src = union(enum) { solid: [4]f32, grad: Grad, tex: Tex };
+pub const Src = union(enum) { solid: [4]f32, grad: Grad, tex: Tex };
 
 fn solidSrc(c: sty.Color, opacity: f32) Src {
     const a = c.a * opacity;
@@ -160,7 +161,12 @@ fn spreadT(t: f64, spread: u8) f64 {
 fn gradColor(g: *const Grad, x: f64, y: f64) [4]f32 {
     const q = g.inv.apply(.{ .x = x, .y = y });
     var t: f64 = 0;
-    if (!g.radial) {
+    if (g.sweep) |sw| {
+        var delta = std.math.atan2(q.y - g.p[1], q.x - g.p[0]) - sw[0];
+        delta = @mod(delta, 2 * std.math.pi);
+        const span = sw[1] - sw[0];
+        t = if (span != 0) delta / span else 0;
+    } else if (!g.radial) {
         const dx = g.p[2] - g.p[0];
         const dy = g.p[3] - g.p[1];
         const dd = dx * dx + dy * dy;
@@ -285,7 +291,7 @@ fn paintCover(t: *Layer, cov: raster.Cover, src: Src, clip: ?[]const u8) void {
     }
 }
 
-fn compositeLayer(dst: *Layer, src: *const Layer, opacity: f32, masks: []const []const u8) void {
+pub fn compositeLayer(dst: *Layer, src: *const Layer, opacity: f32, masks: []const []const u8) void {
     var i: usize = 0;
     while (i < src.px.len) : (i += 4) {
         const sa8 = src.px[i + 3];
@@ -389,7 +395,7 @@ fn blendColor(mode: sty.Blend, cb: [3]f32, cs: [3]f32) [3]f32 {
     };
 }
 
-fn blendLayer(dst: *Layer, src: *const Layer, opacity: f32, masks: []const []const u8, mode: sty.Blend) void {
+pub fn blendLayer(dst: *Layer, src: *const Layer, opacity: f32, masks: []const []const u8, mode: sty.Blend) void {
     var i: usize = 0;
     while (i < src.px.len) : (i += 4) {
         const sa8 = src.px[i + 3];
@@ -1093,7 +1099,7 @@ pub const Renderer = struct {
         paintCover(st.target, cov, src, st.clip);
     }
 
-    fn fillPath(r: *Renderer, st: *const State, path: *const raster.Path, rule: raster.FillRule, src: Src) Error!void {
+    pub fn fillPath(r: *Renderer, st: *const State, path: *const raster.Path, rule: raster.FillRule, src: Src) Error!void {
         r.pa.clear();
         try raster.flatten(r.gpa, path, st.ctm, 0.1, &r.pa);
         try r.fillSrc(st, &r.pa, rule, src);

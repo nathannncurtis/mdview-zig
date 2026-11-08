@@ -6,6 +6,7 @@ const sty = @import("svg_style.zig");
 const font = @import("font");
 const shape = @import("svg_shape.zig");
 const indic = @import("svg_indic.zig");
+const colr = @import("svg_colr.zig");
 const image = @import("image.zig");
 
 const Error = image.Error;
@@ -524,6 +525,19 @@ fn finish(l: *Layout, a: std.mem.Allocator, snap: ?raster.Mat) Error![]Run {
             if (g.space) continue;
             const gm = origin.mul(.{ .a = k * g.xs, .c = skew * g.xs, .d = -k });
             const fm: font.Mat = .{ .a = gm.a, .b = gm.b, .c = gm.c, .d = gm.d, .e = gm.e, .f = gm.f };
+            if (snap) |sm| {
+                const dev = @sqrt(@abs(sm.a * sm.d - sm.b * sm.c));
+                const fg: [4]f32 = switch (ri.style.fill) {
+                    .color => |col| .{ col.r, col.g, col.b, col.a },
+                    .current => .{ ri.style.color.r, ri.style.color.g, ri.style.color.b, ri.style.color.a },
+                    else => .{ 0, 0, 0, 1 },
+                };
+                const rendered = colr.render(l.r, a, g.face, g.gid, k * dev, fg) catch null;
+                if (rendered) |rd| {
+                    try bitmaps.append(a, .{ .rgba = rd.rgba, .w = rd.w, .h = rd.h, .m = gm.mul(rd.m) });
+                    continue;
+                }
+            }
             var cl: std.ArrayList(shape.Layer) = .empty;
             if (try shape.colrLayers(g.face, g.gid, a, &cl)) {
                 for (cl.items) |ly| {

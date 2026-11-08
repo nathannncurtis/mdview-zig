@@ -126,6 +126,7 @@ test {
     _ = @import("svg_style.zig");
     _ = @import("svg_shape.zig");
     _ = @import("svg_indic.zig");
+    _ = @import("svg_colr.zig");
     _ = @import("svg_filter.zig");
     _ = @import("svg_anim.zig");
 }
