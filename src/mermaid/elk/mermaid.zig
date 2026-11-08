@@ -28,8 +28,10 @@ pub const Node = struct {
     paints_title: bool = true,
     skip_center_points: bool = false,
     intersect: ?geo.Intersect = null,
-    rect_intersect: bool = false,
+    outline: Outline = .none,
 };
+
+pub const Outline = enum { none, rect, diamond, circle };
 
 pub const Edge = struct {
     id: []const u8,
@@ -122,9 +124,14 @@ const State = struct {
     fn isect(self: *const State, i: usize, tmp: *Rect) ?geo.Intersect {
         const n = self.nodes[i];
         if (n.intersect) |f| return f;
-        if (!n.rect_intersect) return null;
+        if (n.outline == .none) return null;
         tmp.* = .{ .x = self.x[i], .y = self.y[i], .width = self.w[i], .height = self.h[i] };
-        return .{ .ctx = tmp, .f = rectIntersect };
+        return .{ .ctx = tmp, .f = switch (n.outline) {
+            .rect => rectIntersect,
+            .diamond => diamondIntersect,
+            .circle => circleIntersect,
+            .none => unreachable,
+        } };
     }
 
     fn groupTitleWidth(self: *const State, i: usize) f64 {
@@ -1042,4 +1049,62 @@ fn rectIntersect(ctx: *anyopaque, p: P) ?P {
         sy = if (dx == 0) 0 else (w * dy) / dx;
     }
     return .{ .x = r.x + sx, .y = r.y + sy };
+}
+
+fn lineIntersect(p1: P, p2: P, q1: P, q2: P) ?P {
+    const a1 = p2.y - p1.y;
+    const b1 = p1.x - p2.x;
+    const c1 = p2.x * p1.y - p1.x * p2.y;
+    const r3 = a1 * q1.x + b1 * q1.y + c1;
+    const r4 = a1 * q2.x + b1 * q2.y + c1;
+    if (r3 != 0 and r4 != 0 and r3 * r4 > 0) return null;
+    const a2 = q2.y - q1.y;
+    const b2 = q1.x - q2.x;
+    const c2 = q2.x * q1.y - q1.x * q2.y;
+    const r1 = a2 * p1.x + b2 * p1.y + c2;
+    const r2 = a2 * p2.x + b2 * p2.y + c2;
+    if (r1 != 0 and r2 != 0 and r1 * r2 > 0) return null;
+    const denom = a1 * b2 - a2 * b1;
+    if (denom == 0) return null;
+    const offset = @abs(denom / 2);
+    var num = b1 * c2 - b2 * c1;
+    const x = if (num < 0) (num - offset) / denom else (num + offset) / denom;
+    num = a2 * c1 - a1 * c2;
+    const y = if (num < 0) (num - offset) / denom else (num + offset) / denom;
+    return .{ .x = x, .y = y };
+}
+
+// intersect.polygon over the four corners of a diamond
+fn diamondIntersect(ctx: *anyopaque, p: P) ?P {
+    const r: *Rect = @ptrCast(@alignCast(ctx));
+    const hw = r.width / 2;
+    const hh = r.height / 2;
+    const c = P{ .x = r.x, .y = r.y };
+    const pts = [4]P{ .{ .x = r.x, .y = r.y + hh }, .{ .x = r.x + hw, .y = r.y }, .{ .x = r.x, .y = r.y - hh }, .{ .x = r.x - hw, .y = r.y } };
+    var best: ?P = null;
+    var best_d: f64 = 0;
+    for (0..4) |i| {
+        if (lineIntersect(c, p, pts[i], pts[(i + 1) % 4])) |q| {
+            const d = std.math.hypot(q.x - p.x, q.y - p.y);
+            if (best == null or d < best_d) {
+                best = q;
+                best_d = d;
+            }
+        }
+    }
+    return best orelse c;
+}
+
+// intersect.circle
+fn circleIntersect(ctx: *anyopaque, p: P) ?P {
+    const r: *Rect = @ptrCast(@alignCast(ctx));
+    const rx = r.width / 2;
+    const px = r.x - p.x;
+    const py = r.y - p.y;
+    const det = @sqrt(rx * rx * py * py + rx * rx * px * px);
+    var dx = @abs((rx * rx * px) / det);
+    if (p.x < r.x) dx = -dx;
+    var dy = @abs((rx * rx * py) / det);
+    if (p.y < r.y) dy = -dy;
+    return .{ .x = r.x + dx, .y = r.y + dy };
 }

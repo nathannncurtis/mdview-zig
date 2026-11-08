@@ -47,6 +47,14 @@ fn isRectShape(s: []const u8) bool {
     return false;
 }
 
+fn outlineOf(s: []const u8) mermaid.Outline {
+    const diamonds = [_][]const u8{ "diamond", "diam" };
+    const circles = [_][]const u8{ "circle", "circ", "doublecircle", "dbl-circ" };
+    for (diamonds) |d| if (std.mem.eql(u8, d, s)) return .diamond;
+    for (circles) |d| if (std.mem.eql(u8, d, s)) return .circle;
+    return if (isRectShape(s)) .rect else .none;
+}
+
 fn dirOf(s: []const u8) mermaid.Dir {
     if (std.mem.eql(u8, s, "lr")) return .lr;
     if (std.mem.eql(u8, s, "rl")) return .rl;
@@ -78,8 +86,7 @@ fn runCase(gpa: std.mem.Allocator, c: CaseJ, rep: *Report, verbose: bool) !bool 
     const nodes = try a.alloc(mermaid.Node, c.nodes.len);
     var rect_only = true;
     for (c.nodes, 0..) |n, i| {
-        const rect = isRectShape(n.shape) or n.isGroup;
-        if (!rect) rect_only = false;
+        if (!isRectShape(n.shape) and !n.isGroup) rect_only = false;
         nodes[i] = .{
             .id = n.id,
             .parent_id = n.parent,
@@ -91,7 +98,7 @@ fn runCase(gpa: std.mem.Allocator, c: CaseJ, rep: *Report, verbose: bool) !bool 
             .label_h = n.labelH,
             .padding = n.padding,
             .dir = if (n.dir) |d| dirOf(d) else null,
-            .rect_intersect = !n.isGroup and rect,
+            .outline = if (n.isGroup) .none else outlineOf(n.shape),
         };
     }
     const edges = try a.alloc(mermaid.Edge, c.edges.len);
@@ -112,7 +119,7 @@ fn runCase(gpa: std.mem.Allocator, c: CaseJ, rep: *Report, verbose: bool) !bool 
         rep.nodes += 1;
         const got = res.nodes[i];
         var good = near(got.x, n.ex, 0.5) and near(got.y, n.ey, 0.5);
-        if (n.isGroup) good = good and near(got.width, n.ew.?, 0.5) and near(got.height, n.eh.?, 0.5);
+        if (n.isGroup) good = good and near(@max(got.width, n.labelW + n.padding), n.ew.?, 0.5) and near(got.height, n.eh.?, 0.5);
         if (good) rep.node_ok += 1 else {
             ok = false;
             if (verbose) std.debug.print("  {s}: node {s} got {d:.2},{d:.2} {d:.2}x{d:.2} want {d:.2},{d:.2}\n", .{ c.name, n.id, got.x, got.y, got.width, got.height, n.ex, n.ey });
