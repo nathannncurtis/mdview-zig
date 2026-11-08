@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="80" viewBox="0 0 120 80"><defs>
+<clipPath id="c1" clipPathUnits="objectBoundingBox"><circle cx=".5" cy=".5" r=".5"/></clipPath>
+<clipPath id="c2"><rect x="0" y="0" width="30" height="20"/><use href="#t" x="30"/></clipPath>
+<clipPath id="c3" transform="rotate(20 60 40)"><rect x="50" y="30" width="30" height="30"/></clipPath>
+<path id="t" d="M0 0 h20 v20 h-20z"/></defs>
+<rect x="5" y="5" width="40" height="30" fill="#2e7d32" clip-path="url(#c1)"/>
+<g clip-path="url(#c2)" transform="translate(55 5)"><rect width="60" height="40" fill="#1565c0"/></g>
+<rect x="40" y="25" width="60" height="50" fill="#c62828" clip-path="url(#c3)"/>
+<g clip-path="url(#c1)" opacity=".5"><rect x="5" y="40" width="30" height="30" fill="purple"/></g></svg>

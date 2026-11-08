@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
+  <filter id="dl" x="0" y="0" width="1" height="1"><feGaussianBlur in="SourceAlpha" stdDeviation="2" result="b"/><feDiffuseLighting in="b" surfaceScale="4" diffuseConstant="1" lighting-color="#ffd54f"><feDistantLight azimuth="45" elevation="50"/></feDiffuseLighting></filter>
+  <circle cx="30" cy="30" r="22" fill="#c62828" filter="url(#dl)"/>
+</svg>
