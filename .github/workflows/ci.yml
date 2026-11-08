@@ -114,6 +114,8 @@ jobs:
             iterations: 800K
           - target: mermaid.elk
             iterations: 200K
+          - target: image.decode
+            iterations: 400K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30

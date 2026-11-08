@@ -75,6 +75,17 @@ pub fn build(b: *std.Build) void {
     parser_tests.root_module.addImport("testdata", testdata);
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+
+    const image_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/image/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_image_tests = b.addRunArtifact(image_tests);
+    run_image_tests.setCwd(b.path("."));
+    test_step.dependOn(&run_image_tests.step);
     const dagre_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/mermaid/dagre_test.zig"),
@@ -180,6 +191,15 @@ fn toolStep(b: *std.Build, step_name: []const u8, description: []const u8, exe: 
     return run;
 }
 
+fn addStubs(b: *std.Build, m: *std.Build.Module) void {
+    for ([_][]const u8{ "xml", "png" }) |name| {
+        m.addImport(b.fmt("{s}_stub", .{name}), b.createModule(.{
+            .root_source_file = b.path(b.fmt("src/mermaid/stub/{s}.zig", .{name})),
+            .target = b.graph.host,
+        }));
+    }
+}
+
 fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) void {
     const generators = [_]struct { step: []const u8, file: []const u8, what: []const u8 }{
         .{ .step = "gen-entities", .file = "tools/gen/gen_entities.zig", .what = "Regenerate src/data/entities.zig: <entities.json> <out.zig>" },
@@ -195,6 +215,20 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
     };
     for (generators) |g| _ = toolStep(b, g.step, g.what, toolExe(b, g.step, g.file));
 
+    const bench = b.addExecutable(.{
+        .name = "bench-image",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/bench_image.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench.root_module.addImport("image", b.createModule(.{
+        .root_source_file = b.path("src/image/image.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseFast,
+    }));
+    _ = toolStep(b, "bench-image", "Time the image decoders: <image file> [runs]", bench);
     const jison_runtime = b.createModule(.{
         .root_source_file = b.path("src/mermaid/jison/runtime.zig"),
         .target = b.graph.host,
@@ -210,6 +244,22 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .target = b.graph.host,
     }));
     _ = toolStep(b, "gen-languages", "Regenerate src/data/languages.zig: <languages.yml> <out.zig>", languages);
+
+    const compare = toolExe(b, "mermaid-compare", "tools/check/mermaid_compare.zig");
+    addStubs(b, compare.root_module);
+    _ = toolStep(b, "mermaid-compare", "Mermaid fidelity: [-v] [--data <dir>] check | layout <dir> | pixels <dir> | errors <file> | labels <case> | self", compare);
+    for ([_][]const u8{ "check", "self" }) |sub| {
+        const run = b.addRunArtifact(compare);
+        run.setCwd(b.path("."));
+        run.addArg(sub);
+        test_step.dependOn(&run.step);
+    }
+    const compare_tests = b.addTest(.{
+        .name = "mermaid-compare-tests",
+        .root_module = b.createModule(.{ .root_source_file = b.path("tools/check/mermaid_compare.zig"), .target = b.graph.host }),
+    });
+    addStubs(b, compare_tests.root_module);
+    test_step.dependOn(&b.addRunArtifact(compare_tests).step);
 
     const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen/gen_growth.zig"));
     const growth_dir = growth.addOutputDirectoryArg("growth");

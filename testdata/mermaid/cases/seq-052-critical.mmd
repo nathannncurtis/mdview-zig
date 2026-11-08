@@ -1,0 +1,8 @@
+sequenceDiagram
+  critical Establish connection
+    A->>B: connect
+  option Timeout
+    A->>A: retry
+  option Refused
+    A->>A: give up
+  end
