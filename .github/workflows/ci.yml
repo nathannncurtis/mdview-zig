@@ -169,6 +169,8 @@ jobs:
             iterations: 400K
           - target: math.parse
             iterations: 400K
+          - target: mermaid.sequence
+            iterations: 250K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
