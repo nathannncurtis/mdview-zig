@@ -3,6 +3,7 @@ const app = @import("main.zig");
 const md = app.md;
 const hl = @import("highlight.zig");
 const alerts = @import("alerts.zig");
+const table_layout = @import("table_layout.zig");
 const windows = std.os.windows;
 const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
@@ -163,6 +164,7 @@ const DWRITE_UNDERLINE = extern struct {
     localeName: ?*const u16, measuringMode: u32,
 };
 const DWRITE_MATRIX = extern struct { m11: f32, m12: f32, m21: f32, m22: f32, dx: f32, dy: f32 };
+const DWRITE_LINE_METRICS = extern struct { length: u32, trailing: u32, newline: u32, height: f32, baseline: f32, trimmed: BOOL };
 const DWRITE_TEXT_METRICS = extern struct {
     left: f32, top: f32, width: f32, widthIncludingTrailingWhitespace: f32,
     height: f32, layoutWidth: f32, layoutHeight: f32, maxBidiReorderingDepth: u32, lineCount: u32,
@@ -247,7 +249,7 @@ const IDWriteTextLayout_VTable = extern struct {
     SetInlineObject: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 39
     _pad40_57: [18]*const anyopaque,
     Draw: *const fn (*anyopaque, ?*anyopaque, *anyopaque, f32, f32) callconv(.c) HRESULT, // 58
-    _pad59: *const anyopaque,
+    GetLineMetrics: *const fn (*anyopaque, ?[*]DWRITE_LINE_METRICS, u32, *u32) callconv(.c) HRESULT, // 59
     GetMetrics: *const fn (*anyopaque, *DWRITE_TEXT_METRICS) callconv(.c) HRESULT, // 60
     _pad61_63: [3]*const anyopaque,
     HitTestPoint: *const fn (*anyopaque, f32, f32, *BOOL, *BOOL, *DWRITE_HIT_TEST_METRICS) callconv(.c) HRESULT, // 64
@@ -921,6 +923,7 @@ fn render() void {
     const vt_dw = vtable(IDWriteFactory_VTable, dwf);
 
     resetObjects();
+    resetSlices();
     vt_rt.BeginDraw(rt);
     vt_rt.Clear(rt, &.{ .r = 0.051, .g = 0.067, .b = 0.090, .a = 1 });
     vt_rt.SetTransform(rt, &matrix(0, -app.scroll_y));
@@ -934,6 +937,10 @@ fn render() void {
     y += layoutBlocks(g, app.blocks, padding, max_width, y, true, true);
 
     app.content_height = y + padding;
+    const max_scroll = app.content_height - app.window_height + 40;
+    const clamped = if (max_scroll > 0) @min(app.scroll_y, max_scroll) else 0;
+    const scroll_moved = clamped != app.scroll_y;
+    app.scroll_y = clamped;
 
     // Close button
     vt_rt.SetTransform(rt, &matrix(0, 0));
@@ -945,6 +952,7 @@ fn render() void {
     }
 
     _ = vt_rt.EndDraw(rt, null, null);
+    if (scroll_moved) invalidate();
 }
 
 const Gfx = struct { vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque };
@@ -960,7 +968,7 @@ fn blockStyleOf(block: *const md.Block) BlockStyle {
 }
 
 fn hidden(block: *const md.Block) bool {
-    return app.collapsed(block);
+    return app.collapsed(block.*);
 }
 
 fn detailsFrame(block: *const md.Block) ?md.Frame {
@@ -973,7 +981,7 @@ fn detailsFrame(block: *const md.Block) ?md.Frame {
 }
 
 fn detailsOpen(f: md.Frame) bool {
-    return app.details_open.get(f.key) orelse f.default_open;
+    return app.isOpen(f);
 }
 
 /// The side of a paragraph that holds nothing but floated images.
@@ -1077,7 +1085,7 @@ fn layoutBlocks(g: Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_start: f32
             .paragraph => if (block.role == .summary) {
                 gap = summaryBlock(g, draw, block, x, &y, w, text_brush);
             } else {
-                y += bandedParagraph(g, draw, block, x, y, w, text_brush, style, band);
+                y += bandedParagraph(g, draw, block, x, y, w, text_brush, style, band, x0 + inset, @max(w0 - inset, 60));
                 gap = if (block.role == .dt) 0 else block.paragraphGap();
             },
             .alert_title => {
@@ -1129,7 +1137,7 @@ fn summaryBlock(g: Gfx, draw: bool, block: *const md.Block, x: f32, y: *f32, w: 
     const row = @max(h, 21);
     if (draw) {
         drawDisclosure(g, x + 4, y.* + row / 2, open);
-        if (frame) |f| app.noteToggle(.{ .x = x, .y = y.*, .w = w, .h = row }, f.key);
+        if (frame) |f| app.noteToggle(.{ .x = x, .y = y.*, .w = w, .h = row }, f);
     }
     y.* += row;
     return if (open) 4 else 16;
@@ -1163,9 +1171,86 @@ fn imagesSize(g: Gfx, block: *const md.Block, w: f32) Extent {
     return .{ .w = @min(@ceil(m.width), w), .h = m.height };
 }
 
-fn bandedParagraph(g: Gfx, draw: bool, block: *const md.Block, x: f32, y: f32, w: f32, brush: *anyopaque, style: BlockStyle, band: ?Band) f32 {
-    _ = band;
-    return textBlock(g, draw, block.content, g_text_format.?, x, y, w, brush, style);
+var g_slices: ?std.heap.ArenaAllocator = null;
+
+fn resetSlices() void {
+    if (g_slices) |*a| _ = a.reset(.free_all);
+}
+
+fn clipSpans(a: std.mem.Allocator, src: anytype, lo: u32, hi: u32) std.mem.Allocator.Error!@TypeOf(src) {
+    const T = std.meta.Child(@TypeOf(src));
+    var out: std.ArrayList(T) = .empty;
+    for (src) |item| {
+        const span: md.Span = if (T == md.Span) item else if (@hasField(T, "span")) item.span else .{ item.start, item.len };
+        const s = @max(span[0], lo);
+        const e = @min(span[0] + span[1], hi);
+        if (e <= s) continue;
+        var copy = item;
+        if (T == md.Span) {
+            copy = .{ s - lo, e - s };
+        } else if (@hasField(T, "span")) {
+            copy.span = .{ s - lo, e - s };
+        } else {
+            copy.start = s - lo;
+            copy.len = e - s;
+        }
+        try out.append(a, copy);
+    }
+    return out.items;
+}
+
+fn sliceInline(c: md.Inline, lo: u32, hi: u32) std.mem.Allocator.Error!md.Inline {
+    if (g_slices == null) g_slices = .init(app.gpa);
+    const a = g_slices.?.allocator();
+    return .{
+        .text = c.text[lo..hi],
+        .bold = try clipSpans(a, c.bold, lo, hi),
+        .italic = try clipSpans(a, c.italic, lo, hi),
+        .code = try clipSpans(a, c.code, lo, hi),
+        .strike = try clipSpans(a, c.strike, lo, hi),
+        .emoji = try clipSpans(a, c.emoji, lo, hi),
+        .sup = try clipSpans(a, c.sup, lo, hi),
+        .links = try clipSpans(a, c.links, lo, hi),
+        .images = try clipSpans(a, c.images, lo, hi),
+        .styles = try clipSpans(a, c.styles, lo, hi),
+    };
+}
+
+/// The byte offset of the first line that starts at or below `limit` when `content` is laid out `w` wide.
+fn lineSplit(g: Gfx, content: md.Inline, w: f32, limit: f32) ?u32 {
+    if (limit <= 0) return null;
+    const lay = createLayout(g.vt_dw, g.dwf, content, g_text_format.?, w) orelse return null;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    // SAFETY: written by GetMetrics
+    var m: DWRITE_TEXT_METRICS = undefined;
+    _ = vt.GetMetrics(lay, &m);
+    if (m.height <= limit or m.lineCount < 2) return null;
+    const lines = app.gpa.alloc(DWRITE_LINE_METRICS, m.lineCount) catch return null;
+    defer app.gpa.free(lines);
+    var count: u32 = 0;
+    if (vt.GetLineMetrics(lay, lines.ptr, m.lineCount, &count) < 0) return null;
+    var top: f32 = 0;
+    var units: u32 = 0;
+    for (lines[0..count], 0..) |l, i| {
+        if (i > 0 and top >= limit) return md.byteFromUtf16(content.text, units);
+        top += l.height;
+        units += l.length;
+    }
+    return null;
+}
+
+/// A paragraph beside a float stays narrow only down to the float's bottom; the rest of it runs at full width.
+fn bandedParagraph(g: Gfx, draw: bool, block: *const md.Block, x: f32, y: f32, w: f32, brush: *anyopaque, style: BlockStyle, band: ?Band, full_x: f32, full_w: f32) f32 {
+    const b = band orelse return textBlock(g, draw, block.content, g_text_format.?, x, y, w, brush, style);
+    const content = app.images.flow(block.content);
+    const at = lineSplit(g, content, w, b.bottom - y) orelse return textBlock(g, draw, content, g_text_format.?, x, y, w, brush, style);
+    var tail_lo = at;
+    while (tail_lo < content.text.len and (content.text[tail_lo] == ' ' or content.text[tail_lo] == '\n')) tail_lo += 1;
+    const head = sliceInline(content, 0, at) catch return textBlock(g, draw, content, g_text_format.?, x, y, w, brush, style);
+    const tail = sliceInline(content, tail_lo, @intCast(content.text.len)) catch return textBlock(g, draw, content, g_text_format.?, x, y, w, brush, style);
+    const head_h = textBlock(g, draw, head, g_text_format.?, x, y, w, brush, style);
+    return head_h + textBlock(g, draw, tail, g_text_format.?, full_x, y + head_h, full_w, brush, style);
 }
 
 fn drawTooltip(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: app.Tooltip) void {
@@ -1516,98 +1601,136 @@ fn padCodeSpans(lay: *anyopaque, content: md.Inline, font_size: f32) void {
 const cell_pad_x: f32 = 13;
 const nested_margin: f32 = md.nested_table_margin;
 const cell_pad_y: f32 = 6;
+const cell_min_text: f32 = 21;
 
 fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table, row: usize, col: usize, width: f32) ?*anyopaque {
     const content = app.images.flow(t.cell(row, col));
     const lay = createLayout(vt_dw, dwf, content, g_text_format orelse return null, width) orelse return null;
     const vt = vtable(IDWriteTextLayout_VTable, lay);
     if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) _ = vt.SetFontWeight(lay, 700, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
-    _ = vt.SetTextAlignment(lay, alignmentCode(t.aligns[col]));
+    _ = vt.SetTextAlignment(lay, alignmentCode(t.alignAt(row, col)));
     return lay;
+}
+
+fn layoutHeight(lay: ?*anyopaque) f32 {
+    const l = lay orelse return 0;
+    // SAFETY: written by GetMetrics
+    var m: DWRITE_TEXT_METRICS = undefined;
+    _ = vtable(IDWriteTextLayout_VTable, l).GetMetrics(l, &m);
+    return m.height;
+}
+
+fn valignOffset(v: md.VAlign, free: f32) f32 {
+    return @max(switch (v) {
+        .none, .top => 0,
+        .middle => free / 2,
+        .bottom => free,
+    }, 0);
 }
 
 fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
     const border = g_brush_table_border orelse return 0;
     if (out_width) |o| o.* = 0;
-    if (t.rows() == 0) return 0;
-    const widths = app.gpa.alloc(f32, t.columns) catch return 0;
+    const rows = t.rows();
+    if (rows == 0) return 0;
+    const cols = t.columns;
+    const gfx: Gfx = .{ .vt_rt = vt_rt, .vt_dw = vt_dw, .rt = rt, .dwf = dwf };
+    const widths = app.gpa.alloc(f32, cols) catch return 0;
     defer app.gpa.free(widths);
-    const layouts = app.gpa.alloc(?*anyopaque, t.columns) catch return 0;
+    const heights = app.gpa.alloc(f32, rows) catch return 0;
+    defer app.gpa.free(heights);
+    const cells = app.gpa.alloc(f32, rows * cols * 2) catch return 0;
+    defer app.gpa.free(cells);
+    const layouts = app.gpa.alloc(?*anyopaque, rows * cols) catch return 0;
     defer app.gpa.free(layouts);
+    @memset(layouts, null);
+    defer for (layouts) |l| if (l) |lay| {
+        _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    };
+    const sizes = cells[0 .. rows * cols];
+    const content_h = cells[rows * cols ..];
 
-    @memset(widths, 0);
-    for (0..t.rows()) |row| {
-        for (widths, 0..) |*w, col| {
+    for (0..rows) |row| {
+        for (0..cols) |col| {
+            const i = row * cols + col;
+            sizes[i] = 0;
+            if (table_layout.covered(t, row, col)) continue;
+            var natural: f32 = 0;
             if (t.nestedAt(row, col)) |nt| {
-                var nw: f32 = 0;
-                _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, 100000, false, &nw);
-                w.* = @max(w.*, nw);
-                continue;
-            }
-            const lay = cellLayout(vt_dw, dwf, t, row, col, 100000) orelse continue;
-            defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
-            // SAFETY: written by GetMetrics
-            var m: DWRITE_TEXT_METRICS = undefined;
-            _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
-            w.* = @max(w.*, m.widthIncludingTrailingWhitespace);
-        }
-    }
-    var table_w: f32 = 0;
-    for (widths) |*w| w.* += cell_pad_x * 2 + 1;
-    md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
-    for (widths) |w| table_w += w;
-    if (out_width) |o| o.* = table_w;
-
-    var row_y = y;
-    for (0..t.rows()) |row| {
-        var text_h: f32 = 21;
-        for (layouts, 0..) |*lay, col| {
-            lay.* = null;
-            if (t.nestedAt(row, col)) |nt| {
-                text_h = @max(text_h, renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, widths[col] - cell_pad_x * 2, false, null) + nested_margin);
-                continue;
-            }
-            lay.* = cellLayout(vt_dw, dwf, t, row, col, widths[col] - cell_pad_x * 2);
-            if (lay.*) |l| {
+                _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, 100000, false, &natural);
+            } else if (cellLayout(vt_dw, dwf, t, row, col, 100000)) |lay| {
+                defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
                 // SAFETY: written by GetMetrics
                 var m: DWRITE_TEXT_METRICS = undefined;
-                _ = vtable(IDWriteTextLayout_VTable, l).GetMetrics(l, &m);
-                text_h = @max(text_h, m.height);
+                _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
+                natural = m.widthIncludingTrailingWhitespace;
             }
+            sizes[i] = natural + cell_pad_x * 2 + 1;
         }
-        const row_h = text_h + cell_pad_y * 2;
-        if (draw) {
-            if (md.Table.striped(t, row)) {
-                vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + row_h }, g_brush_stripe.?);
-            }
-        }
-        var cx = x;
-        for (layouts, widths, 0..) |lay, w, col| {
-            if (draw) {
-                if (t.nestedAt(row, col)) |nt| {
-                    _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
-                } else if (lay) |l| {
-                    drawLayout(vt_rt, rt, l, cx + cell_pad_x, row_y + cell_pad_y, g_brush_text.?, app.images.flow(t.cell(row, col)));
-                    app.noteHit(.{
-                        .content = app.images.flow(t.cell(row, col)), .x = cx + cell_pad_x, .y = row_y + cell_pad_y, .w = w - cell_pad_x * 2,
-                        .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
-                    });
-                }
-            }
-            if (lay) |l| _ = vtable(IDWriteTextLayout_VTable, l).Release(l);
-            cx += w;
-        }
-        if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
-        row_y += row_h;
     }
-    if (draw) {
-        vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
-        var cx = x;
-        vt_rt.FillRectangle(rt, &.{ .left = cx, .top = y, .right = cx + 1, .bottom = row_y + 1 }, border);
-        for (widths) |w| {
-            cx += w;
-            vt_rt.FillRectangle(rt, &.{ .left = cx - 1, .top = y, .right = cx, .bottom = row_y + 1 }, border);
+    table_layout.columnWidths(widths, sizes, t, max_width, cell_pad_x * 2 + 24);
+    const table_w = table_layout.sum(widths, 0, cols);
+    if (out_width) |o| o.* = table_w;
+
+    for (0..rows) |row| {
+        for (0..cols) |col| {
+            const i = row * cols + col;
+            sizes[i] = 0;
+            content_h[i] = 0;
+            if (table_layout.covered(t, row, col)) continue;
+            const inner = table_layout.cellWidth(t, widths, row, col) - cell_pad_x * 2;
+            if (t.nestedAt(row, col)) |nt| {
+                content_h[i] = renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, inner, false, null) + nested_margin;
+            } else {
+                layouts[i] = cellLayout(vt_dw, dwf, t, row, col, inner);
+                content_h[i] = layoutHeight(layouts[i]);
+            }
+            sizes[i] = @max(content_h[i], cell_min_text) + cell_pad_y * 2;
         }
+    }
+    table_layout.solve(heights, sizes, t, .row);
+
+    var top = y;
+    const cap = app.images.flow(t.caption);
+    if (cap.text.len > 0) top += textBlock(gfx, draw, cap, g_text_format.?, x, y, table_w, g_brush_text.?, .{ .alignment = .center });
+
+    var row_y = top;
+    for (0..rows) |row| {
+        if (draw and md.Table.striped(t, row)) {
+            vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + heights[row] }, g_brush_stripe.?);
+        }
+        row_y += heights[row];
+    }
+    if (!draw) return row_y + 1 - y;
+
+    row_y = top;
+    for (0..rows) |row| {
+        var cx = x;
+        for (0..cols) |col| {
+            const w = widths[col];
+            defer cx += w;
+            if (table_layout.covered(t, row, col)) continue;
+            const i = row * cols + col;
+            const cw = table_layout.cellWidth(t, widths, row, col);
+            const ch = table_layout.cellHeight(t, heights, row, col);
+            const span = t.spanAt(row, col);
+            const ty = row_y + cell_pad_y + valignOffset(if (t.valigns.len > 0) t.valigns[i] else .none, ch - cell_pad_y * 2 - content_h[i]);
+            if (t.nestedAt(row, col)) |nt| {
+                _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, ty, cw - cell_pad_x * 2, true, null);
+            } else if (layouts[i]) |l| {
+                const content = app.images.flow(t.cell(row, col));
+                drawLayout(vt_rt, rt, l, cx + cell_pad_x, ty, g_brush_text.?, content);
+                app.noteHit(.{
+                    .content = content, .x = cx + cell_pad_x, .y = ty, .w = cw - cell_pad_x * 2,
+                    .h = content_h[i], .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.alignAt(row, col),
+                });
+            }
+            vt_rt.FillRectangle(rt, &.{ .left = cx, .top = row_y, .right = cx + cw, .bottom = row_y + 1 }, border);
+            if (col == 0) vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + 1, .bottom = row_y + ch + 1 }, border);
+            vt_rt.FillRectangle(rt, &.{ .left = cx + cw - 1, .top = row_y, .right = cx + cw, .bottom = row_y + ch + 1 }, border);
+            if (row + span[1] >= rows) vt_rt.FillRectangle(rt, &.{ .left = cx, .top = row_y + ch, .right = cx + cw, .bottom = row_y + ch + 1 }, border);
+        }
+        row_y += heights[row];
     }
     return row_y + 1 - y;
 }
@@ -2086,4 +2209,272 @@ test "the view matrix scales layout units to device pixels" {
     try testing.expectEqual(@as(f32, 6), m[4]);
     try testing.expectEqual(@as(f32, -8), m[5]);
     try testing.expectEqual(@as(f32, 2), app.images.dpi_scale);
+}
+
+const Fixture = struct {
+    hwnd: HWND,
+
+    fn init(blocks: []const md.Block) !Fixture {
+        app.gpa = std.heap.page_allocator;
+        app.images.init(testing.allocator, testing.io);
+        app.images.reset("", false);
+        _ = CoInitializeEx(null, 0x2);
+        initD2D();
+        const hwnd = CreateWindowExW(0, L("STATIC"), L("t"), WS_POPUP, 0, 0, 300, 200, null, null, null, null) orelse return error.NoWindow;
+        createRenderTarget(hwnd);
+        try testing.expect(g_render_target != null);
+        app.blocks = blocks;
+        app.window_width = 900;
+        app.window_height = 700;
+        app.scroll_y = 0;
+        return .{ .hwnd = hwnd };
+    }
+
+    fn deinit(f: *Fixture) void {
+        _ = DestroyWindow(f.hwnd);
+        app.blocks = &.{};
+        app.hits = .empty;
+        app.block_y = .empty;
+        app.details_open = .empty;
+        app.images.clearAll();
+        resetObjects();
+        resetSlices();
+        app.gpa = testing.allocator;
+    }
+};
+
+fn paragraph(a: std.mem.Allocator, src: []const u8) !md.Block {
+    const doc = try md.parse(a, src);
+    return doc.blocks[0];
+}
+
+fn gfxOf() Gfx {
+    const rt = g_render_target.?;
+    const dwf = g_dwrite_factory.?;
+    return .{ .vt_rt = vtable(ID2D1RT_VTable, rt), .vt_dw = vtable(IDWriteFactory_VTable, dwf), .rt = rt, .dwf = dwf };
+}
+
+fn initText() void {
+    app.gpa = testing.allocator;
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+}
+
+test "block alignment moves the text and reaches the hit rectangle" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    var b = try paragraph(arena.allocator(), "[hi](http://x.org)");
+    b.alignment = .center;
+    var fx = try Fixture.init(&.{b});
+    defer fx.deinit();
+    render();
+    try testing.expectEqual(@as(usize, 1), app.hits.items.len);
+    const hit = app.hits.items[0];
+    try testing.expectEqual(md.Align.center, hit.alignment);
+    try testing.expectEqual(@as(?u32, null), textIndexAt(hit, 2, 10));
+    try testing.expectEqual(@as(?u32, 0), textIndexAt(.{ .content = hit.content, .x = 0, .y = 0, .w = hit.w, .h = hit.h }, 2, 10));
+    try testing.expect(textIndexAt(hit, hit.w / 2 + 1, 10) != null);
+}
+
+test "a kbd span is padded and set in the small mono font" {
+    initText();
+    const styles = [_]md.Styled{.{ .span = .{ 2, 4 }, .kind = .kbd }};
+    const content: md.Inline = .{ .text = "a Ctrl b", .styles = &styles };
+    const dwf = g_dwrite_factory.?;
+    const lay = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, content, g_text_format.?, 2000).?;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    var rects: std.ArrayList(D2D1_RECT_F) = .empty;
+    defer rects.deinit(testing.allocator);
+    try rangeRects(lay, wideRange(content.text, styles[0].span), &rects);
+    try testing.expectEqual(@as(usize, 1), rects.items.len);
+    const width = rects.items[0].right - rects.items[0].left;
+    try testing.expectApproxEqAbs(4 * 0.55 * md.kbd_font_px + 2 * kbd_pad, width, 2);
+}
+
+test "sub and small shrink their text and sub drops below the baseline" {
+    initText();
+    const plain = layoutSize(.{ .text = "mmmmmmmm" }, 2000).width;
+    const sub = layoutSize(.{ .text = "mmmmmmmm", .styles = &.{.{ .span = .{ 0, 8 }, .kind = .sub }} }, 2000).width;
+    const small = layoutSize(.{ .text = "mmmmmmmm", .styles = &.{.{ .span = .{ 0, 8 }, .kind = .small }} }, 2000).width;
+    try testing.expectApproxEqAbs(plain * sub_scale, sub, 2);
+    try testing.expectApproxEqAbs(plain * small_scale, small, 2);
+    try testing.expect(baselineRaise(g_brush_text_sub, 12) == -3);
+    try testing.expect(baselineRaise(g_brush_link_sub, 12) == -3);
+    try testing.expect(baselineRaise(g_brush_text_sup, 12) == 6);
+    try testing.expect(baselineRaise(null, 12) == 0);
+}
+
+test "mark and abbr rectangles exist and a paragraph with every style draws" {
+    const styles = [_]md.Styled{
+        .{ .span = .{ 0, 4 }, .kind = .mark },
+        .{ .span = .{ 5, 4 }, .kind = .abbr },
+        .{ .span = .{ 10, 3 }, .kind = .underline },
+        .{ .span = .{ 14, 2 }, .kind = .tt },
+        .{ .span = .{ 17, 3 }, .kind = .kbd },
+    };
+    const b: md.Block = .{ .kind = .paragraph, .content = .{ .text = "mark abbr ins tt kbd", .styles = &styles } };
+    var fx = try Fixture.init(&.{b});
+    defer fx.deinit();
+    render();
+    try testing.expect(app.content_height > 80);
+    const g = gfxOf();
+    const lay = createLayout(g.vt_dw, g.dwf, b.content, g_text_format.?, 800).?;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    var rects: std.ArrayList(D2D1_RECT_F) = .empty;
+    defer rects.deinit(testing.allocator);
+    try rangeRects(lay, wideRange(b.content.text, styles[1].span), &rects);
+    try testing.expectEqual(@as(usize, 1), rects.items.len);
+    try testing.expect(hasStyle(b.content, .abbr) and !hasStyle(b.content, .sub));
+}
+
+test "dt has no gap below it and dd and figure are inset" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var term = try paragraph(a, "[term](http://x.org)");
+    term.role = .dt;
+    var def = try paragraph(a, "[def](http://x.org)");
+    def.frames = &.{.{ .kind = .dd }};
+    var fig = try paragraph(a, "[fig](http://x.org)");
+    fig.frames = &.{.{ .kind = .figure }};
+    const plain = try paragraph(a, "[plain](http://x.org)");
+    var fx = try Fixture.init(&.{ term, def, fig, plain, plain });
+    defer fx.deinit();
+    render();
+    try testing.expectEqual(@as(usize, 5), app.hits.items.len);
+    try testing.expectEqual(@as(f32, 40 + md.dd_inset), app.hits.items[1].x);
+    try testing.expectEqual(@as(f32, 40 + md.figure_inset), app.hits.items[2].x);
+    const term_step = app.block_y.items[1] - app.block_y.items[0];
+    const plain_step = app.block_y.items[4] - app.block_y.items[3];
+    try testing.expectApproxEqAbs(plain_step - 16, term_step, 0.01);
+}
+
+test "an img width scales a loaded picture and both attributes force its box" {
+    app.images.init(testing.allocator, testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetObjects();
+    initText();
+    try app.images.injectReady("wide.png", 400, 200);
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const b = try paragraph(arena.allocator(), "![w](wide.png)");
+    var images = [_]md.Image{b.content.images[0]};
+    images[0].width = 100;
+    var content = b.content;
+    content.images = &images;
+    const narrow = layoutSize(content, 800);
+    try testing.expectApproxEqAbs(@as(f32, 100), narrow.width, 1);
+    try testing.expect(narrow.height >= 50 and narrow.height < 75);
+    images[0].height = 30;
+    try testing.expect(layoutSize(content, 800).height < narrow.height);
+    images[0].width = 900;
+    images[0].height = 0;
+    try testing.expectApproxEqAbs(@as(f32, 300), layoutSize(content, 300).width, 1);
+}
+
+test "a table caption sits above the table and adds its height" {
+    var fx = try Fixture.init(&.{});
+    defer fx.deinit();
+    var cells = [_]md.Inline{ .{ .text = "a" }, .{ .text = "b" } };
+    var t: md.Table = .{ .columns = 2, .cells = &cells };
+    const g = gfxOf();
+    const bare = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, t, 0, 0, 500, false, null);
+    t.caption = .{ .text = "Caption" };
+    const captioned = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, t, 0, 0, 500, false, null);
+    try testing.expectApproxEqAbs(layoutSize(t.caption, 500).height, captioned - bare, 0.5);
+}
+
+test "colspan and rowspan share track sizes and valign offsets the content" {
+    var fx = try Fixture.init(&.{});
+    defer fx.deinit();
+    const g = gfxOf();
+    var cells = [_]md.Inline{ .{ .text = "a header cell that is rather wide" }, .{}, .{ .text = "x" }, .{ .text = "y" }, .{ .text = "z" }, .{ .text = "w" } };
+    const wide: md.Table = .{ .columns = 3, .cells = &cells, .spans = &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 1 }, .{ 1, 1 }, .{ 1, 1 } } };
+    var span_w: f32 = 0;
+    _ = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, wide, 0, 0, 2000, false, &span_w);
+    const natural = layoutSize(cells[0], 2000).widthIncludingTrailingWhitespace + cell_pad_x * 2 + 1;
+    try testing.expect(span_w >= natural);
+    try testing.expect(span_w < natural + 2 * (cell_pad_x * 2 + 8 + 1));
+
+    var tall = [_]md.Inline{ .{ .text = "one two three four five six seven eight nine ten eleven twelve" }, .{ .text = "x" }, .{}, .{ .text = "y" } };
+    const rowspan: md.Table = .{ .columns = 2, .cells = &tall, .spans = &.{ .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 } } };
+    const h = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, rowspan, 0, 0, 200, false, null);
+    try testing.expect(h > 2 * (cell_min_text + cell_pad_y * 2) + 1);
+
+    try testing.expectEqual(@as(f32, 5), valignOffset(.middle, 10));
+    try testing.expectEqual(@as(f32, 10), valignOffset(.bottom, 10));
+    try testing.expectEqual(@as(f32, 0), valignOffset(.top, 10));
+    try testing.expectEqual(@as(f32, 0), valignOffset(.bottom, -4));
+}
+
+fn detailsBlocks(a: std.mem.Allocator, frames: []const md.Frame) ![3]md.Block {
+    var summary = try paragraph(a, "Summary");
+    summary.role = .summary;
+    summary.frames = frames;
+    var body = try paragraph(a, "Body text");
+    body.frames = frames;
+    return .{ summary, body, try paragraph(a, "After") };
+}
+
+test "a closed details hides its body, a click opens it and a shrunk page pulls the scroll back" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const blocks = try detailsBlocks(arena.allocator(), &.{.{ .kind = .details, .key = 7 }});
+    var fx = try Fixture.init(&blocks);
+    defer fx.deinit();
+    render();
+    const closed_height = app.content_height;
+    try testing.expectEqual(app.block_y.items[1], app.block_y.items[2]);
+
+    try testing.expect(app.mouseDown(50, 50));
+    render();
+    try testing.expect(app.content_height > closed_height);
+    try testing.expect(app.block_y.items[2] - app.block_y.items[1] > 40);
+
+    try testing.expect(app.mouseDown(50, 50));
+    app.scroll_y = 900;
+    render();
+    try testing.expectEqual(@as(f32, 0), app.scroll_y);
+    try testing.expectEqual(closed_height, app.content_height);
+}
+
+test "a details that is open by default shows its body and draws the triangle" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const blocks = try detailsBlocks(arena.allocator(), &.{.{ .kind = .details, .key = 9, .default_open = true }});
+    var fx = try Fixture.init(&blocks);
+    defer fx.deinit();
+    render();
+    try testing.expect(app.block_y.items[2] - app.block_y.items[1] > 40);
+    try testing.expect(g_disclosure[1] != null);
+}
+
+test "text beside a floated image is narrowed and the lines below it run full width" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    app.images.init(testing.allocator, testing.io);
+    app.images.reset("", false);
+    try app.images.injectReady("wide.png", 400, 200);
+    var pic = try paragraph(a, "![r](wide.png)");
+    const images = try a.dupe(md.Image, pic.content.images);
+    images[0].width = 160;
+    images[0].float = .right;
+    pic.content.images = images;
+    var long: std.ArrayList(u8) = .empty;
+    try long.appendSlice(a, "[");
+    for (0..60) |_| try long.appendSlice(a, "word ");
+    try long.appendSlice(a, "end](http://x.org)");
+    const text = try paragraph(a, long.items);
+    var fx = try Fixture.init(&.{ pic, text });
+    defer fx.deinit();
+    render();
+    try testing.expectEqual(@as(usize, 2), app.hits.items.len);
+    const head = app.hits.items[0];
+    const tail = app.hits.items[1];
+    try testing.expectApproxEqAbs(@as(f32, 820 - 160 - md.float_gap), head.w, 1);
+    try testing.expectApproxEqAbs(@as(f32, 820), tail.w, 0.01);
+    try testing.expectApproxEqAbs(head.y + head.h, tail.y, 0.01);
+    try testing.expect(head.h >= 80);
 }
