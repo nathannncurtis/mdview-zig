@@ -133,7 +133,9 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
 
+    const fuzz_filter = b.option([]const u8, "fuzz-filter", "Run only the fuzz tests whose name contains this");
     const fuzz_tests = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/fuzz.zig"),
             .target = target,
