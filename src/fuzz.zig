@@ -147,7 +147,7 @@ fn fontOne(_: void, smith: *std.testing.Smith) anyerror!void {
         const g = f.glyphFor(cp);
         var p: font.Path = .{};
         defer p.deinit(std.testing.allocator);
-        f.outline(std.testing.allocator, g, .{}, &p) catch {};
+        f.outline(std.testing.allocator, g, .{}, &p) catch |err| std.mem.doNotOptimizeAway(@intFromError(err));
         _ = f.bbox(g);
         _ = f.advance(g);
         _ = f.kern(g, g);
