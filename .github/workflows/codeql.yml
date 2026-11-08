@@ -3,6 +3,7 @@ name: codeql
 # CodeQL has no Zig support, so this scans the workflows.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['.github/workflows/**', '.github/scripts/**']
   push:
     branches: [master]
@@ -13,8 +14,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
+    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

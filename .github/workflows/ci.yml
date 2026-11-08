@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [master]
 
@@ -9,8 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -80,6 +81,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.app == 'true'
     uses: ./.github/workflows/build.yml
+    with:
+      light: ${{ github.event.pull_request.draft == true }}
 
   lint:
     needs: changes
@@ -96,23 +99,35 @@ jobs:
           chmod +x zlint
           git ls-files '*.zig' | ./zlint -S --deny-warnings
 
+  # One leg per fuzz target, each with its own iteration budget. To add a target: write its
+  # `test "fuzz <name>"` in src/fuzz.zig and add `<name>` and an iteration count here.
   fuzz:
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    if: needs.changes.outputs.app == 'true' && github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: markdown.parse
+            iterations: 800K
+          - target: html.Builder
+            iterations: 800K
+    name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: bash .github/scripts/setup-zig.sh
-      - name: Fuzz the parser
+      - name: Fuzz ${{ matrix.target }}
         run: |
-          zig build fuzz --fuzz=800K -Doptimize=ReleaseSafe --summary all 2>&1 | tee fuzz.log
+          zig build fuzz -Dfuzz-filter="fuzz ${{ matrix.target }}" --fuzz=${{ matrix.iterations }} -Doptimize=ReleaseSafe --summary all 2>&1 | tee fuzz.log
           ! grep -qE 'panic|run test failure|FAILED' fuzz.log
+          grep -qF 'Fuzz test: "fuzz.test.fuzz ${{ matrix.target }}"' fuzz.log
 
   # Parses the generator's adversarial files within a time and memory limit, on each OS (reduced sizes).
   stress-parser:
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    if: needs.changes.outputs.app == 'true' && github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -133,7 +148,7 @@ jobs:
   # Starts the ReleaseSmall app on every stress file, then resizes, scrolls and rewrites the open file.
   stress-app:
     needs: changes
-    if: needs.changes.outputs.app == 'true'
+    if: needs.changes.outputs.app == 'true' && github.event.pull_request.draft != true
     strategy:
       fail-fast: false
       matrix:
@@ -163,7 +178,7 @@ jobs:
 
   docs:
     needs: changes
-    if: needs.changes.outputs.docs == 'true'
+    if: needs.changes.outputs.docs == 'true' && github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -178,7 +193,23 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+      DRAFT: ${{ github.event.pull_request.draft == true }}
     steps:
-      - name: Every job passed or was skipped
+      - name: Every expected job passed and nothing else ran
         run: |
-          [ "${{ contains(needs.*.result, 'failure') }}" = false ] && [ "${{ contains(needs.*.result, 'cancelled') }}" = false ]
+          python3 - <<'EOF'
+          import json, os, sys
+          n = json.loads(os.environ["NEEDS"])
+          draft = os.environ["DRAFT"] == "true"
+          out = n["changes"]["outputs"]
+          app, docs = out.get("app") == "true", out.get("docs") == "true"
+          want = {"changes": True, "rules": True, "build": app, "lint": app,
+                  "fuzz": app and not draft, "stress-parser": app and not draft,
+                  "stress-app": app and not draft, "docs": docs and not draft}
+          bad = [f"{k}: {n[k]['result']}" for k, run in want.items()
+                 if n[k]["result"] != ("success" if run else "skipped")]
+          print("\n".join(bad) or "ok")
+          sys.exit(1 if bad else 0)
+          EOF
