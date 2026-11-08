@@ -598,7 +598,8 @@ pub const Renderer = struct {
         var geo: std.ArrayList(sty.Var) = .empty;
         for (decls.items) |d| {
             if (!isGeometryName(d.name)) continue;
-            var val = (try sty.resolveValue(r.arena, d.value, s.vars, lc, 0)) orelse continue;
+            const axis: sty.Axis = if (std.mem.eql(u8, d.name, "x") or std.mem.eql(u8, d.name, "width") or std.mem.eql(u8, d.name, "cx") or std.mem.eql(u8, d.name, "rx")) .x else if (std.mem.eql(u8, d.name, "y") or std.mem.eql(u8, d.name, "height") or std.mem.eql(u8, d.name, "cy") or std.mem.eql(u8, d.name, "ry")) .y else .diag;
+            var val = (try sty.resolveValueAxis(r.arena, d.value, s.vars, lc, 0, axis)) orelse continue;
             if (std.mem.eql(u8, d.name, "d")) {
                 if (std.mem.eql(u8, val, "none")) continue;
                 if (std.mem.startsWith(u8, val, "path(")) {

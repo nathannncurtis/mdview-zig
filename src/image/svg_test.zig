@@ -75,6 +75,26 @@ fn checkFixture(comptime f: Fixture) !void {
     const bad_pct = @as(f64, @floatFromInt(bad)) * 100 / px;
     std.debug.print("{s}: mean {d:.3}, bad {d:.3}%\n", .{ f.name, mean, bad_pct });
     if (mean > f.mean or bad_pct > f.bad) {
+        if (std.mem.eql(u8, f.name, "marks") or std.mem.eql(u8, f.name, "indic")) {
+            var yy: usize = 0;
+            while (yy + 2 <= f.h) : (yy += 2) {
+                var line: [128]u8 = @splat(0);
+                var xx: usize = 0;
+                var n: usize = 0;
+                while (xx + 2 <= f.w and n < line.len) : (xx += 2) {
+                    var lum: u32 = 0;
+                    for (0..2) |dy| for (0..2) |dx| {
+                        const o = ((yy + dy) * f.w + xx + dx) * 4;
+                        lum += (255 - @as(u32, got[o])) * got[o + 3] / 255;
+                    };
+                    const level = lum / 4 / 26;
+                    line[n] = " .:-=+*#%@"[@min(level, 9)];
+                    n += 1;
+                }
+                std.debug.print("{s}
+", .{line[0..n]});
+            }
+        }
         std.debug.print("{s}: mean {d:.3} (limit {d}), bad {d:.3}% (limit {d}%)\n", .{ f.name, mean, f.mean, bad_pct, f.bad });
         return error.TestUnexpectedResult;
     }

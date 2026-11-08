@@ -625,6 +625,10 @@ fn lookupVar(vars: []const Var, name: []const u8) ?[]const u8 {
 
 /// Substitutes var() and evaluates calc(), min(), max() and clamp() inside a declaration value. Null means the declaration is invalid.
 pub fn resolveValue(arena: std.mem.Allocator, v_in: []const u8, vars: []const Var, lc: LenCtx, depth: u32) std.mem.Allocator.Error!?[]const u8 {
+    return resolveValueAxis(arena, v_in, vars, lc, depth, .diag);
+}
+
+pub fn resolveValueAxis(arena: std.mem.Allocator, v_in: []const u8, vars: []const Var, lc: LenCtx, depth: u32, axis: Axis) std.mem.Allocator.Error!?[]const u8 {
     if (depth > 8) return null;
     var v = v_in;
     while (std.mem.indexOf(u8, v, "var(")) |at| {
@@ -634,7 +638,7 @@ pub fn resolveValue(arena: std.mem.Allocator, v_in: []const u8, vars: []const Va
         const comma = std.mem.indexOfScalar(u8, inner, ',');
         const nm = std.mem.trim(u8, if (comma) |c| inner[0..c] else inner, " ");
         const repl: []const u8 = if (lookupVar(vars, nm)) |val| val else if (comma) |c| std.mem.trim(u8, inner[c + 1 ..], " ") else return null;
-        const resolved = (try resolveValue(arena, repl, vars, lc, depth + 1)) orelse return null;
+        const resolved = (try resolveValueAxis(arena, repl, vars, lc, depth + 1, axis)) orelse return null;
         v = try std.mem.concat(arena, u8, &.{ v[0..at], resolved, v[close + 1 ..] });
     }
     var from: usize = 0;
@@ -653,7 +657,7 @@ pub fn resolveValue(arena: std.mem.Allocator, v_in: []const u8, vars: []const Va
         const at = best orelse break;
         const open = std.mem.indexOfScalarPos(u8, v, at, '(').?;
         const close = findClose(v, open) orelse return null;
-        const r = calcValue(v[at .. close + 1], .diag, lc) orelse return null;
+        const r = calcValue(v[at .. close + 1], axis, lc) orelse return null;
         const text = try std.fmt.allocPrint(arena, "{d}{s}", .{ r.n, if (r.dim) "px" else "" });
         v = try std.mem.concat(arena, u8, &.{ v[0..at], text, v[close + 1 ..] });
         from = at + text.len;
