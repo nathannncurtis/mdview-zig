@@ -264,16 +264,6 @@ fn lineTop(g: win.Gfx, c: md.Inline, off_in: u32, w: f32) f32 {
     return if (rects.items.len > 0) rects.items[0].top else 0;
 }
 
-/// A zero-length bold span marks a run laid out semibold, which the font API cannot take from the span lists alone.
-fn dtContent(c: md.Inline) std.mem.Allocator.Error!md.Inline {
-    const a = sliceArena();
-    const len: u32 = @intCast(c.text.len);
-    var out = c;
-    out.bold = try a.dupe(md.Span, &.{.{ len, 0 }});
-    out.italic = try a.dupe(md.Span, &.{.{ 0, len }});
-    return out;
-}
-
 /// Lays `blocks` out `w0` wide from (`x0`, `y_start`) and returns the height, drawing as it goes when `draw` is set.
 /// The page itself is the top level, which also records where each block starts for anchor jumps; `measure` gets the
 /// widest line and the gap after the last block.
@@ -319,7 +309,6 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
         var natural: f32 = 0;
         const text_brush = if (block.muted()) win.g_brush_quote.? else win.g_brush_text.?;
         const style = blockStyleOf(block);
-        if (block.role == .dt) content = dtContent(content) catch content;
         if (draw) for (block.marks) |l| win.drawMarker(vt_rt, g.vt_dw, rt, g.dwf, l.mark, x0 + l.inset + shift, y);
 
         switch (block.kind) {
@@ -582,6 +571,7 @@ pub fn applyStyle(lay: *anyopaque, content: md.Inline, s: md.Styled, base: f32) 
             padRange(lay, range, md.code_pad_em * md.code_scale * base);
         },
         .underline => _ = vt.SetUnderline(lay, 1, range),
+        .semibold => _ = vt.SetFontWeight(lay, 600, range),
         .mark => if (win.g_brush_bright) |b| {
             _ = vt.SetDrawingEffect(lay, b, range);
         },
@@ -720,6 +710,8 @@ test "dt has no gap below it and dd is inset" {
     const a = arena.allocator();
     var term = try paragraph(a, "[term](http://x.org)");
     term.role = .dt;
+    term.content.italic = &.{.{ 0, 4 }};
+    term.content.styles = &.{.{ .span = .{ 0, 4 }, .kind = .semibold }};
     var def = try paragraph(a, "[def](http://x.org)");
     def.frames = &.{.{ .kind = .dd }};
     const plain = try paragraph(a, "[plain](http://x.org)");

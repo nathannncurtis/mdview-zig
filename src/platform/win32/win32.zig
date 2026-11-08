@@ -1157,15 +1157,9 @@ pub fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, conten
     const lay = layout orelse return null;
 
     const vt_layout = vtable(IDWriteTextLayout_VTable, lay);
-    var semibold = false;
     for (content.bold) |span| {
-        if (span[1] == 0) {
-            semibold = true;
-            continue;
-        }
         _ = vt_layout.SetFontWeight(lay, 700, wideRange(content.text, span));
     }
-    if (semibold) _ = vt_layout.SetFontWeight(lay, 600, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
     for (content.italic) |span| {
         _ = vt_layout.SetFontStyle(lay, 2, wideRange(content.text, span));
     }
