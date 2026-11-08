@@ -73,6 +73,17 @@ pub fn build(b: *std.Build) void {
     });
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+
+    const image_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/image/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_image_tests = b.addRunArtifact(image_tests);
+    run_image_tests.setCwd(b.path("."));
+    test_step.dependOn(&run_image_tests.step);
     addTools(b, test_step);
 
     if (linux_c) |c| {
@@ -164,6 +175,21 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
         .{ .step = "pack-msix", .file = "tools/pack_msix.zig", .what = "Build the MSIX: <mdview.exe> <version> <output.msix> <work dir>" },
     };
     for (generators) |g| _ = toolStep(b, g.step, g.what, toolExe(b, g.step, g.file));
+
+    const bench = b.addExecutable(.{
+        .name = "bench-image",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/bench_image.zig"),
+            .target = b.graph.host,
+            .optimize = .ReleaseFast,
+        }),
+    });
+    bench.root_module.addImport("image", b.createModule(.{
+        .root_source_file = b.path("src/image/image.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseFast,
+    }));
+    _ = toolStep(b, "bench-image", "Time the image decoders: <image file> [runs]", bench);
 
     const languages = toolExe(b, "gen-languages", "tools/gen_languages.zig");
     languages.root_module.addImport("yaml", b.createModule(.{

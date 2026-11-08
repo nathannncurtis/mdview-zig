@@ -16,10 +16,10 @@ const zigzag = [64]u8{
 
 const Huff = struct {
     present: bool = false,
-    lookup: [512]u16 = undefined,
-    maxcode: [18]i32 = undefined,
-    valoff: [17]i32 = undefined,
-    vals: [256]u8 = undefined,
+    lookup: [512]u16 = @splat(0),
+    maxcode: [18]i32 = @splat(-1),
+    valoff: [17]i32 = @splat(0),
+    vals: [256]u8 = @splat(0),
 
     fn build(self: *Huff, counts: *const [16]u8, vals: []const u8) Error!void {
         var code: u32 = 0;
@@ -62,7 +62,7 @@ const Component = struct {
     cw: usize = 0,
     ch: usize = 0,
     coef: []i16 = &.{},
-    q: [64]u16 = undefined,
+    q: [64]u16 = @splat(0),
     q_set: bool = false,
     pred: i32 = 0,
 };
@@ -171,13 +171,13 @@ const Decoder = struct {
     width: u32 = 0,
     height: u32 = 0,
     progressive: bool = false,
-    comps: [4]Component = undefined,
+    comps: [4]Component = @splat(.{ .id = 0, .h = 1, .v = 1, .tq = 0 }),
     ncomp: usize = 0,
     hmax: u32 = 1,
     vmax: u32 = 1,
     mcus_x: usize = 0,
     mcus_y: usize = 0,
-    qt: [4][64]u16 = undefined,
+    qt: [4][64]u16 = @splat(@splat(0)),
     qt_set: [4]bool = .{ false, false, false, false },
     dc: [4]Huff = .{ .{}, .{}, .{}, .{} },
     ac: [4]Huff = .{ .{}, .{}, .{}, .{} },
@@ -350,13 +350,9 @@ const Decoder = struct {
         for (self.comps[0..self.ncomp]) |*cp| cp.pred = 0;
         self.eobrun = 0;
         var mcu_count: usize = 0;
-        var total_mcus: usize = undefined;
-        var sw: usize = 0;
-        if (ns == 1) {
-            const cp = &self.comps[idx[0]];
-            sw = (cp.cw + 7) / 8;
-            total_mcus = sw * ((cp.ch + 7) / 8);
-        } else total_mcus = self.mcus_x * self.mcus_y;
+        const first = &self.comps[idx[0]];
+        const sw: usize = (first.cw + 7) / 8;
+        const total_mcus: usize = if (ns == 1) sw * ((first.ch + 7) / 8) else self.mcus_x * self.mcus_y;
 
         var m: usize = 0;
         while (m < total_mcus) : (m += 1) {
@@ -502,7 +498,7 @@ const c_bits = 13;
 const p1_bits = 2;
 
 fn descale(x: i32, n: u5) i32 {
-    return (x + (@as(i32, 1) << (n - 1))) >> n;
+    return (x +% (@as(i32, 1) << (n - 1))) >> n;
 }
 
 fn clamp8(v: i32) u8 {
@@ -534,48 +530,48 @@ fn idct(co: []const i16, q: *const [64]u16, out: []u8, stride: usize) void {
         const i = ws[row * 8 ..][0..8].*;
         const o = idct1d(i, c_bits + p1_bits + 3);
         const dst = out[row * stride ..][0..8];
-        inline for (0..8) |c| dst[c] = clamp8(o[c] + 128);
+        inline for (0..8) |c| dst[c] = clamp8(o[c] +% 128);
     }
 }
 
 fn idct1d(i: [8]i32, shift: u5) [8]i32 {
     var z2 = i[2];
     var z3 = i[6];
-    var z1 = (z2 + z3) * 4433;
-    const tmp2 = z1 + z3 * -15137;
-    const tmp3 = z1 + z2 * 6270;
-    const tmp0 = (i[0] + i[4]) << c_bits;
-    const tmp1 = (i[0] - i[4]) << c_bits;
-    const t10 = tmp0 + tmp3;
-    const t13 = tmp0 - tmp3;
-    const t11 = tmp1 + tmp2;
-    const t12 = tmp1 - tmp2;
+    var z1 = (z2 +% z3) *% 4433;
+    const tmp2 = z1 +% z3 *% -15137;
+    const tmp3 = z1 +% z2 *% 6270;
+    const tmp0 = (i[0] +% i[4]) << c_bits;
+    const tmp1 = (i[0] -% i[4]) << c_bits;
+    const t10 = tmp0 +% tmp3;
+    const t13 = tmp0 -% tmp3;
+    const t11 = tmp1 +% tmp2;
+    const t12 = tmp1 -% tmp2;
     var o0 = i[7];
     var o1 = i[5];
     var o2 = i[3];
     var o3 = i[1];
-    z1 = o0 + o3;
-    z2 = o1 + o2;
-    z3 = o0 + o2;
-    var z4 = o1 + o3;
-    const z5 = (z3 + z4) * 9633;
-    o0 *= 2446;
-    o1 *= 16819;
-    o2 *= 25172;
-    o3 *= 12299;
-    z1 *= -7373;
-    z2 *= -20995;
-    z3 *= -16069;
-    z4 *= -3196;
-    z3 += z5;
-    z4 += z5;
-    o0 += z1 + z3;
-    o1 += z2 + z4;
-    o2 += z2 + z3;
-    o3 += z1 + z4;
+    z1 = o0 +% o3;
+    z2 = o1 +% o2;
+    z3 = o0 +% o2;
+    var z4 = o1 +% o3;
+    const z5 = (z3 +% z4) *% 9633;
+    o0 *%= 2446;
+    o1 *%= 16819;
+    o2 *%= 25172;
+    o3 *%= 12299;
+    z1 *%= -7373;
+    z2 *%= -20995;
+    z3 *%= -16069;
+    z4 *%= -3196;
+    z3 +%= z5;
+    z4 +%= z5;
+    o0 +%= z1 +% z3;
+    o1 +%= z2 +% z4;
+    o2 +%= z2 +% z3;
+    o3 +%= z1 +% z4;
     return .{
-        descale(t10 + o3, shift), descale(t11 + o2, shift), descale(t12 + o1, shift), descale(t13 + o0, shift),
-        descale(t13 - o0, shift), descale(t12 - o1, shift), descale(t11 - o2, shift), descale(t10 - o3, shift),
+        descale(t10 +% o3, shift), descale(t11 +% o2, shift), descale(t12 +% o1, shift), descale(t13 +% o0, shift),
+        descale(t13 -% o0, shift), descale(t12 -% o1, shift), descale(t11 -% o2, shift), descale(t10 -% o3, shift),
     };
 }
 

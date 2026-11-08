@@ -1,3 +1,6 @@
 *.sh text eol=lf
 *.in text eol=lf
 src/spec_links.txt text eol=lf
+testdata/images/* binary
+testdata/images/manifest.txt text eol=lf
+src/fuzz_images.zig text eol=lf

@@ -33,6 +33,7 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     defer index_buf.deinit(alloc);
     const lzw = try alloc.create(Lzw);
     defer alloc.destroy(lzw);
+    lzw.* = .{};
 
     outer: while (true) {
         const intro = c.byte() catch break;
@@ -147,6 +148,7 @@ fn decodeFrame(
     @memset(index_buf.items, 0);
     const got = try lzw.decode(c, min_code, index_buf.items);
     lzw.finish(c);
+    if (lzw.truncated) return error.Corrupt;
     if (got == 0 and npix > 0) return error.Corrupt;
 
     const tbl = table orelse return error.Corrupt;
@@ -181,16 +183,17 @@ fn decodeFrame(
 }
 
 const Lzw = struct {
-    prefix: [4096]u16 = undefined,
-    suffix: [4096]u8 = undefined,
-    stack: [4097]u8 = undefined,
+    prefix: [4096]u16 = @splat(0),
+    suffix: [4096]u8 = @splat(0),
+    stack: [4097]u8 = @splat(0),
     block_left: usize = 0,
     ended: bool = false,
+    truncated: bool = false,
 
     fn finish(self: *Lzw, c: *image.Cursor) void {
         if (self.ended) return;
         _ = c.take(self.block_left) catch return;
-        skipBlocks(c) catch {};
+        skipBlocks(c) catch return;
     }
 
     // Returns the number of pixels written; a short stream is not an error here.
@@ -210,11 +213,13 @@ const Lzw = struct {
         }
         self.block_left = 0;
         self.ended = false;
+        self.truncated = false;
         while (true) {
             while (nbits < code_size) {
                 while (self.block_left == 0) {
                     const n = c.byte() catch {
                         self.ended = true;
+                        self.truncated = true;
                         return pos;
                     };
                     if (n == 0) {
@@ -225,6 +230,7 @@ const Lzw = struct {
                 }
                 const b = c.byte() catch {
                     self.ended = true;
+                    self.truncated = true;
                     return pos;
                 };
                 self.block_left -= 1;

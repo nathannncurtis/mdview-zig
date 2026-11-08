@@ -38,7 +38,7 @@ const FrameCtl = struct {
 };
 
 const Palette = struct {
-    rgb: [256][3]u8 = undefined,
+    rgb: [256][3]u8 = @splat(.{ 0, 0, 0 }),
     alpha: [256]u8 = @splat(255),
     len: usize = 0,
     key: ?[3]u16 = null,

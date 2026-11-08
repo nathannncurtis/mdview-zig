@@ -18,7 +18,7 @@ pub const Image = struct {
 pub const Error = error{ UnsupportedFormat, Corrupt, TooLarge, OutOfMemory };
 
 pub const max_pixels: u64 = 64 * 1024 * 1024;
-pub const max_total_pixels: u64 = 256 * 1024 * 1024;
+pub const max_total_pixels: u64 = 128 * 1024 * 1024;
 
 pub const bmp = @import("bmp.zig");
 pub const gif = @import("gif.zig");
@@ -124,8 +124,4 @@ pub fn single(alloc: std.mem.Allocator, w: u32, h: u32, rgba: []u8) Error!Image 
     };
     frames[0] = .{ .rgba = rgba, .delay_ms = 0 };
     return .{ .width = w, .height = h, .frames = frames, .loop_count = 0 };
-}
-
-test {
-    _ = @import("image_test.zig");
 }

@@ -13,7 +13,7 @@ const Masks = struct {
         for (m, 0..) |v, i| {
             if (v == 0) continue;
             r.shift[i] = @intCast(@ctz(v));
-            r.bits[i] = @intCast(@popCount(v));
+            r.bits[i] = @intCast(32 - @clz(v >> r.shift[i]));
         }
         return r;
     }
@@ -35,9 +35,9 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     _ = try c.le32();
     const data_off = try c.le32();
     const hdr_size = try c.le32();
-    var width: i64 = undefined;
-    var height: i64 = undefined;
-    var bpp: u32 = undefined;
+    var width: i64 = 0;
+    var height: i64 = 0;
+    var bpp: u32 = 0;
     var compression: u32 = 0;
     var colors_used: u32 = 0;
     var pal_entry: usize = 4;
