@@ -2,6 +2,7 @@ const std = @import("std");
 const eg = @import("elk_graph.zig");
 const elk_json = @import("elk_json.zig");
 const layered = @import("layered.zig");
+const lgraph_mod = @import("lgraph.zig");
 const Value = std.json.Value;
 
 test {
@@ -173,6 +174,8 @@ test "elk layout matches elkjs on the fixtures" {
         var c: Cmp = .{ .a = a, .name = name, .stats = &stats, .expected_edges = std.StringHashMap(Value).init(a) };
         const out = field(doc, "output").?;
         layered.trace = isTraced(name);
+        lgraph_mod.JavaRandom.trace_draws = layered.trace;
+        lg.JavaRandom.trace_draws = layered.trace;
         layered.layout(a, root) catch |err| {
             std.debug.print("  {s}: layout failed: {s}\n", .{ name, @errorName(err) });
             stats.failed += 1;

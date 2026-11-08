@@ -83,9 +83,7 @@ fn gwtMergeSort(comptime T: type, temp: []T, array: []T, low_in: usize, high: us
 
 // java.util.Random.next(bits) on lg.JavaRandom's state
 pub fn randNext(r: *lg.JavaRandom, bits: u6) i32 {
-    r.count += 1;
-    r.seed = (r.seed *% 0x5DEECE66D +% 0xB) & ((@as(u64, 1) << 48) - 1);
-    return @bitCast(@as(u32, @truncate(r.seed >> @intCast(48 - @as(u7, bits)))));
+    return r.next(bits);
 }
 
 // Random.nextFloat; elkjs (GWT) keeps floats in double precision

@@ -565,7 +565,10 @@ pub const JavaRandom = struct {
     pub fn init(seed: i64) JavaRandom {
         return .{ .seed = (@as(u64, @bitCast(seed)) ^ mult) & mask };
     }
-    fn next(self: *JavaRandom, bits: u6) i32 {
+    pub var trace_draws = false;
+
+    pub fn next(self: *JavaRandom, bits: u6) i32 {
+        if (trace_draws) std.debug.print("DR {d}\n", .{bits});
         self.count += 1;
         self.seed = (self.seed *% mult +% 0xB) & mask;
         const v: u64 = self.seed >> @intCast(48 - @as(u7, bits));
