@@ -1079,12 +1079,12 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
 
 /// Spanned HTML cells centre by default as browsers do; plain Markdown cells keep their text at the top.
 fn valignOffset(t: md.Table, row: usize, col: usize, cell_h: f32, text_h: f32) f32 {
-    const v: md.VAlign = if (t.valigns.len > 0) t.valigns[row * t.columns + col] else .none;
+    const v = t.valignAt(row, col);
     return switch (v) {
         .top => cell_pad_y,
         .bottom => @max(cell_h - text_h - cell_pad_y, cell_pad_y),
         .middle => @max((cell_h - text_h) / 2, cell_pad_y),
-        .none => if (t.spans.len == 0) cell_pad_y else @max((cell_h - text_h) / 2, cell_pad_y),
+        .none => if (t.spans().len == 0) cell_pad_y else @max((cell_h - text_h) / 2, cell_pad_y),
     };
 }
 
@@ -1735,14 +1735,15 @@ fn measureText(layout: *c.PangoLayout, content: md.Inline, width: ?f32, font: [*
 
 /// The caption is centred above the table; it never wraps narrower than its own text.
 fn renderTableWithCaption(cr: *c.cairo_t, layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32) f32 {
-    if (t.caption.text.len == 0) return renderTable(cr, layout, t, x, y, max_width, true, null);
-    const cap_w = @min(measureText(layout, t.caption, null, "Sans 12")[0], max_width);
-    const cap_h = measureText(layout, t.caption, cap_w, "Sans 12")[1] + caption_gap;
+    const caption = t.caption();
+    if (caption.text.len == 0) return renderTable(cr, layout, t, x, y, max_width, true, null);
+    const cap_w = @min(measureText(layout, caption, null, "Sans 12")[0], max_width);
+    const cap_h = measureText(layout, caption, cap_w, "Sans 12")[1] + caption_gap;
     var table_w: f32 = 0;
     const table_h = renderTable(cr, layout, t, x, y + cap_h, max_width, true, &table_w);
     const saved = block_align;
     block_align = .center;
-    _ = renderTextBlock(cr, layout, t.caption, x, y, @max(table_w, cap_w), col_text, "Sans 12");
+    _ = renderTextBlock(cr, layout, caption, x, y, @max(table_w, cap_w), col_text, "Sans 12");
     block_align = saved;
     return cap_h + table_h;
 }
@@ -2008,7 +2009,8 @@ test "a table caption sits above the table and adds its height" {
     const cells = [_]md.Inline{ .{ .text = "a" }, .{ .text = "b" } };
     var t: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &cells };
     const plain = renderTableWithCaption(p.cr, p.layout, t, 0, 0, 400);
-    t.caption = .{ .text = "A caption" };
+    const ext: md.Table.Extra = .{ .caption = .{ .text = "A caption" } };
+    t.ext = &ext;
     const with = renderTableWithCaption(p.cr, p.layout, t, 0, 0, 400);
     try std.testing.expect(with > plain + 15);
     try std.testing.expect(with < plain + 40);
@@ -2108,7 +2110,8 @@ test "a colspan cell spreads over its columns and a rowspan cell over its rows" 
     const wide = [_]md.Inline{ .{ .text = "a header cell that is quite wide" }, .{}, .{ .text = "b" }, .{ .text = "c" } };
     const plain: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &wide };
     var spanned = plain;
-    spanned.spans = &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 1 } };
+    const col_ext: md.Table.Extra = .{ .spans = &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 1 } } };
+    spanned.ext = &col_ext;
     var plain_w: f32 = 0;
     var spanned_w: f32 = 0;
     const plain_h = renderTable(p.cr, p.layout, plain, 0, 0, 700, false, &plain_w);
@@ -2119,7 +2122,8 @@ test "a colspan cell spreads over its columns and a rowspan cell over its rows" 
     const tall = [_]md.Inline{ .{ .text = "x\ny\nz" }, .{ .text = "p" }, .{}, .{ .text = "q" } };
     const plain_rows: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &tall };
     var spanned_rows = plain_rows;
-    spanned_rows.spans = &.{ .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 } };
+    const row_ext: md.Table.Extra = .{ .spans = &.{ .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 } } };
+    spanned_rows.ext = &row_ext;
     const rows_plain = renderTable(p.cr, p.layout, plain_rows, 0, 0, 700, false, null);
     const rows_spanned = renderTable(p.cr, p.layout, spanned_rows, 0, 0, 700, false, null);
     try std.testing.expect(rows_spanned < rows_plain - 15);
@@ -2133,11 +2137,12 @@ test "valign places a cell's text at the top, middle or bottom of its row" {
     defer p.deinit();
     const link: md.Link = .{ .start = 0, .len = 1, .target = "x" };
     const cells = [_]md.Inline{ .{ .text = "a\nb\nc" }, .{ .text = "k", .links = &.{link} } };
-    var t: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &cells, .spans = &.{ .{ 1, 1 }, .{ 1, 1 } }, .header_row = false };
+    var t: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &cells, .header_row = false };
     var tops: [3]f32 = undefined;
     for ([_]md.VAlign{ .top, .middle, .bottom }, 0..) |v, i| {
         const valigns = [_]md.VAlign{ .none, v };
-        t.valigns = &valigns;
+        const ext: md.Table.Extra = .{ .spans = &.{ .{ 1, 1 }, .{ 1, 1 } }, .valigns = &valigns };
+        t.ext = &ext;
         app.hits.clearRetainingCapacity();
         _ = renderTable(p.cr, p.layout, t, 0, 0, 700, true, null);
         tops[i] = app.hits.items[0].y;
