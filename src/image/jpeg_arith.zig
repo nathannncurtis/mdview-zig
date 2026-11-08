@@ -1,4 +1,3 @@
-const std = @import("std");
 const aritab = @import("jpeg_arith_table.zig").table;
 const zigzag = @import("jpeg.zig").zigzag;
 
