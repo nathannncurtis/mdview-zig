@@ -192,7 +192,7 @@ fn alphaOf(v: tree.Font, italic: bool) Alpha {
     return switch (v) {
         .default => if (italic) .it else .rm,
         .normal, .it => .it,
-        .rm => .rm,
+        .rm, .oldstyle => .rm,
         .bf => .bf,
         .bfit => .bfit,
         .sf => .sf,
@@ -550,7 +550,7 @@ fn classOf(n: *const Node) ?Class {
         .stack => |s| firstClass(s.base),
         .negate => |b| classOf(b),
         .xarrow => .rel,
-        .space => null,
+        .space, .nonscript => null,
         else => .ord,
     };
 }
@@ -644,26 +644,24 @@ fn underOver(c: Ctx, base: Box, over: ?Box, under: ?Box, mode: UnderOver) Err!Bo
     return out;
 }
 
-fn scripts(c: Ctx, base: Box, sup: ?Box, sub: ?Box) Err!Box {
+const Shifts = struct { up: f32 = 0, down: f32 = 0, asc: f32 = 0, desc: f32 = 0 };
+
+fn scriptShifts(c: Ctx, base: Box, sup: ?Box, sub: ?Box) Shifts {
     const k = c.k;
-    const ic = @min(base.w, base.ic);
-    var sub_shift: f32 = 0;
-    var sup_shift: f32 = 0;
-    var asc_m: f32 = 0;
-    var desc_m: f32 = 0;
+    var out: Shifts = .{};
     const shift_up = c.u(if (c.style.cramped()) k.superscript_shift_up_cramped else k.superscript_shift_up);
     if (sub) |s| {
-        sub_shift = @max(c.u(k.subscript_shift_down), base.d + c.u(k.subscript_baseline_drop_min));
-        desc_m = s.d;
+        out.down = @max(c.u(k.subscript_shift_down), base.d + c.u(k.subscript_baseline_drop_min));
+        out.desc = s.d;
     }
     if (sup) |s| {
-        sup_shift = @max(shift_up, base.h - c.u(k.superscript_baseline_drop_max));
-        asc_m = s.h;
+        out.up = @max(shift_up, base.h - c.u(k.superscript_baseline_drop_max));
+        out.asc = s.h;
     }
     if (sub != null and sup == null) {
-        sub_shift = @max(sub_shift, sub.?.h - c.u(k.subscript_top_max));
+        out.down = @max(out.down, sub.?.h - c.u(k.subscript_top_max));
     } else if (sup != null and sub == null) {
-        sup_shift = @max(sup_shift, c.u(k.superscript_bottom_min) + sup.?.d);
+        out.up = @max(out.up, c.u(k.superscript_bottom_min) + sup.?.d);
     } else if (sub != null and sup != null) {
         const sb = sub.?;
         const sp = sup.?;
@@ -682,25 +680,127 @@ fn scripts(c: Ctx, base: Box, sup: ?Box, sub: ?Box) Err!Box {
             }
             if (gap < gap_min) sub_s += gap_min - gap;
         }
-        sub_shift = @max(sub_shift, sub_s);
-        sup_shift = @max(sup_shift, sup_s);
+        out.down = @max(out.down, sub_s);
+        out.up = @max(out.up, sup_s);
     }
+    return out;
+}
+
+fn scripts(c: Ctx, base: Box, sup: ?Box, sub: ?Box) Err!Box {
+    const ic = @min(base.w, base.ic);
+    const sh = scriptShifts(c, base, sup, sub);
     var bl: Builder = .{ .a = c.a };
     try bl.add(0, 0, base);
     var pair_w: f32 = 0;
     if (sub) |s| {
-        try bl.add(@max(base.w - ic, 0), sub_shift, s);
+        try bl.add(@max(base.w - ic, 0), sh.down, s);
         pair_w = @max(pair_w, s.w);
     }
     if (sup) |s| {
-        try bl.add(base.w, -sup_shift, s);
+        try bl.add(base.w, -sh.up, s);
         pair_w = @max(pair_w, s.w);
     }
     var out = bl.finish();
-    out.w = base.w + c.u(k.space_after_script) + pair_w;
-    out.h = @max(@max(base.h, asc_m + sup_shift), 0);
-    out.d = @max(@max(base.d, desc_m + sub_shift), 0);
+    out.w = base.w + c.u(c.k.space_after_script) + pair_w;
+    out.h = @max(@max(base.h, sh.asc + sh.up), 0);
+    out.d = @max(@max(base.d, sh.desc + sh.down), 0);
     return out;
+}
+
+fn optRow(c: Ctx, nodes: ?[]const Node) Err!?Box {
+    return if (nodes) |n| try layRow(c, n) else null;
+}
+
+fn layMultiscripts(c: Ctx, m: tree.Multiscripts) Err!Box {
+    const base = try layRow(c, m.base);
+    const sup_ctx = c.with(c.style.sup());
+    const sub_ctx = c.with(c.style.sub());
+    const post_sup = try optRow(sup_ctx, m.post_sup);
+    const post_sub = try optRow(sub_ctx, m.post_sub);
+    const pre_sup = try optRow(sup_ctx, m.pre_sup);
+    const pre_sub = try optRow(sub_ctx, m.pre_sub);
+    const a = scriptShifts(c, base, post_sup, post_sub);
+    const b = scriptShifts(c, base, pre_sup, pre_sub);
+    const up = @max(a.up, b.up);
+    const down = @max(a.down, b.down);
+    const space = c.u(c.k.space_after_script);
+    var bl: Builder = .{ .a = c.a };
+    var x: f32 = 0;
+    if (pre_sup != null or pre_sub != null) {
+        var pw: f32 = 0;
+        if (pre_sub) |s| pw = @max(pw, s.w);
+        if (pre_sup) |s| pw = @max(pw, s.w);
+        x += space + pw;
+        if (pre_sub) |s| try bl.add(x - s.w, down, s);
+        if (pre_sup) |s| try bl.add(x - s.w, -up, s);
+    }
+    try bl.add(x, 0, base);
+    x += base.w;
+    if (post_sup != null or post_sub != null) {
+        var pw: f32 = 0;
+        if (post_sub) |s| {
+            try bl.add(x, down, s);
+            pw = @max(pw, s.w);
+        }
+        if (post_sup) |s| {
+            try bl.add(x, -up, s);
+            pw = @max(pw, s.w);
+        }
+        x += space + pw;
+    }
+    var out = bl.finish();
+    out.w = x;
+    out.h = @max(@max(base.h, @max(a.asc, b.asc) + up), 0);
+    out.d = @max(@max(base.d, @max(a.desc, b.desc) + down), 0);
+    return out;
+}
+
+fn layShift(c: Ctx, s: tree.Shift) Err!Box {
+    const body = try layRow(c, s.body);
+    const e = c.size();
+    var bl: Builder = .{ .a = c.a };
+    try bl.add(s.dx * e, -s.dy * e, body);
+    var out = bl.finish();
+    out.w = @max(body.w + s.dx * e, 0);
+    out.h = body.h + s.dy * e;
+    out.d = body.d - s.dy * e;
+    return out;
+}
+
+fn layLap(c: Ctx, l: tree.Lap) Err!Box {
+    const body = try layRow(c, l.body);
+    var bl: Builder = .{ .a = c.a };
+    try bl.add(if (l.left) -body.w else 0, 0, body);
+    var out = bl.finish();
+    out.w = 0;
+    return out;
+}
+
+fn layVArrow(c: Ctx, v: tree.VArrow) Err!Box {
+    const cs = c.with(c.style.sup());
+    const left = try layRow(cs, v.left);
+    const right = try layRow(cs, v.right);
+    const gid = c.f.glyphFor(v.cp);
+    const arrow: Box = if (gid == 0) .{} else blk: {
+        const st = try stretch(c, gid, true, 2 * c.size());
+        break :blk try shifted(c, st.box, ((st.asc - st.desc) - 2 * c.axis()) / 2);
+    };
+    const gap = 0.2 * c.size();
+    var bl: Builder = .{ .a = c.a };
+    var x: f32 = 0;
+    for ([_]Box{ left, arrow, right }, 0..) |b, i| {
+        if (i > 0 and b.w > 0) x += gap;
+        try bl.add(x, if (i == 1) 0 else -(c.axis() - (b.h - b.d) / 2), b);
+        x += b.w;
+    }
+    var out = bl.finish();
+    out.w = x;
+    return out;
+}
+
+fn layVCenter(c: Ctx, nodes: []const Node) Err!Box {
+    const b = try layRow(c, nodes);
+    return shifted(c, b, (b.h - b.d) / 2 - c.axis());
 }
 
 fn laySupsub(c: Ctx, n: anytype) Err!Box {
@@ -1062,9 +1162,9 @@ fn layArray(c: Ctx, arr: tree.Array) Err!Box {
 
 fn layEnclose(c: Ctx, e: anytype) Err!Box {
     const body = try layRow(c, e.body);
-    if (e.border and e.bg == null and e.border_color == null) return body;
-    const pad = 0.3 * c.size();
-    const t: f32 = if (e.border) 0.04 * c.size() else 0;
+    if (@as(u16, @bitCast(e.notation)) != 0) return body;
+    const pad = (if (e.padding > 0) e.padding else 0.3) * c.size();
+    const t: f32 = if (e.border) (e.border_width orelse 0.04) * c.size() else 0;
     const o = pad + t;
     const w = body.w + 2 * o;
     var bl: Builder = .{ .a = c.a };
@@ -1178,6 +1278,13 @@ fn layNode(c: Ctx, n: *const Node) Err!Box {
             return layRow(c, pick);
         },
         .negate => |b| return layNegate(c, b),
+        .shift => |x| return layShift(c, x),
+        .lap => |x| return layLap(c, x),
+        .vcenter => |x| return layVCenter(c, x),
+        .nonscript => return .{},
+        .multiscripts => |x| return layMultiscripts(c, x),
+        .varrow => |x| return layVArrow(c, x),
+        .link => |x| return layRow(c, x.body),
         .array => |a| return layArray(c, a),
         .undefined_cs => |s| return layText(c.with(.t), s, .rm, error_rgb),
         .parse_error => |s| return layText(c.with(.t), s, .rm, error_rgb),

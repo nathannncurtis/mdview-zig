@@ -167,6 +167,8 @@ jobs:
             iterations: 400K
           - target: math.parse
             iterations: 400K
+          - target: math.layout
+            iterations: 150K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30

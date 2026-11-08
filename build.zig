@@ -108,8 +108,8 @@ pub fn build(b: *std.Build) void {
     const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
     const math_mod = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = target, .optimize = optimize });
     math_mod.addImport("font", font_mod);
-    const math_tests = b.addTest(.{ .root_module = math_mod });
-    test_step.dependOn(&b.addRunArtifact(math_tests).step);
+    const math_layout_tests = b.addTest(.{ .root_module = math_mod });
+    test_step.dependOn(&b.addRunArtifact(math_layout_tests).step);
     addTools(b, test_step, testdata);
 
     if (linux_c) |c| {
@@ -204,6 +204,20 @@ pub fn build(b: *std.Build) void {
     const run_math_fuzz = b.addRunArtifact(math_fuzz);
     test_step.dependOn(&run_math_fuzz.step);
     fuzz_step.dependOn(&run_math_fuzz.step);
+
+    const layout_fuzz_mod = b.createModule(.{
+        .root_source_file = b.path("src/math/layout_fuzz.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    layout_fuzz_mod.addImport("font", font_mod);
+    const math_layout_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = layout_fuzz_mod,
+    });
+    const run_math_layout_fuzz = b.addRunArtifact(math_layout_fuzz);
+    test_step.dependOn(&run_math_layout_fuzz.step);
+    fuzz_step.dependOn(&run_math_layout_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
