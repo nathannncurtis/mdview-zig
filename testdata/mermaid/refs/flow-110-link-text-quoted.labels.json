@@ -1,0 +1,27 @@
+{
+ "L_A_B_0": {
+  "w": 148.5313,
+  "h": 19,
+  "text": "quoted (parens) text"
+ },
+ "L_B_C_0": {
+  "w": 116.2656,
+  "h": 19,
+  "text": "other [brackets]"
+ },
+ "diagram-flowchart-A-0": {
+  "w": 9.4375,
+  "h": 19,
+  "text": "A"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 9.0625,
+  "h": 19,
+  "text": "B"
+ },
+ "diagram-flowchart-C-3": {
+  "w": 9.5781,
+  "h": 19,
+  "text": "C"
+ }
+}

@@ -1,0 +1,12 @@
+{
+ "diagram-flowchart-A-0": {
+  "w": 115,
+  "h": 187,
+  "text": "This is a very long node label that should wrap onto several lines because it exceeds the wrapping width"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 37.5938,
+  "h": 19,
+  "text": "Short"
+ }
+}

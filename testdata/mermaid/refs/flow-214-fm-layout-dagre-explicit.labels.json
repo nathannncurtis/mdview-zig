@@ -1,0 +1,27 @@
+{
+ "L_A_B_0": {
+  "w": 0,
+  "h": 0,
+  "text": ""
+ },
+ "L_B_C_0": {
+  "w": 0,
+  "h": 0,
+  "text": ""
+ },
+ "diagram-flowchart-A-0": {
+  "w": 9.4375,
+  "h": 19,
+  "text": "A"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 9.0625,
+  "h": 19,
+  "text": "B"
+ },
+ "diagram-flowchart-C-2": {
+  "w": 9.5781,
+  "h": 19,
+  "text": "C"
+ }
+}
