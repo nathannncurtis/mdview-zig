@@ -242,13 +242,35 @@ fn floatPiece(c: md.Inline, im: md.Image) std.mem.Allocator.Error!md.Inline {
     return piece;
 }
 
-/// Bold italic over the whole run, so a `dt` lays out the same way for hit testing.
+/// Where `im` sits in the text once the floated images are cut out.
+fn floatOffset(c: md.Inline, im: md.Image) u32 {
+    var removed: u32 = 0;
+    for (c.images) |o| {
+        if (isFloat(o) and o.start < im.start) removed += o.len;
+    }
+    return im.start - removed;
+}
+
+/// The top of the line holding byte `off` of `c` when it is laid out `w` wide.
+fn lineTop(g: win.Gfx, c: md.Inline, off_in: u32, w: f32) f32 {
+    if (c.text.len == 0) return 0;
+    const lay = win.createLayout(g.vt_dw, g.dwf, c, win.g_text_format.?, w) orelse return 0;
+    defer _ = win.vtable(win.IDWriteTextLayout_VTable, lay).Release(lay);
+    var off = @min(off_in, @as(u32, @intCast(c.text.len - 1)));
+    while (off > 0 and c.text[off] & 0xC0 == 0x80) off -= 1;
+    var rects: std.ArrayList(win.D2D1_RECT_F) = .empty;
+    defer rects.deinit(app.gpa);
+    win.rangeRects(lay, win.wideRange(c.text, .{ off, 1 }), &rects) catch return 0;
+    return if (rects.items.len > 0) rects.items[0].top else 0;
+}
+
+/// A zero-length bold span marks a run laid out semibold, which the font API cannot take from the span lists alone.
 fn dtContent(c: md.Inline) std.mem.Allocator.Error!md.Inline {
     const a = sliceArena();
-    const all = try a.dupe(md.Span, &.{.{ 0, @as(u32, @intCast(c.text.len)) }});
+    const len: u32 = @intCast(c.text.len);
     var out = c;
-    out.bold = all;
-    out.italic = all;
+    out.bold = try a.dupe(md.Span, &.{.{ len, 0 }});
+    out.italic = try a.dupe(md.Span, &.{.{ 0, len }});
     return out;
 }
 
@@ -272,8 +294,9 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             const cleaned = withoutFloats(content) catch content;
             if (cleaned.text.ptr != content.text.ptr or cleaned.text.len != content.text.len) {
                 for (content.images) |im| if (isFloat(im)) {
-                    const piece = floatPiece(app.images.flow(content), im) catch continue;
-                    placeFloat(g, draw, &floats, piece, if (im.float == .left) .left else .right, y, bx, bw);
+                    const piece = floatPiece(content, im) catch continue;
+                    const line = lineTop(g, cleaned, floatOffset(content, im), floats.region(y, bx, bw).w);
+                    placeFloat(g, draw, &floats, piece, if (im.float == .left) .left else .right, y + line, bx, bw);
                 };
                 content = cleaned;
                 if (std.mem.trim(u8, content.text, " \n").len == 0) continue;
@@ -302,8 +325,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
         switch (block.kind) {
             .h1 => {
                 y += 24;
-                y += win.textBlock(g, draw, content, win.g_text_format_h1.?, x, y, w, win.g_brush_heading.?, style);
-                natural = win.g_last_text_w;
+                y += flowText(g, draw, content, win.g_text_format_h1.?, bx, bw, y, win.g_brush_heading.?, style, &floats, &natural);
                 y += 8;
                 if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, win.g_brush_hr.?);
                 y += 1;
@@ -311,8 +333,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             },
             .h2 => {
                 y += 20;
-                y += win.textBlock(g, draw, content, win.g_text_format_h2.?, x, y, w, win.g_brush_heading.?, style);
-                natural = win.g_last_text_w;
+                y += flowText(g, draw, content, win.g_text_format_h2.?, bx, bw, y, win.g_brush_heading.?, style, &floats, &natural);
                 y += 6;
                 if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, win.g_brush_hr.?);
                 y += 1;
@@ -320,8 +341,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             },
             .h3 => {
                 y += 16;
-                y += win.textBlock(g, draw, content, win.g_text_format_h3.?, x, y, w, win.g_brush_heading.?, style);
-                natural = win.g_last_text_w;
+                y += flowText(g, draw, content, win.g_text_format_h3.?, bx, bw, y, win.g_brush_heading.?, style, &floats, &natural);
                 gap = 12;
             },
             .h4, .h5, .h6 => {
@@ -332,8 +352,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
                     else => win.g_text_format_h6,
                 };
                 const brush = if (block.kind == .h6) win.g_brush_quote.? else win.g_brush_heading.?;
-                y += win.textBlock(g, draw, content, fmt.?, x, y, w, brush, style);
-                natural = win.g_last_text_w;
+                y += flowText(g, draw, content, fmt.?, bx, bw, y, brush, style, &floats, &natural);
                 gap = 16;
             },
             .paragraph => if (block.role == .empty) {
@@ -344,7 +363,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
                 gap = summaryBlock(g, draw, block, x, &y, w, text_brush);
                 natural = win.g_last_text_w + md.details_marker_inset;
             } else {
-                y += flowParagraph(g, draw, content, bx, bw, y, text_brush, style, &floats, &natural);
+                y += flowText(g, draw, content, win.g_text_format.?, bx, bw, y, text_brush, style, &floats, &natural);
                 gap = if (block.role == .dt) 0 else block.paragraphGap();
             },
             .alert_title => {
@@ -381,7 +400,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             if (f.kind != .quote) continue;
             if (f.alert != .none and !f.open) y += 8;
             const brush = if (f.alert == .none) win.g_brush_bar.? else win.g_alert_border[@intFromEnum(f.alert) - 1].?;
-            const bar_x = x0 + block.insetBefore(i) + shift;
+            const bar_x = x0 + block.insetBefore(i);
             vt_rt.FillRectangle(rt, &.{ .left = bar_x, .top = top, .right = bar_x + md.quote_bar, .bottom = y + if (f.open) gap else 0 }, brush);
         };
         if (measure) |m| m.width = @max(m.width, x - x0 + natural);
@@ -491,9 +510,9 @@ fn sliceInline(c: md.Inline, lo: u32, hi: u32) std.mem.Allocator.Error!md.Inline
 }
 
 /// The byte offset of the first line that starts at or below `limit` when `content` is laid out `w` wide.
-fn lineSplit(g: win.Gfx, content: md.Inline, w: f32, limit: f32) ?u32 {
+fn lineSplit(g: win.Gfx, content: md.Inline, fmt: *anyopaque, w: f32, limit: f32) ?u32 {
     if (limit <= 0) return null;
-    const lay = win.createLayout(g.vt_dw, g.dwf, content, win.g_text_format.?, w) orelse return null;
+    const lay = win.createLayout(g.vt_dw, g.dwf, content, fmt, w) orelse return null;
     defer _ = win.vtable(win.IDWriteTextLayout_VTable, lay).Release(lay);
     const vt = win.vtable(win.IDWriteTextLayout_VTable, lay);
     // SAFETY: written by GetMetrics
@@ -516,7 +535,7 @@ fn lineSplit(g: win.Gfx, content: md.Inline, w: f32, limit: f32) ?u32 {
 
 /// A paragraph keeps clear of every float it meets: each stretch of lines is laid out in the room left at its top, and the
 /// rest of the text starts again where a float starts or ends.
-fn flowParagraph(g: win.Gfx, draw: bool, content_in: md.Inline, bx: f32, bw: f32, y0: f32, brush: *anyopaque, style: win.BlockStyle, floats: *const Floats, natural: *f32) f32 {
+fn flowText(g: win.Gfx, draw: bool, content_in: md.Inline, fmt: *anyopaque, bx: f32, bw: f32, y0: f32, brush: *anyopaque, style: win.BlockStyle, floats: *const Floats, natural: *f32) f32 {
     var content = app.images.flow(content_in);
     var used: f32 = 0;
     var rounds: u32 = 0;
@@ -524,23 +543,23 @@ fn flowParagraph(g: win.Gfx, draw: bool, content_in: md.Inline, bx: f32, bw: f32
         const y = y0 + used;
         const reg = floats.region(y, bx, bw);
         const next = if (rounds < 64) floats.change(y) else null;
-        const at = if (next) |n| lineSplit(g, content, reg.w, n - y) else null;
+        const at = if (next) |n| lineSplit(g, content, fmt, reg.w, n - y) else null;
         const cut = at orelse {
-            used += win.textBlock(g, draw, content, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+            used += win.textBlock(g, draw, content, fmt, reg.x, y, reg.w, brush, style);
             natural.* = @max(natural.*, win.g_last_text_w);
             return used;
         };
         var tail_lo = cut;
         while (tail_lo < content.text.len and (content.text[tail_lo] == ' ' or content.text[tail_lo] == '\n')) tail_lo += 1;
         const head = sliceInline(content, 0, cut) catch {
-            used += win.textBlock(g, draw, content, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+            used += win.textBlock(g, draw, content, fmt, reg.x, y, reg.w, brush, style);
             return used;
         };
         const tail = sliceInline(content, tail_lo, @intCast(content.text.len)) catch {
-            used += win.textBlock(g, draw, content, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+            used += win.textBlock(g, draw, content, fmt, reg.x, y, reg.w, brush, style);
             return used;
         };
-        used += win.textBlock(g, draw, head, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+        used += win.textBlock(g, draw, head, fmt, reg.x, y, reg.w, brush, style);
         natural.* = @max(natural.*, win.g_last_text_w);
         content = tail;
     }
@@ -709,6 +728,7 @@ test "dt has no gap below it and dd is inset" {
     win.render();
     try testing.expectEqual(@as(usize, 4), app.hits.items.len);
     try testing.expectEqual(@as(usize, 1), app.hits.items[0].content.italic.len);
+    try testing.expect(win.layoutSize(app.hits.items[0].content, 2000).width > win.layoutSize(.{ .text = "term" }, 2000).width);
     try testing.expectEqual(@as(f32, 40 + md.dd_inset), app.hits.items[1].x);
     const term_step = app.block_y.items[1] - app.block_y.items[0];
     const plain_step = app.block_y.items[3] - app.block_y.items[2];
@@ -959,4 +979,35 @@ test "an empty paragraph takes no height and break lines take one 24px line each
     try testing.expectEqual(@as(f32, 40 + 16), app.block_y.items[1]);
     try testing.expectEqual(@as(f32, 40 + 16 + 48), app.block_y.items[2]);
     try testing.expectEqual(@as(usize, 1), app.hits.items.len);
+}
+
+test "a float starts at the line where its tag appears and list text widens past the float" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var src: std.ArrayList(u8) = .empty;
+    try src.appendSlice(a, "[");
+    for (0..60) |_| try src.appendSlice(a, "word ");
+    try src.appendSlice(a, "x](http://x.org) ![r](wide.png) [");
+    for (0..120) |_| try src.appendSlice(a, "tail ");
+    try src.appendSlice(a, "y](http://y.org)");
+    var mid = try paragraph(a, src.items);
+    const images = try a.dupe(md.Image, mid.content.images);
+    images[0].width = 160;
+    images[0].float = .right;
+    mid.content.images = images;
+    const right = try floatImage(a, "![r](wide.png)", .right);
+    var item = try longLink(a, 120);
+    item.frames = &.{.{ .kind = .list, .ordered = false }};
+    var fx = try Fixture.init(&.{ mid, right, item });
+    defer fx.deinit();
+    try app.images.injectReady("wide.png", 400, 200);
+    win.render();
+    try testing.expect(app.hits.items.len >= 4);
+    try testing.expectApproxEqAbs(@as(f32, 820), app.hits.items[0].w, 0.01);
+    var narrow = false;
+    for (app.hits.items) |h| narrow = narrow or @abs(h.w - (820 - 160 - md.float_gap)) < 1;
+    try testing.expect(narrow);
+    const last = app.hits.items[app.hits.items.len - 1];
+    try testing.expectApproxEqAbs(@as(f32, 820 - md.list_inset), last.w, 1);
 }
