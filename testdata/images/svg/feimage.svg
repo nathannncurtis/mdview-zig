@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
+  <defs><rect id="ref" width="20" height="20" fill="#3949ab"/><filter id="img" x="0" y="0" width="1" height="1"><feImage x="10" y="10" href="#ref"/></filter></defs>
+  <rect x="4" y="4" width="50" height="50" filter="url(#img)"/>
+</svg>

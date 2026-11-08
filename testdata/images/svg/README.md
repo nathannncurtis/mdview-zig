@@ -45,7 +45,8 @@ The comparison is on premultiplied channels. A fixture passes when the mean abso
 | `anim_css.svg` | `@keyframes` with several stops, per-stop easing, `alternate`, `steps()`, `transform-origin` with `transform-box: fill-box` (rendered at 0.9 s) |
 | `blend.svg` | `mix-blend-mode`, `isolation`, `vector-effect: non-scaling-stroke` |
 | `cssfilters.svg` | CSS filter functions: blur, drop-shadow, grayscale, contrast, hue-rotate, saturate, sepia, brightness, invert, opacity |
-| `filters4.svg` | `feImage` (data URI and element), `feTile`, diffuse and specular lighting |
+| `tile.svg`, `feimage.svg` | `feImage` from an element with `feTile`, `feImage` from an element |
+| `diffuse.svg`, `specular.svg` | diffuse lighting with a distant light, specular lighting with a point light |
 | `nested.svg` | `viewBox` with `slice`, nested viewport with `meet`, rotated and scaled groups, group opacity |
 | `card.svg` | a stats-card style SVG with CSS `animation` and `fill-mode: forwards` |
 
