@@ -113,7 +113,7 @@ pub fn build(b: *std.Build) void {
     mermaid_mod.addImport("yaml", yaml_mod);
     mermaid_mod.addImport("testdata", testdata);
     mermaid_mod.addImport("html", b.createModule(.{
-        .root_source_file = b.path("src/markdown/html.zig"),
+        .root_source_file = b.path("src/html_api.zig"),
         .target = target,
         .optimize = optimize,
     }));
