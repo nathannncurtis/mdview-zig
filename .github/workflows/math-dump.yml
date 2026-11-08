@@ -5,7 +5,7 @@ on:
     paths:
       - 'src/math/**'
       - 'src/font/**'
-      - 'tools/math_dump.zig'
+      - 'tools/gen/math_dump.zig'
       - '.github/workflows/math-dump.yml'
 
 permissions:
