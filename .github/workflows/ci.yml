@@ -142,6 +142,8 @@ jobs:
           - target: html.Builder
             iterations: 800K
           - target: font.parse
+            iterations: 2M
+          - target: image.decode
             iterations: 400K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
