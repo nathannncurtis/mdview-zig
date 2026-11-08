@@ -243,6 +243,10 @@ fn indexRoot(io: std.Io, root: []const u8) void {
 
 fn findLinux(io: std.Io, file: []const u8) ?[]const u8 {
     for (dirs(.linux)) |root| indexRoot(io, root);
+    return findIndexed(file);
+}
+
+fn findIndexed(file: []const u8) ?[]const u8 {
     var lower: [160]u8 = undefined;
     if (file.len > lower.len) return null;
     for (file, 0..) |c, i| lower[i] = std.ascii.toLower(c);
@@ -349,7 +353,13 @@ fn systemMath(io: std.Io, home: ?[]const u8) ?*const Font {
             return if (f.math != null) f else null;
         },
         .macos => {
-            for ([_][]const u8{ "/System/Library/Fonts/Supplemental/STIXTwoMath-Regular.otf", "/Library/Fonts/STIXTwoMath-Regular.otf" }) |p| {
+            for (dirs(.macos)) |root| indexRoot(io, root);
+            if (home) |h| {
+                var buf: [512]u8 = undefined;
+                if (std.fmt.bufPrint(&buf, "{s}/Library/Fonts", .{h})) |root| indexRoot(io, root) else |_| {}
+            }
+            for ([_][]const u8{ "stixtwomath.otf", "stixtwomath-regular.otf", "latinmodern-math.otf" }) |name| {
+                const p = findIndexed(name) orelse continue;
                 const data = readFile(io, p) orelse continue;
                 const f = fontFrom(p, data, 0, false) orelse continue;
                 if (f.math != null) return f;
