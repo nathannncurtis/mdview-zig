@@ -105,12 +105,13 @@ pub fn build(b: *std.Build) void {
     if (macos_c) |c| {
         const layout_tests = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("src/platform/macos/macos.zig"),
+                .root_source_file = b.path("src/platform_test.zig"),
                 .target = target,
                 .optimize = optimize,
             }),
         });
         layout_tests.root_module.addImport("c", c.createModule());
+        layout_tests.root_module.addImport("testdata", testdata);
         for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
