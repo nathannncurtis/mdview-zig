@@ -85,6 +85,9 @@ const REG_SZ: u32 = 1;
 const TIMER_FILE_WATCH: usize = 1;
 const TIMER_SCROLL_SAVE: usize = 2;
 const TIMER_IMAGES: usize = 3;
+const WM_DPICHANGED: u32 = 0x02E0;
+const SWP_NOZORDER: u32 = 0x0004;
+const SWP_NOACTIVATE: u32 = 0x0010;
 
 // Structs
 const MSG = extern struct { hwnd: ?HWND, message: u32, wParam: WPARAM, lParam: LPARAM, time: u32, pt: POINT };
@@ -117,6 +120,9 @@ extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?*
 extern "user32" fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c) BOOL;
 extern "user32" fn SetTimer(hWnd: ?HWND, nIDEvent: usize, uElapse: u32, lpTimerFunc: ?*anyopaque) callconv(.c) usize;
 extern "user32" fn KillTimer(hWnd: ?HWND, uIDEvent: usize) callconv(.c) BOOL;
+extern "user32" fn SetWindowPos(hWnd: HWND, hWndInsertAfter: ?HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: u32) callconv(.c) BOOL;
+extern "kernel32" fn GetProcAddress(hModule: ?*anyopaque, name: [*:0]const u8) callconv(.c) ?*const anyopaque;
+extern "kernel32" fn GetModuleHandleW(name: ?[*:0]const u16) callconv(.c) ?*anyopaque;
 extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: u32) callconv(.c) HRESULT;
 extern "shell32" fn DragQueryFileW(hDrop: *anyopaque, iFile: u32, lpszFile: ?[*]u16, cch: u32) callconv(.c) u32;
 extern "shell32" fn ShellExecuteW(hwnd: ?HWND, lpOperation: ?[*:0]const u16, lpFile: [*:0]const u16, lpParameters: ?[*:0]const u16, lpDirectory: ?[*:0]const u16, nShowCmd: i32) callconv(.c) ?*anyopaque;
@@ -393,10 +399,10 @@ fn rendererStrike(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, u: *const any
     vtable(ID2D1RT_VTable, dc.rt).FillRectangle(dc.rt, &.{ .left = x, .top = top, .right = x + line.width, .bottom = top + @max(line.thickness, 1) }, effect orelse dc.brush);
     return 0;
 }
-fn rendererInline(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, object: ?*anyopaque, _: BOOL, _: BOOL, effect: ?*anyopaque) callconv(.c) HRESULT {
+fn rendererInline(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, object: ?*anyopaque, _: BOOL, _: BOOL, _: ?*anyopaque) callconv(.c) HRESULT {
     const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
     const obj: *const ImageObject = @ptrCast(@alignCast(object orelse return 0));
-    drawImageObject(dc, obj, x, y, effect orelse dc.brush);
+    drawImageObject(dc, obj, x, y);
     return 0;
 }
 
@@ -424,7 +430,11 @@ const inline_object_vtable = InlineObject_VTable{
     .GetBreakConditions = objectBreaks,
 };
 
-const ImageKind = enum(u32) { pending, picture, alt };
+const ImageKind = enum(u32) { pending, picture, broken };
+
+/// Width of the broken image glyph with its gap to the alt text that follows, and its height.
+const broken_w: f32 = 18;
+const broken_h: f32 = 16;
 
 /// One image in a layout; sits on the baseline and is painted by the text renderer, which receives this pointer back.
 const ImageObject = extern struct {
@@ -469,7 +479,7 @@ fn objectBreaks(_: *anyopaque, before: *u32, after: *u32) callconv(.c) HRESULT {
     return 0;
 }
 
-fn imageObject(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, im: *const md.Image, max_width: f32) ?*ImageObject {
+fn imageObject(im: *const md.Image, max_width: f32) ?*ImageObject {
     if (g_objects == null) g_objects = .init(app.gpa);
     const obj = (g_objects.?.allocator().create(ImageObject) catch return null);
     obj.* = .{ .w = 0, .h = 0, .kind = .pending, .image = im };
@@ -481,20 +491,15 @@ fn imageObject(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, im: *const 
             obj.kind = if (s.w > 0) .picture else .pending;
         },
         .missing => if (im.alt.len > 0) {
-            const lay = createLayout(vt_dw, dwf, .{ .text = im.alt }, g_text_format.?, max_width) orelse return obj;
-            defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
-            // SAFETY: written by GetMetrics
-            var m: DWRITE_TEXT_METRICS = undefined;
-            _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
-            obj.w = @min(@ceil(m.width), max_width);
-            obj.h = m.height;
-            obj.kind = .alt;
+            obj.w = broken_w;
+            obj.h = broken_h;
+            obj.kind = .broken;
         },
     }
     return obj;
 }
 
-fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f32, brush: *anyopaque) void {
+fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f32) void {
     const top = y - app.scroll_y;
     if (top + obj.h < 0 or top > app.window_height or obj.w <= 0) return;
     const vt_rt = vtable(ID2D1RT_VTable, dc.rt);
@@ -504,11 +509,12 @@ fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f
             const bm = app.images.bitmap(obj.image.target, .{ .w = obj.w, .h = obj.h }) orelse return;
             vt_rt.DrawBitmap(dc.rt, bm.native, &.{ .left = x, .top = y, .right = x + obj.w, .bottom = y + obj.h }, 1, 1, null);
         },
-        .alt => {
-            const dwf = g_dwrite_factory orelse return;
-            const lay = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, .{ .text = obj.image.alt }, g_text_format.?, obj.w) orelse return;
-            defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
-            vt_rt.DrawTextLayout(dc.rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
+        .broken => {
+            const geom = g_broken_geom orelse return;
+            const muted = g_brush_quote orelse return;
+            vt_rt.SetTransform(dc.rt, &matrix(x, y - app.scroll_y));
+            vt_rt.FillGeometry(dc.rt, geom, muted, null);
+            vt_rt.SetTransform(dc.rt, &matrix(0, -app.scroll_y));
         },
     }
 }
@@ -656,6 +662,39 @@ var g_dwrite_factory2: ?*anyopaque = null;
 var g_color_logged = false;
 var g_cursor_hand: ?*anyopaque = null;
 var g_over_link = false;
+/// Device pixels per layout unit of the monitor the window is on; layout is in these units and the render target scales them up.
+var g_scale: f32 = 1;
+
+fn matrix(tx: f32, ty: f32) D2D1_MATRIX_3X2_F {
+    return .{ .m = .{ g_scale, 0, 0, g_scale, tx * g_scale, ty * g_scale } };
+}
+
+fn user32Proc(comptime T: type, name: [*:0]const u8) ?T {
+    const module = GetModuleHandleW(L("user32.dll")) orelse return null;
+    const proc = GetProcAddress(module, name) orelse return null;
+    return @ptrCast(proc);
+}
+
+fn enablePerMonitorDpi() void {
+    if (user32Proc(*const fn (isize) callconv(.c) BOOL, "SetProcessDpiAwarenessContext")) |f| _ = f(-4);
+}
+
+fn scaleOfWindow(hwnd: HWND) f32 {
+    const f = user32Proc(*const fn (HWND) callconv(.c) u32, "GetDpiForWindow") orelse return 1;
+    const dpi = f(hwnd);
+    return if (dpi == 0) 1 else @as(f32, @floatFromInt(dpi)) / 96.0;
+}
+
+fn scaleOfSystem() f32 {
+    const f = user32Proc(*const fn () callconv(.c) u32, "GetDpiForSystem") orelse return 1;
+    const dpi = f();
+    return if (dpi == 0) 1 else @as(f32, @floatFromInt(dpi)) / 96.0;
+}
+
+fn setScale(s: f32) void {
+    g_scale = s;
+    app.images.dpi_scale = s;
+}
 
 pub fn invalidate() void {
     if (g_hwnd) |h| _ = InvalidateRect(h, null, 0);
@@ -666,6 +705,8 @@ pub fn run() void {
     initD2D();
     app.log("d2d initialized");
 
+    enablePerMonitorDpi();
+    setScale(scaleOfSystem());
     const hi: ?HINSTANCE = if (hinstance) |h| @ptrCast(h) else null;
     const class_name = L("mdview");
     _ = RegisterClassExW(&.{
@@ -676,9 +717,10 @@ pub fn run() void {
     const hwnd = CreateWindowExW(
         WS_EX_ACCEPTFILES, class_name, L("mdview"),
         WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 900, 700, null, null, hi, null,
+        CW_USEDEFAULT, CW_USEDEFAULT, @intFromFloat(900 * g_scale), @intFromFloat(700 * g_scale), null, null, hi, null,
     ) orelse return;
     g_hwnd = hwnd;
+    setScale(scaleOfWindow(hwnd));
 
     createRenderTarget(hwnd);
     if (g_render_target != null) app.log("render target created") else app.log("FAILED to create render target");
@@ -727,7 +769,7 @@ fn createRenderTarget(hwnd: HWND) void {
         var rc: RECT = undefined;
         _ = GetClientRect(hwnd, &rc);
         const size = D2D1_SIZE_U{ .width = @intCast(rc.right - rc.left), .height = @intCast(rc.bottom - rc.top) };
-        _ = vtable(ID2D1Factory_VTable, factory).CreateHwndRenderTarget(factory, &.{}, &.{ .hwnd = hwnd, .pixel_size = size }, &g_render_target);
+        _ = vtable(ID2D1Factory_VTable, factory).CreateHwndRenderTarget(factory, &.{ .dpi_x = 96, .dpi_y = 96 }, &.{ .hwnd = hwnd, .pixel_size = size }, &g_render_target);
         if (g_render_target) |rt| createBrushes(rt);
     }
 }
@@ -788,7 +830,7 @@ fn render() void {
     resetObjects();
     vt_rt.BeginDraw(rt);
     vt_rt.Clear(rt, &.{ .r = 0.051, .g = 0.067, .b = 0.090, .a = 1 });
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, 0, -app.scroll_y } });
+    vt_rt.SetTransform(rt, &matrix(0, -app.scroll_y));
 
     const padding: f32 = 40;
     const max_width = @max(app.window_width - padding * 2, 100);
@@ -883,7 +925,7 @@ fn render() void {
     app.content_height = y + padding;
 
     // Close button
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, 0, 0 } });
+    vt_rt.SetTransform(rt, &matrix(0, 0));
     if (app.tooltip) |t| drawTooltip(vt_rt, vt_dw, rt, dwf, t);
     if (g_brush_close) |brush| {
         const bx = app.window_width - 36;
@@ -944,24 +986,31 @@ const ID2D1GeometrySink_VTable = extern struct {
 };
 
 var g_alert_geom: [5]?*anyopaque = @splat(null);
+var g_broken_geom: ?*anyopaque = null;
 
 fn point(p: [2]f32) D2D1_POINT_2F {
     return .{ .x = p[0], .y = p[1] };
 }
 
 fn createAlertGeometries(factory: *anyopaque) void {
-    const fvt = vtable(ID2D1Factory_VTable, factory);
     for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
-        var geom: ?*anyopaque = null;
-        if (fvt.CreatePathGeometry(factory, &geom) < 0) continue;
-        const g = geom orelse continue;
-        var sink_ptr: ?*anyopaque = null;
-        if (vtable(ID2D1PathGeometry_VTable, g).Open(g, &sink_ptr) < 0) continue;
-        const sink = sink_ptr orelse continue;
-        const sv = vtable(ID2D1GeometrySink_VTable, sink);
-        sv.SetFillMode(sink, 1);
-        var open = false;
-        for (alerts.icon(a)) |op| switch (op) {
+        g_alert_geom[@intFromEnum(a) - 1] = geometryFromOps(factory, alerts.icon(a));
+    }
+    g_broken_geom = geometryFromOps(factory, alerts.brokenImage());
+}
+
+fn geometryFromOps(factory: *anyopaque, ops: []const alerts.Op) ?*anyopaque {
+    const fvt = vtable(ID2D1Factory_VTable, factory);
+    var geom: ?*anyopaque = null;
+    if (fvt.CreatePathGeometry(factory, &geom) < 0) return null;
+    const g = geom orelse return null;
+    var sink_ptr: ?*anyopaque = null;
+    if (vtable(ID2D1PathGeometry_VTable, g).Open(g, &sink_ptr) < 0) return null;
+    const sink = sink_ptr orelse return null;
+    const sv = vtable(ID2D1GeometrySink_VTable, sink);
+    sv.SetFillMode(sink, 1);
+    var open = false;
+    for (ops) |op| switch (op) {
             .move => |p| {
                 if (open) sv.EndFigure(sink, 0);
                 sv.BeginFigure(sink, point(p), 0);
@@ -973,24 +1022,24 @@ fn createAlertGeometries(factory: *anyopaque) void {
                 sv.EndFigure(sink, 1);
                 open = false;
             },
-        };
-        if (open) sv.EndFigure(sink, 0);
-        _ = sv.Close(sink);
-        _ = sv.Release(sink);
-        g_alert_geom[@intFromEnum(a) - 1] = g;
-    }
+    };
+    if (open) sv.EndFigure(sink, 0);
+    _ = sv.Close(sink);
+    _ = sv.Release(sink);
+    return g;
 }
 
 fn drawAlertIcon(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, alert: md.Alert, x: f32, y: f32) void {
     const idx = @intFromEnum(alert) - 1;
     const geom = g_alert_geom[idx] orelse return;
     const brush = g_alert_fg[idx] orelse return;
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, x, y - app.scroll_y } });
+    vt_rt.SetTransform(rt, &matrix(x, y - app.scroll_y));
     vt_rt.FillGeometry(rt, geom, brush, null);
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, 0, -app.scroll_y } });
+    vt_rt.SetTransform(rt, &matrix(0, -app.scroll_y));
 }
 
-fn renderErrorBox(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, x: f32, y: f32, w: f32) f32 {
+fn renderErrorBox(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content_in: md.Inline, x: f32, y: f32, w: f32) f32 {
+    const content = app.images.flow(content_in);
     const lay = createLayout(vt_dw, dwf, content, g_text_format.?, @max(w - 34, 20)) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
     // SAFETY: written by GetMetrics
@@ -1060,7 +1109,8 @@ fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable,
     }
 }
 
-fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque) f32 {
+fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content_in: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque) f32 {
+    const content = app.images.flow(content_in);
     const lay = createLayout(vt_dw, dwf, content, text_format, max_width) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
     // SAFETY: written by GetMetrics
@@ -1155,7 +1205,7 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
         if (brush) |b| _ = vt_layout.SetDrawingEffect(lay, b, range);
     }
     for (content.images) |*im| {
-        const obj = imageObject(vt_dw, dwf, im, max_width) orelse continue;
+        const obj = imageObject(im, max_width) orelse continue;
         _ = vt_layout.SetInlineObject(lay, obj, wideRange(content.text, .{ im.start, im.len }));
     }
     return lay;
@@ -1182,7 +1232,7 @@ const nested_margin: f32 = md.nested_table_margin;
 const cell_pad_y: f32 = 6;
 
 fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table, row: usize, col: usize, width: f32) ?*anyopaque {
-    const content = t.cell(row, col);
+    const content = app.images.flow(t.cell(row, col));
     const lay = createLayout(vt_dw, dwf, content, g_text_format orelse return null, width) orelse return null;
     const vt = vtable(IDWriteTextLayout_VTable, lay);
     if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) _ = vt.SetFontWeight(lay, 700, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
@@ -1251,9 +1301,9 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
                 if (t.nestedAt(row, col)) |nt| {
                     _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
                 } else if (lay) |l| {
-                    drawLayout(vt_rt, rt, l, cx + cell_pad_x, row_y + cell_pad_y, g_brush_text.?, t.cell(row, col));
+                    drawLayout(vt_rt, rt, l, cx + cell_pad_x, row_y + cell_pad_y, g_brush_text.?, app.images.flow(t.cell(row, col)));
                     app.noteHit(.{
-                        .content = t.cell(row, col), .x = cx + cell_pad_x, .y = row_y + cell_pad_y, .w = w - cell_pad_x * 2,
+                        .content = app.images.flow(t.cell(row, col)), .x = cx + cell_pad_x, .y = row_y + cell_pad_y, .w = w - cell_pad_x * 2,
                         .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
                     });
                 }
@@ -1372,8 +1422,8 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
         },
         WM_SIZE => {
             const lp: usize = @bitCast(lParam);
-            app.window_width = @floatFromInt(@as(u32, @truncate(lp & 0xFFFF)));
-            app.window_height = @floatFromInt(@as(u32, @truncate((lp >> 16) & 0xFFFF)));
+            app.window_width = @as(f32, @floatFromInt(@as(u32, @truncate(lp & 0xFFFF)))) / g_scale;
+            app.window_height = @as(f32, @floatFromInt(@as(u32, @truncate((lp >> 16) & 0xFFFF)))) / g_scale;
             if (g_render_target) |rt| {
                 _ = vtable(ID2D1RT_VTable, rt).Resize(rt, &.{
                     .width = @as(u32, @truncate(lp & 0xFFFF)),
@@ -1398,7 +1448,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const lp: usize = @bitCast(lParam);
             const x: i16 = @bitCast(@as(u16, @truncate(lp)));
             const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
-            g_over_link = app.pointerMoved(@floatFromInt(x), @floatFromInt(y));
+            g_over_link = app.pointerMoved(@as(f32, @floatFromInt(x)) / g_scale, @as(f32, @floatFromInt(y)) / g_scale);
             return 0;
         },
         WM_SETCURSOR => {
@@ -1414,14 +1464,14 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const lp: usize = @bitCast(lParam);
             const x: i16 = @bitCast(@as(u16, @truncate(lp)));
             const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
-            _ = app.mouseDown(@floatFromInt(x), @floatFromInt(y));
+            _ = app.mouseDown(@as(f32, @floatFromInt(x)) / g_scale, @as(f32, @floatFromInt(y)) / g_scale);
             return 0;
         },
         WM_LBUTTONUP => {
             const lp: usize = @bitCast(lParam);
             const x: i16 = @bitCast(@as(u16, @truncate(lp)));
             const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
-            _ = app.mouseUp(@floatFromInt(x), @floatFromInt(y));
+            _ = app.mouseUp(@as(f32, @floatFromInt(x)) / g_scale, @as(f32, @floatFromInt(y)) / g_scale);
             return 0;
         },
         WM_XBUTTONUP => {
@@ -1457,16 +1507,24 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const raw_y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
             var pt = POINT{ .x = raw_x, .y = raw_y };
             _ = ScreenToClient(hwnd, &pt);
-            const border: i32 = 6;
-            const w: i32 = @intFromFloat(app.window_width);
-            const h: i32 = @intFromFloat(app.window_height);
-            if (pt.x > w - 40 and pt.y < 36) { PostQuitMessage(0); return 0; }
+            const border: i32 = @intFromFloat(6 * g_scale);
+            const w: i32 = @intFromFloat(app.window_width * g_scale);
+            const h: i32 = @intFromFloat(app.window_height * g_scale);
+            if (pt.x > w - @as(i32, @intFromFloat(40 * g_scale)) and pt.y < @as(i32, @intFromFloat(36 * g_scale))) { PostQuitMessage(0); return 0; }
             if (pt.y < border) { if (pt.x < border) return HTTOPLEFT; if (pt.x > w - border) return HTTOPRIGHT; return HTTOP; }
             if (pt.y > h - border) { if (pt.x < border) return HTBOTTOMLEFT; if (pt.x > w - border) return HTBOTTOMRIGHT; return HTBOTTOM; }
             if (pt.x < border) return HTLEFT;
             if (pt.x > w - border) return HTRIGHT;
             if ((@as(u16, @bitCast(GetKeyState(VK_MENU))) & 0x8000) != 0) return HTCAPTION;
             return HTCLIENT;
+        },
+        WM_DPICHANGED => {
+            const wp: usize = @bitCast(wParam);
+            setScale(@as(f32, @floatFromInt(@as(u16, @truncate(wp)))) / 96.0);
+            const suggested: *const RECT = @ptrFromInt(@as(usize, @bitCast(lParam)));
+            _ = SetWindowPos(hwnd, null, suggested.left, suggested.top, suggested.right - suggested.left, suggested.bottom - suggested.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            _ = InvalidateRect(hwnd, null, 0);
+            return 0;
         },
         WM_TIMER => {
             const timer_id: usize = @bitCast(wParam);
@@ -1675,7 +1733,7 @@ test "an image scales down to the layout width and is hit like a character" {
     try testing.expect(content.imageAt(index) != null);
 }
 
-test "a missing image lays out its alt text and a reference image resolves" {
+test "a missing image lays out a glyph and its alt text in the flow and a reference image resolves" {
     app.gpa = testing.allocator;
     app.images.init(testing.allocator, testing.io);
     app.images.reset("", false);
@@ -1693,9 +1751,9 @@ test "a missing image lays out its alt text and a reference image resolves" {
         std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
     }
     try testing.expect(app.images.look("gone.png", 400) == .missing);
-    const alt = layoutSize(doc.blocks[0].content, 400);
+    const alt = layoutSize(app.images.flow(doc.blocks[0].content), 400);
     const plain = layoutSize(.{ .text = "a long alt text" }, 400);
-    try testing.expectApproxEqAbs(plain.width, alt.width, 2);
+    try testing.expectApproxEqAbs(plain.width + broken_w, alt.width, 2);
     try testing.expectApproxEqAbs(plain.height, alt.height, 2);
 }
 
@@ -1731,4 +1789,14 @@ test "a loaded image is drawn through Direct2D and its bitmap is cached" {
     const bm = app.images.bitmap("wide.png", .{ .w = 220, .h = 110 }) orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(u32, 400), bm.w);
     try testing.expectEqual(@as(u32, 200), bm.h);
+}
+
+test "the view matrix scales layout units to device pixels" {
+    setScale(2);
+    defer setScale(1);
+    const m = matrix(3, -4).m;
+    try testing.expectEqual(@as(f32, 2), m[0]);
+    try testing.expectEqual(@as(f32, 6), m[4]);
+    try testing.expectEqual(@as(f32, -8), m[5]);
+    try testing.expectEqual(@as(f32, 2), app.images.dpi_scale);
 }
