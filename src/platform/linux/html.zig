@@ -43,6 +43,24 @@ pub const Bands = struct {
     right_w: f32 = 0,
     right_bottom: f32 = 0,
 
+    pub const Spot = struct { x: f32, y: f32 };
+
+    /// CSS float stacking: a float goes beside the ones already on its side while there is room, else below them.
+    pub fn place(b: *Bands, is_left: bool, x: f32, cw: f32, y: f32, w: f32, h: f32) Spot {
+        const edge = if (is_left) &b.left_bottom else &b.right_bottom;
+        const wide = if (is_left) &b.left_w else &b.right_w;
+        if (edge.* <= y) wide.* = 0;
+        var top = y;
+        if (edge.* > y and wide.* + w + md.float_gap > cw) {
+            top = edge.*;
+            wide.* = 0;
+        }
+        const fx = if (is_left) x + wide.* else x + cw - wide.* - w;
+        wide.* += w + md.float_gap;
+        edge.* = @max(edge.*, top + h);
+        return .{ .x = fx, .y = top };
+    }
+
     pub fn at(b: Bands, y: f32) Beside {
         var out: Beside = .{};
         if (b.left_bottom > y) {
@@ -58,6 +76,9 @@ pub const Bands = struct {
 };
 
 pub var sizing_float = false;
+pub var measuring = false;
+pub var nested: u32 = 0;
+pub var extent: f32 = 0;
 pub var splits: ?std.heap.ArenaAllocator = null;
 
 pub fn resetSplits() void {
@@ -100,15 +121,33 @@ pub fn placeFloats(cr: *c.cairo_t, block: *const md.Block, x: f32, cw: f32, y: f
         if (im.float == .none) continue;
         const box = floatBox(im, cw) orelse continue;
         if (box.w <= 0) continue;
-        const is_left = im.float == .left;
-        const edge = if (is_left) &bands.left_bottom else &bands.right_bottom;
-        const wide = if (is_left) &bands.left_w else &bands.right_w;
-        if (edge.* <= y) wide.* = 0;
-        const top = @max(y, edge.*);
-        drawBox(cr, box, if (is_left) x else x + cw - box.w, top);
-        wide.* = @max(wide.*, box.w + md.float_gap);
-        edge.* = top + box.h;
+        const spot = bands.place(im.float == .left, x, cw, y, box.w, box.h);
+        drawBox(cr, box, spot.x, spot.y);
+        floatHit(im, block.content, spot.x, spot.y, box.w, box.h);
     }
+}
+
+/// A floated image takes no room in its text, so it gets its own hit: the image alone, inside its link if it has one.
+fn floatHit(im: *const md.Image, content: md.Inline, x: f32, y: f32, w: f32, h: f32) void {
+    if (measuring) return;
+    if (splits == null) splits = .init(app.gpa);
+    const a = splits.?.allocator();
+    const image = a.alloc(md.Image, 1) catch return;
+    image[0] = im.*;
+    image[0].start = 0;
+    image[0].float = .none;
+    var links: []const md.Link = &.{};
+    for (content.links) |l| {
+        if (l.start <= im.start and l.start + l.len >= im.start + im.len) {
+            const one = a.alloc(md.Link, 1) catch return;
+            one[0] = l;
+            one[0].start = 0;
+            one[0].len = im.len;
+            links = one;
+            break;
+        }
+    }
+    app.noteHit(.{ .content = .{ .text = content.text[im.start .. im.start + im.len], .images = image, .links = links }, .x = x, .y = y + app.scroll_y, .w = w, .h = h });
 }
 
 pub fn cutSpans(a: std.mem.Allocator, spans: []const md.Span, from: u32) ?[]md.Span {
@@ -211,7 +250,7 @@ pub fn renderBeside(cr: *c.cairo_t, layout: *c.PangoLayout, content_in: md.Inlin
     return at.y + renderFlowed(cr, layout, rest, x, y + at.y, w, color, font);
 }
 
-pub fn drawSummaryMarker(cr: *c.cairo_t, block: *const md.Block, x: f32, top: f32, h: f32, w: f32) void {
+pub fn drawSummaryMarker(cr: *c.cairo_t, layout: *c.PangoLayout, block: *const md.Block, x: f32, top: f32, h: f32, w: f32) void {
     var i = block.frames.len;
     while (i > 0) {
         i -= 1;
@@ -231,9 +270,38 @@ pub fn drawSummaryMarker(cr: *c.cairo_t, block: *const md.Block, x: f32, top: f3
         }
         c.cairo_close_path(cr);
         c.cairo_fill(cr);
-        app.noteToggle(.{ .x = x - md.details_marker_inset - 4, .y = top + app.scroll_y, .w = w + md.details_marker_inset + 4, .h = h }, f);
+        if (!measuring) noteSummaryToggles(layout, app.images.flow(block.content), f, x, top, w);
         return;
     }
+}
+
+/// The summary row toggles the details everywhere except on its links, which keep their own click.
+fn noteSummaryToggles(layout: *c.PangoLayout, content: md.Inline, f: md.Frame, x: f32, top: f32, w: f32) void {
+    var lines: std.ArrayList(LineInfo) = .empty;
+    defer lines.deinit(app.gpa);
+    var holes: std.ArrayList(StyleRect) = .empty;
+    defer holes.deinit(app.gpa);
+    setInline(layout, content, w, "Sans 12");
+    collectLines(layout, &lines);
+    const merged = padded(content);
+    const spans = merged.code;
+    const text_len = content.text.len + 2 * pad_len * spans.len;
+    for (content.links) |l| lineXRanges(layout, lines.items, text_len, mapStart(spans, l.start), mapEnd(spans, l.start + l.len), false, &holes);
+    c.pango_layout_set_attributes(layout, null);
+    const edge = x - md.details_marker_inset - 4;
+    for (lines.items, 0..) |ln, i| {
+        var cursor: f32 = if (i == 0) edge else x;
+        for (holes.items) |hole| {
+            if (hole.y != ln.y) continue;
+            if (x + hole.x > cursor) toggleRect(cursor, x + hole.x, top + ln.y, ln.height, f);
+            cursor = @max(cursor, x + hole.x + hole.w);
+        }
+        if (x + w > cursor) toggleRect(cursor, x + w, top + ln.y, ln.height, f);
+    }
+}
+
+fn toggleRect(from: f32, to: f32, y: f32, h: f32, f: md.Frame) void {
+    app.noteToggle(.{ .x = from, .y = y + app.scroll_y, .w = to - from, .h = h }, f);
 }
 
 // ============================================================
@@ -398,8 +466,9 @@ pub fn drawStyleRects(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline
     styleRects(layout, content, &rects);
     for (rects.items) |r| {
         if (r.kbd) {
-            const top = y + r.y + 1;
-            const h = r.h - 2;
+            const box = kbdBox(r);
+            const top = y + box[0];
+            const h = box[1];
             setColor(cr, col_stripe);
             drawRoundedRect(cr, x + r.x, top, r.w, h, 6);
             c.cairo_fill(cr);
@@ -691,4 +760,166 @@ test "valign places a cell's text at the top, middle or bottom of its row" {
     try std.testing.expectApproxEqAbs(cell_pad_y, tops[0], 0.01);
     try std.testing.expect(tops[1] > tops[0] + 10);
     try std.testing.expect(tops[2] > tops[1] + 10);
+}
+
+pub const Measured = struct { w: f32, h: f32 };
+
+/// Lays `blocks` out on a scratch surface to learn their natural width (at `width`) and height, noting nothing.
+pub fn measureBlocks(layout: *c.PangoLayout, blocks: []const md.Block, width: f32) Measured {
+    const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return .{ .w = 0, .h = 0 };
+    defer c.cairo_surface_destroy(surface);
+    const cr = c.cairo_create(surface) orelse return .{ .w = 0, .h = 0 };
+    defer c.cairo_destroy(cr);
+    const saved = .{ measuring, extent, block_align };
+    measuring = true;
+    extent = 0;
+    defer {
+        measuring = saved[0];
+        extent = saved[1];
+        block_align = saved[2];
+    }
+    const y = layoutBlocks(cr, layout, blocks, 0, width, 0);
+    return .{ .w = extent, .h = y };
+}
+
+pub fn noteHit(hit: app.Hit) void {
+    if (!measuring) app.noteHit(hit);
+}
+
+pub fn kbdBox(r: StyleRect) [2]f32 {
+    return .{ r.baseline - 4.5 - kbd_box_h / 2, kbd_box_h };
+}
+
+pub const kbd_box_h: f32 = 20;
+
+test "a cell holds blocks laid out inside it and not noted as top-level blocks" {
+    app.gpa = std.heap.page_allocator;
+    defer app.hits.clearAndFree(app.gpa);
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const p = try Probe.init(800, 800);
+    defer p.deinit();
+    const link: md.Link = .{ .start = 0, .len = 3, .target = "x" };
+    const one = [_]md.Block{.{ .kind = .paragraph, .content = .{ .text = "one", .links = &.{link} } }};
+    const two = [_]md.Block{
+        .{ .kind = .paragraph, .content = .{ .text = "one", .links = &.{link} } },
+        .{ .kind = .paragraph, .content = .{ .text = "two" } },
+    };
+    const cells = [_]md.Inline{ .{}, .{} };
+    const with_one = [_][]const md.Block{ &one, &.{} };
+    const with_two = [_][]const md.Block{ &two, &.{} };
+    const ext_one: md.Table.Extra = .{ .cell_blocks = &with_one };
+    const ext_two: md.Table.Extra = .{ .cell_blocks = &with_two };
+    var t: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &cells, .header_row = false, .ext = &ext_one };
+
+    app.hits.clearRetainingCapacity();
+    app.block_y.clearRetainingCapacity();
+    const h_one = renderTable(p.cr, p.layout, t, 0, 0, 700, true, null);
+    try std.testing.expectEqual(@as(usize, 1), app.hits.items.len);
+    try std.testing.expect(app.hits.items[0].x >= 13 and app.hits.items[0].y >= 6);
+    try std.testing.expectEqual(@as(usize, 0), app.block_y.items.len);
+    t.ext = &ext_two;
+    const h_two = renderTable(p.cr, p.layout, t, 0, 0, 700, false, null);
+    try std.testing.expect(h_two > h_one + 15);
+}
+
+test "a nested table inside a cell block sets the cell width" {
+    app.gpa = std.heap.page_allocator;
+    defer resetBoxes();
+    const p = try Probe.init(800, 800);
+    defer p.deinit();
+    const inner_cells = [_]md.Inline{ .{ .text = "a fairly wide inner cell" }, .{ .text = "b" } };
+    const inner: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &inner_cells };
+    const nested = [_]md.Block{.{ .kind = .table, .table = inner }};
+    const measured = measureFlat(p.layout, &nested);
+    var inner_w: f32 = 0;
+    _ = renderTable(p.cr, p.layout, inner, 0, 0, 100000, false, &inner_w);
+    try std.testing.expectApproxEqAbs(inner_w, measured.w, 1);
+    try std.testing.expect(measured.h > 20);
+}
+
+fn measureFlat(layout: *c.PangoLayout, blocks: []const md.Block) Measured {
+    return measureBlocks(layout, blocks, 100000);
+}
+
+test "a floated image inside a link is clickable and a second float sits beside the first" {
+    app.gpa = std.heap.page_allocator;
+    app.images.init(std.testing.allocator, std.testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetBoxes();
+    defer resetSplits();
+    defer app.hits.clearAndFree(app.gpa);
+    defer app.block_y.clearAndFree(app.gpa);
+    try app.images.injectReady("a.png", 100, 50);
+    try app.images.injectReady("b.png", 80, 50);
+    const text = "\u{fffc}\u{fffc}";
+    const images = [_]md.Image{
+        .{ .start = 0, .len = 3, .target = "a.png", .title = "first", .float = .left },
+        .{ .start = 3, .len = 3, .target = "b.png", .title = "second", .float = .left },
+    };
+    const links = [_]md.Link{.{ .start = 0, .len = 3, .target = "https://example.com/a" }};
+    const blocks = [_]md.Block{.{ .kind = .paragraph, .content = .{ .text = text, .images = &images, .links = &links } }};
+    const p = try Probe.init(800, 800);
+    defer p.deinit();
+    app.hits.clearRetainingCapacity();
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 600, 0);
+
+    try std.testing.expectEqual(@as(usize, 2), app.hits.items.len);
+    const first = app.hits.items[0];
+    const second = app.hits.items[1];
+    try std.testing.expectEqual(@as(f32, 0), first.x);
+    try std.testing.expectEqual(@as(f32, 100), first.w);
+    try std.testing.expectEqual(@as(f32, 50), first.h);
+    try std.testing.expectEqual(@as(f32, 120), second.x);
+    try std.testing.expectEqual(first.y, second.y);
+    const index = textIndexAt(first, 50, 25) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(first.content.linkAt(index) != null);
+    try std.testing.expectEqualStrings("first", first.content.imageAt(index).?.title);
+    try std.testing.expect(second.content.linkAt(textIndexAt(second, 40, 25) orelse return error.TestUnexpectedResult) == null);
+}
+
+test "a link in a summary keeps its click and the rest of the row toggles" {
+    app.gpa = std.heap.page_allocator;
+    defer app.details_open.clearAndFree(app.gpa);
+    defer app.hits.clearAndFree(app.gpa);
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const frames = [_]md.Frame{.{ .kind = .details, .key = 91 }};
+    const links = [_]md.Link{.{ .start = 0, .len = 4, .target = "https://example.com" }};
+    const blocks = [_]md.Block{.{ .kind = .paragraph, .content = .{ .text = "link then more words", .links = &links }, .frames = &frames, .role = .summary }};
+    const p = try Probe.init(600, 600);
+    defer p.deinit();
+    app.hits.clearRetainingCapacity();
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 40, 500, 10);
+
+    try std.testing.expect(app.mouseDown(45, 18));
+    try std.testing.expect(!app.isOpen(frames[0]));
+    try std.testing.expect(app.mouseDown(400, 18));
+    try std.testing.expect(app.isOpen(frames[0]));
+    try std.testing.expect(app.mouseDown(30, 18));
+    try std.testing.expect(!app.isOpen(frames[0]));
+}
+
+test "the kbd box is centred on the middle of the lower-case letters" {
+    const box = kbdBox(.{ .x = 0, .y = 0, .w = 10, .h = 19, .baseline = 15, .kbd = true });
+    try std.testing.expectEqual(kbd_box_h, box[1]);
+    try std.testing.expectApproxEqAbs(@as(f32, 15 - 4.5), box[0] + box[1] / 2, 0.01);
+}
+
+test "a rule is 4px with 24px margins that collapse into the paragraph gap" {
+    app.gpa = std.heap.page_allocator;
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const blocks = [_]md.Block{
+        .{ .kind = .paragraph, .content = .{ .text = "above" } },
+        .{ .kind = .hr },
+        .{ .kind = .paragraph, .content = .{ .text = "below" } },
+    };
+    const p = try Probe.init(600, 600);
+    defer p.deinit();
+    app.block_y.clearRetainingCapacity();
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 500, 0);
+    try std.testing.expectEqual(@as(usize, 3), app.block_y.items.len);
+    try std.testing.expectApproxEqAbs(md.hr_margin - 16 + md.hr_height + md.hr_margin, app.block_y.items[2] - app.block_y.items[1], 0.01);
 }

@@ -412,8 +412,9 @@ fn render(dpy: *c.Display, win: c.Window) void {
 pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []const md.Block, left: f32, width: f32, y0: f32) f32 {
     var y = y0;
     var bands: Bands = .{};
+    var prev_gap: f32 = 0;
     for (blocks) |*block| {
-        app.noteBlock(y + app.scroll_y);
+        if (!html.measuring and html.nested == 0) app.noteBlock(y + app.scroll_y);
         if (app.collapsed(block.*)) continue;
         const inset = block.inset();
         var x = left + inset;
@@ -471,7 +472,7 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
                 const font: [*:0]const u8 = if (block.role == .dt) "Sans Bold Italic 12" else "Sans 12";
                 const before = y;
                 y += renderBeside(cr, pango_layout, block.content, x, y, cw, text_col, font, beside);
-                if (block.role == .summary) drawSummaryMarker(cr, block, x, before, y - before, cw);
+                if (block.role == .summary) drawSummaryMarker(cr, pango_layout, block, x, before, y - before, cw);
                 gap = block.paragraphGap();
             },
             .alert_title => {
@@ -491,16 +492,25 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
                 gap = 16;
             },
             .table => {
-                y += renderTable(cr, pango_layout, block.table, x, y, cw, true, null);
-                gap = 16;
+                var tw: f32 = 0;
+                const side = tableFloat(block.table);
+                if (side == .none) {
+                    y += renderTable(cr, pango_layout, block.table, x, y, cw, !html.measuring, &tw);
+                    gap = 16;
+                } else {
+                    const th = renderTable(cr, pango_layout, block.table, x, y, cw, false, &tw);
+                    const spot = bands.place(side == .left, x, cw, y, tw, th);
+                    _ = renderTable(cr, pango_layout, block.table, spot.x, spot.y, cw, !html.measuring, null);
+                }
+                html.extent = @max(html.extent, x + tw);
             },
             .hr => {
-                y += 12;
-                setColor(cr, col_hr);
-                c.cairo_rectangle(cr, x, y, cw, 2);
+                y += @max(md.hr_margin - prev_gap, 0);
+                setColor(cr, col_table_border);
+                c.cairo_rectangle(cr, x, y, cw, md.hr_height);
                 c.cairo_fill(cr);
-                y += 2;
-                gap = 14;
+                y += md.hr_height;
+                gap = md.hr_margin;
             },
         }
 
@@ -512,6 +522,7 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
             c.cairo_fill(cr);
         }
         y += gap;
+        prev_gap = gap;
     }
     html.block_align = .none;
     return y;
@@ -597,12 +608,13 @@ pub fn renderFlowed(
     var pw: c_int = 0;
     var ph: c_int = 0;
     c.pango_layout_get_pixel_size(pango_layout, &pw, &ph);
+    html.extent = @max(html.extent, x + @as(f32, @floatFromInt(pw)));
 
     // Clean up layout state for next use
     c.pango_layout_set_attributes(pango_layout, null);
     setAlign(pango_layout, .left);
 
-    app.noteHit(.{ .content = content, .x = x, .y = y + app.scroll_y, .w = max_width, .h = @floatFromInt(ph), .font = fontOfDesc(font_desc_str), .alignment = html.block_align });
+    html.noteHit(.{ .content = content, .x = x, .y = y + app.scroll_y, .w = max_width, .h = @floatFromInt(ph), .font = fontOfDesc(font_desc_str), .alignment = html.block_align });
     return @floatFromInt(ph);
 }
 
@@ -995,7 +1007,16 @@ pub fn layoutPixelSize(pango_layout: *c.PangoLayout) [2]f32 {
     return .{ @floatFromInt(pw), @floatFromInt(ph) };
 }
 
+const FloatSide = @FieldType(md.Image, "float");
+
+fn tableFloat(t: md.Table) FloatSide {
+    if (comptime @hasField(md.Table, "float")) return @field(t, "float");
+    return .none;
+}
+
 fn cellNatural(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize) f32 {
+    const blocks = t.cellBlocks(row, col);
+    if (blocks.len > 0) return html.measureBlocks(pango_layout, blocks, 100000).w;
     if (t.nestedAt(row, col)) |nt| {
         var nw: f32 = 0;
         _ = renderTable(cr, pango_layout, nt, 0, 0, 100000, false, &nw);
@@ -1006,6 +1027,8 @@ fn cellNatural(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, row: u
 }
 
 fn cellContentHeight(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: f32) f32 {
+    const blocks = t.cellBlocks(row, col);
+    if (blocks.len > 0) return html.measureBlocks(pango_layout, blocks, width).h;
     if (t.nestedAt(row, col)) |nt| return renderTable(cr, pango_layout, nt, 0, 0, width, false, null) + md.nested_table_margin;
     setCell(pango_layout, t, row, col, width);
     return layoutPixelSize(pango_layout)[1];
@@ -1062,7 +1085,12 @@ pub fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x:
                 const h = tl.cellHeight(t, heights, row, col);
                 const text_h = cellContentHeight(cr, pango_layout, t, row, col, w - cell_pad_x * 2);
                 const ty = row_y + valignOffset(t, row, col, h, text_h);
-                if (t.nestedAt(row, col)) |nt| {
+                const blocks = t.cellBlocks(row, col);
+                if (blocks.len > 0) {
+                    html.nested += 1;
+                    _ = layoutBlocks(cr, pango_layout, blocks, cx + cell_pad_x, w - cell_pad_x * 2, ty);
+                    html.nested -= 1;
+                } else if (t.nestedAt(row, col)) |nt| {
                     _ = renderTable(cr, pango_layout, nt, cx + cell_pad_x, ty, w - cell_pad_x * 2, true, null);
                 } else {
                     const cell = app.images.flow(t.cell(row, col));
