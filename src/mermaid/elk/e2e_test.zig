@@ -163,7 +163,7 @@ test "mermaid.zig matches the 12.2.0 flowchart references" {
     const gpa = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
-    const cases = try std.json.parseFromSliceLeaky([]const CaseJ, arena.allocator(), @import("testdata").file("mermaid/elk/e2e.json"), .{ .ignore_unknown_fields = true });
+    const cases = try std.json.parseFromSliceLeaky([]const CaseJ, arena.allocator(), @import("testdata").file("mermaid/elk/e2e/cases.json"), .{ .ignore_unknown_fields = true });
     var rep: Report = .{};
     var rect_failed: usize = 0;
     for (cases) |c| {

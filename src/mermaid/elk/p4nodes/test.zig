@@ -87,6 +87,7 @@ test "justified east ports inside the surrounding margins" {
     try g.layers.append(a, layer);
     const n = try testNode(a, g, layer);
     n.size = .{ .x = 100, .y = 40 };
+    n.p.port_alignment_default = .justified;
     n.p.port_constraints = .fixed_order;
     const p1 = try testPort(a, n, .east);
     const p2 = try testPort(a, n, .east);
