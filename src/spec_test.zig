@@ -351,3 +351,8 @@ test "spec examples for links, definitions and autolinks" {
     if (show_failures > 0) std.debug.print("\nlink spec: {d}/{d}\nfailing: {any}\n", .{ passed, total, failed.items });
     try testing.expect(passed >= link_floor);
 }
+
+test {
+    _ = @import("html_test.zig");
+    _ = @import("spec_html_test.zig");
+}

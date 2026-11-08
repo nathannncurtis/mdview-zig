@@ -6,3 +6,4 @@ testdata/images/manifest.txt text eol=lf
 src/image/fuzz_seeds.zig text eol=lf
 testdata/images/ref/* binary
 testdata/images/refs.txt text eol=lf
+src/mermaid/jison/testdata/* text eol=lf

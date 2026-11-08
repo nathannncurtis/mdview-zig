@@ -84,6 +84,14 @@ pub fn build(b: *std.Build) void {
     const run_image_tests = b.addRunArtifact(image_tests);
     run_image_tests.setCwd(b.path("."));
     test_step.dependOn(&run_image_tests.step);
+    const dagre_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/dagre_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
     addTools(b, test_step);
 
     if (linux_c) |c| {
@@ -190,6 +198,14 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
         .optimize = .ReleaseFast,
     }));
     _ = toolStep(b, "bench-image", "Time the image decoders: <image file> [runs]", bench);
+    const jison_runtime = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/jison/runtime.zig"),
+        .target = b.graph.host,
+    });
+    const jison = toolExe(b, "gen-jison", "tools/gen_jison.zig");
+    jison.root_module.addImport("jison_runtime", jison_runtime);
+    _ = toolStep(b, "gen-jison", "Generate jison tables: <grammar.jison> <out.zig> [stub=<stub.zig>] [json=<tables.json>], or check <grammar.jison> <jison-tables.json>", jison);
+    addJisonTests(b, test_step, jison, jison_runtime);
 
     const languages = toolExe(b, "gen-languages", "tools/gen_languages.zig");
     languages.root_module.addImport("yaml", b.createModule(.{
@@ -210,4 +226,47 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step) void {
         });
         test_step.dependOn(&b.addRunArtifact(t).step);
     }
+}
+
+fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module) void {
+    const dir = "src/mermaid/jison/testdata/";
+    for ([_][]const u8{ "flow", "sequenceDiagram", "expr", "dangling" }) |name| {
+        const check = b.addRunArtifact(gen);
+        check.addArg("check");
+        check.addFileArg(b.path(b.fmt("{s}{s}.jison", .{ dir, name })));
+        check.addFileArg(b.path(b.fmt("{s}{s}.tables.json", .{ dir, name })));
+        test_step.dependOn(&check.step);
+    }
+
+    const regex_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/jison/regex.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(regex_tests).step);
+
+    const parity = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/jison/parity_test.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    parity.root_module.addImport("jison_runtime", runtime);
+    for ([_]struct { name: []const u8, prefix: []const u8 }{
+        .{ .name = "flow", .prefix = "flow" },
+        .{ .name = "sequenceDiagram", .prefix = "seq" },
+    }) |g| {
+        const run = b.addRunArtifact(gen);
+        run.addFileArg(b.path(b.fmt("{s}{s}.jison", .{ dir, g.name })));
+        const grammar = run.addOutputFileArg(b.fmt("{s}_grammar.zig", .{g.prefix}));
+        const stub = run.addPrefixedOutputFileArg("stub=", b.fmt("{s}_stub.zig", .{g.prefix}));
+        const grammar_module = b.createModule(.{ .root_source_file = grammar });
+        const stub_module = b.createModule(.{ .root_source_file = stub });
+        stub_module.addImport("jison_runtime", runtime);
+        stub_module.addImport("grammar", grammar_module);
+        parity.root_module.addImport(b.fmt("{s}_grammar", .{g.prefix}), grammar_module);
+        parity.root_module.addImport(b.fmt("{s}_stub", .{g.prefix}), stub_module);
+    }
+    test_step.dependOn(&b.addRunArtifact(parity).step);
 }
