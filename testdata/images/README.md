@@ -12,3 +12,5 @@ Every file here is a small synthetic image (gradients, circles, rectangles, rand
 - `bmp_embedded_*` hold a JPEG or PNG payload (BI_JPEG, BI_PNG); the expected pixels are the embedded image decoded by Pillow.
 
 `manifest.txt` has one line per fixture: file name, width, height, frame count, total plays (0 loops forever), CRC-32 of all frames' RGBA bytes in order, and the comma-separated frame delays in milliseconds. `src/image/image_test.zig` decodes every file and compares all of it.
+
+`render_wide.svg` and `render_badge.svg` are two small SVGs written for `images.md`, the sample document that exercises every image case in the viewer. Like the rest of this folder, they are original and released under the repository's licence.
