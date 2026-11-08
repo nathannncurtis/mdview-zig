@@ -147,7 +147,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb
+          sudo apt-get install -y libx11-dev libcairo2-dev libpango1.0-dev xvfb fonts-lmodern fonts-noto-cjk fonts-dejavu-core
       - run: bash .github/scripts/setup-zig.sh
       - run: zig build test
       - run: zig build -Doptimize=ReleaseSmall -Dcpu=baseline
