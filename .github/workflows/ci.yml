@@ -99,6 +99,25 @@ jobs:
           chmod +x zlint
           git ls-files '*.zig' | ./zlint -S --deny-warnings
 
+  math-symbols:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/setup-zig.sh
+      - name: Regenerate src/math/symbols.zig and compare
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/symbols.ts" https://raw.githubusercontent.com/KaTeX/KaTeX/9de4b3de47d33c685a99ce2eee9a643f28ed59bf/src/symbols.ts
+          zig build gen-math-symbols -- "$RUNNER_TEMP/symbols.ts" "$RUNNER_TEMP/symbols.zig"
+          diff "$RUNNER_TEMP/symbols.zig" src/math/symbols.zig
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: math-symbols
+          path: ${{ runner.temp }}/symbols.zig
+
   # Rebuilds the bundled font subsets from the pinned upstream fonts and fails if the committed copies differ.
   font-subsets:
     needs: changes
@@ -145,6 +164,8 @@ jobs:
           - target: font.parse
             iterations: 2M
           - target: image.decode
+            iterations: 400K
+          - target: math.parse
             iterations: 400K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -223,7 +244,7 @@ jobs:
           fail: true
 
   ci-ok:
-    needs: [changes, rules, build, lint, font-subsets, fuzz, stress-parser, stress-app, docs]
+    needs: [changes, rules, build, lint, math-symbols, font-subsets, fuzz, stress-parser, stress-app, docs]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

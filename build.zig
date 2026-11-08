@@ -166,7 +166,39 @@ pub fn build(b: *std.Build) void {
     fuzz_tests.root_module.addImport("testdata", testdata);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
-    b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
+    const fuzz_step = b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)");
+    fuzz_step.dependOn(&run_fuzz.step);
+
+    const math_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/tex_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    math_tests.root_module.addImport("testdata", testdata);
+    test_step.dependOn(&b.addRunArtifact(math_tests).step);
+
+    const math_stack = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/stack.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(math_stack).step);
+
+    const math_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_math_fuzz = b.addRunArtifact(math_fuzz);
+    test_step.dependOn(&run_math_fuzz.step);
+    fuzz_step.dependOn(&run_math_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
@@ -209,6 +241,7 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .{ .step = "gen-unicode", .file = "tools/gen/gen_unicode.zig", .what = "Regenerate src/data/unicode.zig: <UnicodeData.txt> <out.zig>" },
         .{ .step = "gen-highlight-colors", .file = "tools/gen/gen_highlight_colors.zig", .what = "Regenerate src/data/highlight_colors.zig: <primer-dark.json> <out.zig>" },
         .{ .step = "gen-spec-cases", .file = "tools/gen/gen_spec_cases.zig", .what = "Regenerate src/markdown/spec_inline_cases.zig: <spec.txt> <out.zig>" },
+        .{ .step = "gen-math-symbols", .file = "tools/gen/gen_math_symbols.zig", .what = "Regenerate src/math/symbols.zig: <KaTeX symbols.ts> <out.zig>" },
         .{ .step = "gen-stress", .file = "tools/gen/gen_stress.zig", .what = "Write adversarial Markdown files: <outdir> [small]" },
         .{ .step = "stress-app", .file = "tools/check/stress_app.zig", .what = "Run the built app on the gen-stress files: <mdview exe> <stress dir> <work dir> [options]" },
         .{ .step = "release-notes", .file = "tools/release/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
