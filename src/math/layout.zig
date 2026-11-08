@@ -27,15 +27,64 @@ pub const Box = struct {
     h: f32 = 0,
     d: f32 = 0,
     ic: f32 = 0,
-    accent_x: ?f32 = null,
-    is_char: bool = false,
     kind: Kind = .empty,
 };
+
+const GlyphKey = struct { face: usize, gid: u16 };
+
+const GlyphMetrics = struct { adv: f32, x0: i16, y0: i16, x1: i16, y1: i16, ic: i16 };
+
+pub const GlyphCache = struct {
+    alloc: Allocator,
+    map: std.AutoHashMapUnmanaged(GlyphKey, GlyphMetrics) = .empty,
+
+    pub fn init(alloc: Allocator) GlyphCache {
+        return .{ .alloc = alloc };
+    }
+
+    pub fn deinit(c: *GlyphCache) void {
+        c.map.deinit(c.alloc);
+    }
+
+    fn get(c: *GlyphCache, face: *const Font, gid: u16) GlyphMetrics {
+        const key: GlyphKey = .{ .face = @intFromPtr(face), .gid = gid };
+        if (c.map.get(key)) |m| return m;
+        const bb = face.bbox(gid);
+        const m: GlyphMetrics = .{
+            .adv = @floatCast(face.advance(gid)),
+            .x0 = bb.x0,
+            .y0 = bb.y0,
+            .x1 = bb.x1,
+            .y1 = bb.y1,
+            .ic = face.italicCorrection(gid),
+        };
+        c.map.put(c.alloc, key, m) catch {};
+        return m;
+    }
+};
+
+pub const TextFonts = struct {
+    regular: ?*const Font = null,
+    bold: ?*const Font = null,
+    italic: ?*const Font = null,
+    bold_italic: ?*const Font = null,
+};
+
+pub fn resolveTextFonts(io: std.Io, families: []const u8) TextFonts {
+    return .{
+        .regular = font.resolve(io, families, 400, false),
+        .bold = font.resolve(io, families, 700, false),
+        .italic = font.resolve(io, families, 400, true),
+        .bold_italic = font.resolve(io, families, 700, true),
+    };
+}
 
 pub const Options = struct {
     size: f32 = 16,
     display: bool = false,
-    text_font: ?*const Font = null,
+    text_fonts: TextFonts = .{},
+    cache: ?*GlyphCache = null,
+    dark: bool = true,
 };
 
 pub const max_depth = 100;
@@ -53,11 +102,13 @@ const Budget = struct { nodes: u32 = 0, depth: u32 = 0 };
 const Ctx = struct {
     a: Allocator,
     f: *const Font,
-    tf: *const Font,
+    text: TextFonts,
+    cache: *GlyphCache,
     k: *const font.math.Constants,
     base: f32,
     style: Style,
     face: tree.Font = .default,
+    dark: bool,
     budget: *Budget,
 
     fn size(c: Ctx) f32 {
@@ -80,6 +131,10 @@ const Ctx = struct {
 
     fn mu(c: Ctx) f32 {
         return c.size() / 18;
+    }
+
+    fn unit(c: Ctx, face: *const Font) f32 {
+        return c.size() / @as(f32, @floatFromInt(face.upem));
     }
 };
 
@@ -256,16 +311,21 @@ pub fn mapChar(cp: u32, v: tree.Font, italic: bool) u32 {
     return cp;
 }
 
+
+fn glyphBoxOn(c: Ctx, face: *const Font, gid: u16, with_ic: bool) Box {
+    const m = c.cache.get(face, gid);
+    const k = c.unit(face);
+    return .{
+        .w = m.adv * k,
+        .h = @as(f32, @floatFromInt(m.y1)) * k,
+        .d = -@as(f32, @floatFromInt(m.y0)) * k,
+        .ic = if (with_ic) @as(f32, @floatFromInt(m.ic)) * k else 0,
+        .kind = .{ .glyph = .{ .gid = gid, .px = c.size(), .face = face } },
+    };
+}
+
 fn glyphBox(c: Ctx, gid: u16) Box {
-    const px = c.size();
-    const k = px / @as(f32, @floatFromInt(c.f.upem));
-    var b: Box = .{ .w = @as(f32, @floatCast(c.f.advance(gid))) * k, .is_char = true, .kind = .{ .glyph = .{ .gid = gid, .px = px, .face = c.f } } };
-    const bb = c.f.bbox(gid);
-    b.h = @max(@as(f32, @floatFromInt(bb.y1)), 0) * k;
-    b.d = @max(-@as(f32, @floatFromInt(bb.y0)), 0) * k;
-    b.ic = @as(f32, @floatFromInt(c.f.italicCorrection(gid))) * k;
-    b.accent_x = @as(f32, @floatFromInt(c.f.topAccent(gid))) * k;
-    return b;
+    return glyphBoxOn(c, c.f, gid, false);
 }
 
 fn charBox(c: Ctx, cp: u32, v: tree.Font, italic: bool) Box {
@@ -279,13 +339,10 @@ fn shifted(c: Ctx, b: Box, dy: f32) Err!Box {
     try bl.add(0, dy, b);
     var out = bl.finish();
     out.w = b.w;
+    out.h = b.h - dy;
+    out.d = b.d + dy;
     out.ic = b.ic;
-    out.accent_x = b.accent_x;
     return out;
-}
-
-fn centerOnAxis(c: Ctx, b: Box) Err!Box {
-    return shifted(c, b, (b.h - b.d) / 2 - c.axis());
 }
 
 fn rule(w: f32, h: f32) Box {
@@ -296,95 +353,182 @@ fn kern(w: f32) Box {
     return .{ .w = w };
 }
 
-fn variantSize(c: Ctx, advance: u16) f32 {
-    return @as(f32, @floatFromInt(advance)) * c.base / @as(f32, @floatFromInt(c.f.upem));
+fn xHeightUnits(f: *const Font) f32 {
+    const d = f.data;
+    const rd = std.mem.readInt;
+    var face: u32 = 0;
+    const faces: u32 = if (d.len >= 12 and std.mem.eql(u8, d[0..4], "ttcf")) @min(rd(u32, d[8..][0..4], .big), 256) else 1;
+    while (face < faces) : (face += 1) {
+        var dir: usize = 0;
+        if (d.len >= 16 and std.mem.eql(u8, d[0..4], "ttcf")) {
+            const at = 12 + @as(usize, face) * 4;
+            if (at + 4 > d.len) break;
+            dir = rd(u32, d[at..][0..4], .big);
+        }
+        if (dir + 12 > d.len) break;
+        const n = rd(u16, d[dir + 4 ..][0..2], .big);
+        var hmtx_ok = false;
+        var os2: usize = 0;
+        var os2_len: usize = 0;
+        for (0..n) |i| {
+            const rec = dir + 12 + i * 16;
+            if (rec + 16 > d.len) break;
+            const off: usize = rd(u32, d[rec + 8 ..][0..4], .big);
+            if (std.mem.eql(u8, d[rec..][0..4], "hmtx") and off == f.hmtx) hmtx_ok = true;
+            if (std.mem.eql(u8, d[rec..][0..4], "OS/2")) {
+                os2 = off;
+                os2_len = rd(u32, d[rec + 12 ..][0..4], .big);
+            }
+        }
+        if (!hmtx_ok) continue;
+        if (os2 != 0 and os2_len >= 88 and os2 + 88 <= d.len and rd(u16, d[os2..][0..2], .big) >= 2) {
+            const v = rd(i16, d[os2 + 86 ..][0..2], .big);
+            if (v > 0) return @floatFromInt(v);
+        }
+        break;
+    }
+    const gx = f.glyphFor('x');
+    if (gx != 0) {
+        const bb = f.bbox(gx);
+        if (bb.y1 > 0) return @floatFromInt(bb.y1);
+    }
+    return @as(f32, @floatFromInt(f.upem)) / 2;
 }
 
-fn assemble(c: Ctx, asm_: font.math.Assembly, vertical: bool, target: f32) Err!Box {
-    const n = asm_.count;
-    if (n == 0 or n > max_parts) return error.TooComplex;
-    const k = c.base / @as(f32, @floatFromInt(c.f.upem));
-    const o_min = @as(f32, @floatFromInt(c.f.math.?.min_connector_overlap)) * k;
-    var n_ext: usize = 0;
-    var sum_fixed: f32 = 0;
-    var sum_ext: f32 = 0;
-    for (0..n) |i| {
-        const p = asm_.part(i) orelse return error.TooComplex;
+fn exOf(c: Ctx) f32 {
+    return xHeightUnits(c.f) * c.size() / @as(f32, @floatFromInt(c.f.upem));
+}
+
+const Stretched = struct { box: Box, asc: f32, desc: f32 };
+
+fn assemblyValid(a: font.math.Assembly, o_min: f32, k: f32) ?struct { ov_max: f32, ext_count: usize, ext_sum: f32, fixed_count: usize, fixed_sum: f32 } {
+    var ov_max: f32 = std.math.floatMax(f32);
+    var ext_count: usize = 0;
+    var fixed_count: usize = 0;
+    var ext_sum: f32 = 0;
+    var fixed_sum: f32 = 0;
+    for (0..a.count) |i| {
+        const p = a.part(i) orelse return null;
         const adv = @as(f32, @floatFromInt(p.full_advance)) * k;
         if (p.extender) {
-            n_ext += 1;
-            sum_ext += adv;
-        } else sum_fixed += adv;
-    }
-    var reps: usize = 1;
-    if (n_ext > 0 and sum_ext > 0) {
-        reps = 0;
-        while (reps < max_parts) : (reps += 1) {
-            const cnt = n - n_ext + n_ext * reps;
-            if (cnt == 0) continue;
-            const joints: f32 = @floatFromInt(cnt - 1);
-            if (sum_fixed + sum_ext * @as(f32, @floatFromInt(reps)) - joints * o_min >= target) break;
+            ext_count += 1;
+            ext_sum += adv;
+        } else {
+            fixed_count += 1;
+            fixed_sum += adv;
         }
-        if (reps == 0) reps = 1;
+        if (p.extender or i != 0) ov_max = @min(ov_max, @as(f32, @floatFromInt(p.start_connector)) * k);
+        if (p.extender or i + 1 != a.count) ov_max = @min(ov_max, @as(f32, @floatFromInt(p.end_connector)) * k);
     }
-    if (n - n_ext + n_ext * reps > max_parts) return error.TooComplex;
+    if (ext_count == 0 or ov_max < o_min or ext_sum - o_min * @as(f32, @floatFromInt(ext_count)) <= 0) return null;
+    return .{ .ov_max = ov_max, .ext_count = ext_count, .ext_sum = ext_sum, .fixed_count = fixed_count, .fixed_sum = fixed_sum };
+}
+
+fn assemble(c: Ctx, a: font.math.Assembly, vertical: bool, target: f32) Err!?Stretched {
+    const k = c.unit(c.f);
+    const o_min = @as(f32, @floatFromInt(c.f.math.?.min_connector_overlap)) * k;
+    const v = assemblyValid(a, o_min, k) orelse return null;
+    if (a.count > max_parts) return error.TooComplex;
+    const ext_nonoverlap = v.ext_sum - o_min * @as(f32, @floatFromInt(v.ext_count));
+    const need = (target - v.fixed_sum + o_min * (@as(f32, @floatFromInt(v.fixed_count)) - 1)) / ext_nonoverlap;
+    var reps: usize = if (need > 0) @intFromFloat(@ceil(@min(need, 1000))) else 0;
+    reps = @min(reps, (max_parts - v.fixed_count) / v.ext_count);
+    const count = v.fixed_count + reps * v.ext_count;
+    var ov = v.ov_max;
+    if (count > 1) {
+        const theo = (v.fixed_sum + @as(f32, @floatFromInt(reps)) * v.ext_sum - target) / @as(f32, @floatFromInt(count - 1));
+        ov = @max(o_min, @min(ov, theo));
+    }
+    const total = v.fixed_sum + @as(f32, @floatFromInt(reps)) * v.ext_sum - ov * @as(f32, @floatFromInt(count -| 1));
 
     var seq: std.ArrayList(font.math.Part) = .empty;
-    for (0..n) |i| {
-        const p = asm_.part(i) orelse return error.TooComplex;
+    for (0..a.count) |i| {
+        const p = a.part(i) orelse return null;
         for (0..(if (p.extender) reps else 1)) |_| try seq.append(c.a, p);
     }
-    var total: f32 = 0;
-    var o_max: f32 = std.math.floatMax(f32);
-    for (seq.items, 0..) |p, i| {
-        total += @as(f32, @floatFromInt(p.full_advance)) * k;
-        if (i + 1 < seq.items.len) {
-            const lim = @min(p.end_connector, seq.items[i + 1].start_connector);
-            o_max = @min(o_max, @as(f32, @floatFromInt(lim)) * k);
-        }
-    }
-    const joints = seq.items.len -| 1;
-    var ov: f32 = 0;
-    if (joints > 0) ov = std.math.clamp((total - target) / @as(f32, @floatFromInt(joints)), o_min, @max(o_min, o_max));
-
     var bl: Builder = .{ .a = c.a };
-    var cur: f32 = 0;
-    for (seq.items) |p| {
-        const g = glyphBox(c, p.gid);
-        if (vertical) try bl.add(0, -(cur + g.d), g) else try bl.add(cur, 0, g);
-        cur += @as(f32, @floatFromInt(p.full_advance)) * k - ov;
+    var pen: f32 = 0;
+    var asc_max: f32 = 0;
+    var desc_max: f32 = 0;
+    var ink_w: f32 = 0;
+    const n = seq.items.len;
+    for (0..n) |step| {
+        const p = if (vertical) seq.items[n - 1 - step] else seq.items[step];
+        const g = glyphBoxOn(c, c.f, p.gid, false);
+        const adv = @as(f32, @floatFromInt(p.full_advance)) * k;
+        if (vertical) {
+            try bl.add(0, -(total - pen - g.h), g);
+        } else {
+            try bl.add(pen, 0, g);
+        }
+        asc_max = @max(asc_max, g.h);
+        desc_max = @max(desc_max, g.d);
+        ink_w = @max(ink_w, g.w);
+        pen += if (step + 1 == n) adv else adv - ov;
     }
     var out = bl.finish();
     if (vertical) {
-        out.h = cur + ov;
+        out.h = total;
         out.d = 0;
-    } else out.w = cur + ov;
-    return out;
-}
-
-fn stretch(c: Ctx, gid: u16, vertical: bool, target: f32) Err!Box {
-    const vars = if (vertical) c.f.vertVariants(gid) else c.f.horizVariants(gid);
-    var last: u16 = gid;
-    var i: usize = 0;
-    while (vars.get(i)) |v| : (i += 1) {
-        last = v.gid;
-        if (variantSize(c, v.advance) >= target) return glyphBox(c, v.gid);
+        out.w = ink_w;
+        return .{ .box = out, .asc = total, .desc = 0 };
     }
-    if (c.f.assembly(gid, if (vertical) .vert else .horiz)) |a| return assemble(c, a, vertical, target);
-    return glyphBox(c, last);
+    out.w = total;
+    out.h = asc_max;
+    out.d = desc_max;
+    return .{ .box = out, .asc = asc_max, .desc = desc_max };
 }
 
-fn delimBox(c: Ctx, cp: ?u21, target: f32) Err!Box {
+fn stretch(c: Ctx, gid: u16, vertical: bool, target: f32) Err!Stretched {
+    const vars = if (vertical) c.f.vertVariants(gid) else c.f.horizVariants(gid);
+    const k = c.unit(c.f);
+    var cur = gid;
+    var idx: usize = 0;
+    while (true) {
+        const m = c.cache.get(c.f, cur);
+        const extent: i32 = if (vertical) @as(i32, m.y1) - m.y0 else @as(i32, m.x1) - m.x0;
+        if (@as(f32, @floatFromInt(extent)) * k >= target) {
+            const b = glyphBoxOn(c, c.f, cur, true);
+            return .{ .box = b, .asc = b.h, .desc = b.d };
+        }
+        const v = vars.get(idx) orelse break;
+        cur = v.gid;
+        idx += 1;
+    }
+    if (c.f.assembly(gid, if (vertical) .vert else .horiz)) |a| {
+        if (try assemble(c, a, vertical, target)) |s| return s;
+    }
+    const b = glyphBoxOn(c, c.f, cur, true);
+    return .{ .box = b, .asc = b.h, .desc = b.d };
+}
+
+const big_sizes = [_]f32{ 1.2, 1.623, 2.047, 2.470 };
+
+fn fenceBox(c: Ctx, cp: ?u21, t_asc: f32, t_desc: f32, min_override: ?f32, max_override: ?f32) Err!Box {
     const code = cp orelse return .{};
     const gid = c.f.glyphFor(code);
     if (gid == 0) return .{};
-    return centerOnAxis(c, try stretch(c, gid, true, target));
-}
-
-fn horizGlyph(c: Ctx, cp: u21, target: f32) Err!Box {
-    const gid = c.f.glyphFor(cp);
-    if (gid == 0) return .{};
-    return stretch(c, gid, false, target);
+    const axis = c.axis();
+    const half = @max(t_asc - axis, t_desc + axis);
+    var asc = half + axis;
+    var desc = half - axis;
+    const target = asc + desc;
+    const m = c.cache.get(c.f, gid);
+    const unstretched = @as(f32, @floatFromInt(@as(i32, m.y1) - m.y0)) * c.unit(c.f);
+    const min_size = @max(min_override orelse unstretched, 0);
+    const max_size = if (max_override) |mx| @max(mx, min_size) else std.math.floatMax(f32);
+    if (target <= 0) {
+        asc = min_size / 2 + axis;
+        desc = min_size - asc;
+    } else if (target < min_size) {
+        asc = @max(asc - axis, 0) * min_size / target + axis;
+        desc = min_size - asc;
+    } else if (max_size < target) {
+        asc = @max(asc - axis, 0) * max_size / target + axis;
+        desc = max_size - asc;
+    }
+    const st = try stretch(c, gid, true, asc + desc);
+    return shifted(c, st.box, ((st.asc - st.desc) - (asc - desc)) / 2);
 }
 
 fn firstClass(body: []const Node) ?Class {
@@ -452,21 +596,11 @@ fn layRow(c: Ctx, nodes: []const Node) Err!Box {
 }
 
 fn layLargeOp(c: Ctx, a: tree.Atom) Err!Box {
-    var gid = c.f.glyphFor(a.cp);
-    const vars = c.f.vertVariants(gid);
-    if (c.style.display() and vars.count > 0) {
-        const want = variantSize(c, @intCast(@max(c.k.display_operator_min_height, 0)));
-        var i: usize = 0;
-        while (vars.get(i)) |v| : (i += 1) {
-            gid = v.gid;
-            if (variantSize(c, v.advance) >= want) break;
-        }
-    }
-    var b = glyphBox(c, gid);
-    b.is_char = false;
-    var out = try shifted(c, b, (b.h - b.d) / 2 - c.axis());
-    out.ic = b.ic;
-    return out;
+    const gid = c.f.glyphFor(a.cp);
+    if (!c.style.display() or gid == 0) return charBox(c, a.cp, .rm, false);
+    const min_h = c.u(c.k.display_operator_min_height);
+    const st = try stretch(c, gid, true, min_h);
+    return shifted(c, st.box, ((st.asc - st.desc) - 2 * c.axis()) / 2);
 }
 
 fn layOp(c: Ctx, o: anytype) Err!Box {
@@ -474,84 +608,116 @@ fn layOp(c: Ctx, o: anytype) Err!Box {
     return layRow(c, o.body);
 }
 
-fn limits(c: Ctx, base: Box, up: ?Box, low: ?Box) Err!Box {
+const UnderOver = enum { limit, stretch, bar };
+
+fn underOver(c: Ctx, base: Box, over: ?Box, under: ?Box, mode: UnderOver) Err!Box {
     const k = c.k;
     var w = base.w;
-    if (up) |b| w = @max(w, b.w);
-    if (low) |b| w = @max(w, b.w);
-    const delta = base.ic;
+    if (over) |b| w = @max(w, b.w);
+    if (under) |b| w = @max(w, b.w);
     var bl: Builder = .{ .a = c.a };
     try bl.add((w - base.w) / 2, 0, base);
-    if (up) |b| {
-        const rise = @max(c.u(k.upper_limit_baseline_rise_min), base.h + c.u(k.upper_limit_gap_min) + b.d);
-        try bl.add((w - b.w) / 2 + delta / 2, -rise, b);
+    var asc = base.h;
+    var desc = base.d;
+    if (over) |b| {
+        const up = switch (mode) {
+            .limit => base.h + @max(b.d + c.u(k.upper_limit_gap_min), c.u(k.upper_limit_baseline_rise_min)),
+            .stretch => base.h + @max(b.d + c.u(k.stretch_stack_gap_above_min), c.u(k.stretch_stack_top_shift_up)),
+            .bar => base.h + c.u(k.overbar_vertical_gap) + b.d,
+        };
+        try bl.add((w - b.w) / 2, -up, b);
+        asc = up + b.h + (if (mode == .bar) c.u(k.overbar_extra_ascender) else 0);
     }
-    if (low) |b| {
-        const drop = @max(c.u(k.lower_limit_baseline_drop_min), base.d + c.u(k.lower_limit_gap_min) + b.h);
-        try bl.add((w - b.w) / 2 - delta / 2, drop, b);
+    if (under) |b| {
+        const down = switch (mode) {
+            .limit => base.d + @max(b.h + c.u(k.lower_limit_gap_min), c.u(k.lower_limit_baseline_drop_min)),
+            .stretch => base.d + @max(b.h + c.u(k.stretch_stack_gap_below_min), c.u(k.stretch_stack_bottom_shift_down)),
+            .bar => base.d + c.u(k.underbar_vertical_gap) + b.h,
+        };
+        try bl.add((w - b.w) / 2, down, b);
+        desc = down + b.d + (if (mode == .bar) c.u(k.underbar_extra_descender) else 0);
     }
     var out = bl.finish();
     out.w = w;
+    out.h = @max(asc, 0);
+    out.d = @max(desc, 0);
+    return out;
+}
+
+fn scripts(c: Ctx, base: Box, sup: ?Box, sub: ?Box) Err!Box {
+    const k = c.k;
+    const ic = @min(base.w, base.ic);
+    var sub_shift: f32 = 0;
+    var sup_shift: f32 = 0;
+    var asc_m: f32 = 0;
+    var desc_m: f32 = 0;
+    const shift_up = c.u(if (c.style.cramped()) k.superscript_shift_up_cramped else k.superscript_shift_up);
+    if (sub) |s| {
+        sub_shift = @max(c.u(k.subscript_shift_down), base.d + c.u(k.subscript_baseline_drop_min));
+        desc_m = s.d;
+    }
+    if (sup) |s| {
+        sup_shift = @max(shift_up, base.h - c.u(k.superscript_baseline_drop_max));
+        asc_m = s.h;
+    }
+    if (sub != null and sup == null) {
+        sub_shift = @max(sub_shift, sub.?.h - c.u(k.subscript_top_max));
+    } else if (sup != null and sub == null) {
+        sup_shift = @max(sup_shift, c.u(k.superscript_bottom_min) + sup.?.d);
+    } else if (sub != null and sup != null) {
+        const sb = sub.?;
+        const sp = sup.?;
+        var sub_s = @max(c.u(k.subscript_shift_down), base.d + c.u(k.subscript_baseline_drop_min));
+        sub_s = @max(sub_s, sb.h - c.u(k.subscript_top_max));
+        var sup_s = @max(shift_up, base.h - c.u(k.superscript_baseline_drop_max));
+        sup_s = @max(sup_s, c.u(k.superscript_bottom_min) + sp.d);
+        var gap = (sub_s - sb.h) + (sup_s - sp.d);
+        const gap_min = c.u(k.sub_superscript_gap_min);
+        if (gap < gap_min) {
+            var delta = c.u(k.superscript_bottom_max_with_subscript) - (sup_s - sp.d);
+            if (delta > 0) {
+                delta = @min(delta, gap_min - gap);
+                sup_s += delta;
+                gap += delta;
+            }
+            if (gap < gap_min) sub_s += gap_min - gap;
+        }
+        sub_shift = @max(sub_shift, sub_s);
+        sup_shift = @max(sup_shift, sup_s);
+    }
+    var bl: Builder = .{ .a = c.a };
+    try bl.add(0, 0, base);
+    var pair_w: f32 = 0;
+    if (sub) |s| {
+        try bl.add(@max(base.w - ic, 0), sub_shift, s);
+        pair_w = @max(pair_w, s.w);
+    }
+    if (sup) |s| {
+        try bl.add(base.w, -sup_shift, s);
+        pair_w = @max(pair_w, s.w);
+    }
+    var out = bl.finish();
+    out.w = base.w + c.u(k.space_after_script) + pair_w;
+    out.h = @max(@max(base.h, asc_m + sup_shift), 0);
+    out.d = @max(@max(base.d, desc_m + sub_shift), 0);
     return out;
 }
 
 fn laySupsub(c: Ctx, n: anytype) Err!Box {
     const x = try layNode(c, n.base);
-    const sup_style = c.style.sup();
-    const sub_style = c.style.sub();
-    const sup: ?Box = if (n.sup) |s| try layRow(c.with(sup_style), s) else null;
-    const sub: ?Box = if (n.sub) |s| try layRow(c.with(sub_style), s) else null;
+    const sup: ?Box = if (n.sup) |s| try layRow(c.with(c.style.sup()), s) else null;
+    const sub: ?Box = if (n.sub) |s| try layRow(c.with(c.style.sub()), s) else null;
     const on_limits = switch (n.limits) {
         .above => true,
         .display => c.style.display(),
         .side => false,
     };
-    if (on_limits) return limits(c, x, sup, sub);
-    const k = c.k;
-    var u: f32 = 0;
-    var v: f32 = 0;
-    if (!x.is_char) {
-        if (sup != null) u = x.h - c.with(sup_style).u(k.superscript_baseline_drop_max);
-        if (sub != null) v = x.d + c.with(sub_style).u(k.subscript_baseline_drop_min);
-    }
-    const after = c.u(k.space_after_script);
-    var bl: Builder = .{ .a = c.a };
-    try bl.add(0, 0, x);
-    var w = x.w;
-    const delta = x.ic;
-    const shift_up = c.u(if (c.style.cramped()) k.superscript_shift_up_cramped else k.superscript_shift_up);
-    if (sup != null and sub == null) {
-        const s = sup.?;
-        u = @max(u, @max(shift_up, s.d + c.u(k.superscript_bottom_min)));
-        try bl.add(x.w + delta, -u, s);
-        w = x.w + delta + s.w + after;
-    } else if (sub != null and sup == null) {
-        const s = sub.?;
-        v = @max(v, @max(c.u(k.subscript_shift_down), s.h - c.u(k.subscript_top_max)));
-        try bl.add(x.w, v, s);
-        w = x.w + s.w + after;
-    } else if (sub != null and sup != null) {
-        const sp = sup.?;
-        const sb = sub.?;
-        u = @max(u, @max(shift_up, sp.d + c.u(k.superscript_bottom_min)));
-        v = @max(v, c.u(k.subscript_shift_down));
-        const gap = (u - sp.d) - (sb.h - v);
-        const gap_min = c.u(k.sub_superscript_gap_min);
-        if (gap < gap_min) {
-            v += gap_min - gap;
-            const psi = c.u(k.superscript_bottom_max_with_subscript) - (u - sp.d);
-            if (psi > 0) {
-                u += psi;
-                v -= psi;
-            }
-        }
-        try bl.add(x.w + delta, -u, sp);
-        try bl.add(x.w, v, sb);
-        w = x.w + @max(delta + sp.w, sb.w) + after;
-    }
-    var out = bl.finish();
-    out.w = w;
-    return out;
+    if (!on_limits) return scripts(c, x, sup, sub);
+    const large = switch (n.base.*) {
+        .op => |o| o.large,
+        else => false,
+    };
+    return underOver(c, x, sup, sub, if (large) .limit else .bar);
 }
 
 fn layFrac(c0: Ctx, f: tree.Frac) Err!Box {
@@ -562,99 +728,103 @@ fn layFrac(c0: Ctx, f: tree.Frac) Err!Box {
     const disp = c.style.display();
     const a = c.axis();
     const th: f32 = if (f.thickness) |r| r * c.size() else c.u(k.fraction_rule_thickness);
-    var u: f32 = c.u(if (th > 0)
-        (if (disp) k.fraction_numerator_display_style_shift_up else k.fraction_numerator_shift_up)
-    else
-        (if (disp) k.stack_top_display_style_shift_up else k.stack_top_shift_up));
-    var v: f32 = c.u(if (th > 0)
-        (if (disp) k.fraction_denominator_display_style_shift_down else k.fraction_denominator_shift_down)
-    else
-        (if (disp) k.stack_bottom_display_style_shift_down else k.stack_bottom_shift_down));
+    var u: f32 = 0;
+    var v: f32 = 0;
     if (th > 0) {
         const gn = c.u(if (disp) k.fraction_num_display_style_gap_min else k.fraction_numerator_gap_min);
         const gd = c.u(if (disp) k.fraction_denom_display_style_gap_min else k.fraction_denominator_gap_min);
-        u = @max(u, gn + a + th / 2 + num.d);
-        v = @max(v, gd + den.h - (a - th / 2));
+        u = @max(c.u(if (disp) k.fraction_numerator_display_style_shift_up else k.fraction_numerator_shift_up), a + th / 2 + gn + num.d);
+        v = @max(c.u(if (disp) k.fraction_denominator_display_style_shift_down else k.fraction_denominator_shift_down), th / 2 + gd + den.h - a);
     } else {
+        u = c.u(if (disp) k.stack_top_display_style_shift_up else k.stack_top_shift_up);
+        v = c.u(if (disp) k.stack_bottom_display_style_shift_down else k.stack_bottom_shift_down);
         const gmin = c.u(if (disp) k.stack_display_style_gap_min else k.stack_gap_min);
-        const gap = (u - num.d) - (den.h - v);
+        const gap = v - den.h + u - num.d;
         if (gap < gmin) {
-            const psi = (gmin - gap) / 2;
-            u += psi;
-            v += psi;
+            const diff = gmin - gap;
+            const delta = diff / 2;
+            u += delta;
+            v += diff - delta;
         }
     }
     const w = @max(num.w, den.w);
     var bl: Builder = .{ .a = c.a };
-    try bl.add((w - num.w) / 2, -u, num);
-    try bl.add((w - den.w) / 2, v, den);
-    if (th > 0) try bl.add(0, -(a - th / 2), rule(w, th));
+    try bl.add(1 + (w - num.w) / 2, -u, num);
+    try bl.add(1 + (w - den.w) / 2, v, den);
+    if (th > 0) try bl.add(1, -(a - th / 2), rule(w, th));
     var out = bl.finish();
-    out.w = w;
+    out.w = w + 2;
+    out.h = @max(@max(u + num.h, -v + den.h), 0);
+    out.d = @max(@max(-u + num.d, v + den.d), 0);
     if (f.open == null and f.close == null) return out;
     return fenceParts(c, f.open, f.close, &.{out}, &.{});
 }
 
 fn laySqrt(c: Ctx, n: anytype) Err!Box {
     const k = c.k;
-    const body = try layRow(c.with(c.style.cramp()), n.body);
+    const base = try layRow(c.with(c.style.cramp()), n.body);
     const gap = c.u(if (c.style.display()) k.radical_display_style_vertical_gap else k.radical_vertical_gap);
     const th = c.u(k.radical_rule_thickness);
-    const need = body.h + body.d + gap + th;
+    const extra = c.u(k.radical_extra_ascender);
     const gid = c.f.glyphFor(0x221A);
-    const rad = if (gid == 0) Box{} else try stretch(c, gid, true, need);
-    const hh = rad.h + rad.d;
-    var clr = gap;
-    if (hh > need) clr += (hh - need) / 2;
-    const top = body.h + clr + th;
-    const rad_up = top - rad.h;
-
-    var bl: Builder = .{ .a = c.a };
-    var x0: f32 = 0;
+    var surd: Stretched = .{ .box = .{}, .asc = 0, .desc = 0 };
+    if (gid != 0) surd = try stretch(c, gid, true, base.h + base.d + gap + th);
+    const surd_size = surd.asc + surd.desc;
+    var idx: ?Box = null;
+    var before: f32 = 0;
+    var after: f32 = 0;
     if (n.index) |ix| {
-        const deg = try layRow(c.with(.ss), ix);
-        const before = @max(c.u(k.radical_kern_before_degree), 0);
-        const after = c.u(k.radical_kern_after_degree);
-        const bottom = rad_up - rad.d;
-        const deg_up = bottom + @as(f32, @floatFromInt(k.radical_degree_bottom_raise_percent)) / 100 * hh + deg.d;
-        x0 = @max(before + deg.w + after, 0);
-        try bl.add(before, -deg_up, deg);
+        const b = try layRow(c.with(.ss), ix);
+        idx = b;
+        before = @max(c.u(k.radical_kern_before_degree), 0);
+        after = @max(c.u(k.radical_kern_after_degree), -b.w);
     }
-    try bl.add(x0, -rad_up, rad);
-    try bl.add(x0 + rad.w, 0, body);
-    try bl.add(x0 + rad.w, -(top - th), rule(body.w, th));
+    const idx_w = if (idx) |b| b.w else 0;
+    const raise = @as(f32, @floatFromInt(k.radical_degree_bottom_raise_percent)) / 100 * surd_size;
+    var asc = base.h + gap + th + extra;
+    var desc = @max(base.d, surd_size + extra - asc);
+    if (idx) |b| {
+        const new_asc = @max(asc, -desc + raise + b.d + b.h);
+        const new_desc = @max(desc, desc - raise + b.d + b.h);
+        asc = new_asc;
+        desc = new_desc;
+    }
+    const x_surd = idx_w + before + after;
+    var bl: Builder = .{ .a = c.a };
+    if (idx) |b| try bl.add(before, -(-desc + raise + b.d), b);
+    if (gid != 0) try bl.add(x_surd, -(gap + base.h - surd.asc), surd.box);
+    const x_base = x_surd + surd.box.w;
+    try bl.add(x_base, 0, base);
+    if (th > 0) try bl.add(x_base, -(base.h + gap - th / 2), rule(base.w, th));
     var out = bl.finish();
-    out.h = @max(out.h, top + c.u(k.radical_extra_ascender));
-    out.d = @max(body.d, rad.d - rad_up);
-    out.w = x0 + rad.w + body.w;
+    out.w = x_base + base.w;
+    out.h = asc;
+    out.d = desc;
     return out;
 }
 
 fn fenceParts(c: Ctx, open: ?u21, close: ?u21, parts: []const Box, seps: []const ?u21) Err!Box {
-    var hh: f32 = 0;
-    var dd: f32 = 0;
+    var t_asc: f32 = 0;
+    var t_desc: f32 = 0;
     for (parts) |p| {
-        hh = @max(hh, p.h);
-        dd = @max(dd, p.d);
+        t_asc = @max(t_asc, p.h);
+        t_desc = @max(t_desc, p.d);
     }
-    const a = c.axis();
-    const delta = @max(hh - a, dd + a);
-    const target = @max(delta * 2 * 0.901, delta * 2 - 0.5 * c.base);
     var bl: Builder = .{ .a = c.a };
     var x: f32 = 0;
-    const l = try delimBox(c, open, target);
+    const l = try fenceBox(c, open, t_asc, t_desc, null, null);
     try bl.add(x, 0, l);
     x += l.w;
     for (parts, 0..) |p, i| {
         try bl.add(x, 0, p);
         x += p.w;
         if (i < seps.len) {
-            const m = try delimBox(c, seps[i], target);
+            const m = try fenceBox(c, seps[i], t_asc, t_desc, null, null);
             try bl.add(x, 0, m);
             x += m.w;
         }
     }
-    const r = try delimBox(c, close, target);
+    const r = try fenceBox(c, close, t_asc, t_desc, null, null);
     try bl.add(x, 0, r);
     var out = bl.finish();
     out.w = x + r.w;
@@ -676,85 +846,81 @@ fn layFenced(c: Ctx, n: anytype) Err!Box {
     return fenceParts(c, n.open, n.close, parts.items, seps.items);
 }
 
+fn scriptGlyph(c: Ctx, cp: u21, wide: bool, target: f32, over: bool) Err!?Box {
+    const gid = c.f.glyphFor(cp);
+    if (gid == 0) return null;
+    const cs = c.with(if (over) c.style.sup() else c.style.sub());
+    if (wide) return (try stretch(cs, gid, false, target)).box;
+    return glyphBoxOn(cs, c.f, gid, false);
+}
+
 fn layAccent(c: Ctx, n: anytype) Err!Box {
-    const k = c.k;
-    const base = try layRow(c.with(c.style.cramp()), n.base);
-    const gid = c.f.glyphFor(n.cp);
-    const acc = if (n.wide) try stretch(c, gid, false, base.w) else glyphBox(c, gid);
-    const skew = (base.accent_x orelse base.w / 2) - (acc.accent_x orelse acc.w / 2);
-    const delta = @min(base.h, c.u(k.accent_base_height));
-    var bl: Builder = .{ .a = c.a };
-    try bl.add(0, 0, base);
-    try bl.add(skew, -(base.h - delta), acc);
-    var out = bl.finish();
-    out.w = base.w;
-    out.accent_x = base.accent_x;
-    return out;
+    const base = try layRow(c, n.base);
+    const over = try scriptGlyph(c, n.cp, n.wide, base.w, true);
+    return underOver(c, base, over, null, .bar);
 }
 
 fn layLine(c: Ctx, n: anytype) Err!Box {
-    const k = c.k;
-    var bl: Builder = .{ .a = c.a };
-    if (n.over) {
-        const body = try layRow(c.with(c.style.cramp()), n.body);
-        const th = c.u(k.overbar_rule_thickness);
-        const gap = c.u(k.overbar_vertical_gap);
-        try bl.add(0, 0, body);
-        try bl.add(0, -(body.h + gap), rule(body.w, th));
-        var out = bl.finish();
-        out.w = body.w;
-        out.h = body.h + gap + th + c.u(k.overbar_extra_ascender);
-        return out;
-    }
-    const body = try layRow(c, n.body);
-    const th = c.u(k.underbar_rule_thickness);
-    const gap = c.u(k.underbar_vertical_gap);
-    try bl.add(0, 0, body);
-    try bl.add(0, body.d + gap + th, rule(body.w, th));
-    var out = bl.finish();
-    out.w = body.w;
-    out.d = body.d + gap + th + c.u(k.underbar_extra_descender);
-    return out;
+    const base = try layRow(c, n.body);
+    const g = try scriptGlyph(c, 0x2015, true, base.w, n.over) orelse rule(base.w, c.u(if (n.over) c.k.overbar_rule_thickness else c.k.underbar_rule_thickness));
+    return if (n.over) underOver(c, base, g, null, .bar) else underOver(c, base, null, g, .bar);
 }
 
 fn layStack(c: Ctx, s: anytype) Err!Box {
     var box = try layRow(c, s.base);
     if (s.over_cp != 0 or s.under_cp != 0) {
-        const up: ?Box = if (s.over_cp != 0) try horizGlyph(c, s.over_cp, box.w) else null;
-        const low: ?Box = if (s.under_cp != 0) try horizGlyph(c, s.under_cp, box.w) else null;
-        box = try limits(c, box, up, low);
+        const up: ?Box = if (s.over_cp != 0) try scriptGlyph(c, s.over_cp, true, box.w, true) else null;
+        const low: ?Box = if (s.under_cp != 0) try scriptGlyph(c, s.under_cp, true, box.w, false) else null;
+        box = try underOver(c, box, up, low, .bar);
     }
     if (s.over != null or s.under != null) {
         const up: ?Box = if (s.over) |o| try layRow(c.with(c.style.sup()), o) else null;
         const low: ?Box = if (s.under) |o| try layRow(c.with(c.style.sub()), o) else null;
-        box = try limits(c, box, up, low);
+        box = try underOver(c, box, up, low, .bar);
     }
     return box;
 }
 
-fn layXArrow(c: Ctx, x: anytype) Err!Box {
-    const up = try layRow(c.with(c.style.sup()), x.over);
-    const low: ?Box = if (x.under) |o| try layRow(c.with(c.style.sub()), o) else null;
-    var lw = up.w;
-    if (low) |b| lw = @max(lw, b.w);
-    const arrow = try centerOnAxis(c, try horizGlyph(c, x.cp, @max(lw + 1.2 * c.size(), 2.0 * c.size())));
-    return limits(c, arrow, up, low);
+fn padLabel(c: Ctx, label: Box, shift_down: bool) Err!Box {
+    const e = c.size();
+    var bl: Builder = .{ .a = c.a };
+    try bl.add(0.278 * e, if (shift_down) 0.2 * e else 0, label);
+    var out = bl.finish();
+    out.w = label.w + 0.833 * e;
+    out.h = if (shift_down) label.h - 0.2 * e else label.h;
+    out.d = @max(label.d, 0.25 * e);
+    return out;
 }
 
-fn layText(c: Ctx, str: []const u8, color: ?u32) Err!Box {
-    const px = c.size();
-    const s = px / @as(f32, @floatFromInt(c.tf.upem));
+fn layXArrow(c: Ctx, x: anytype) Err!Box {
+    const cs = c.with(c.style.sup());
+    const up = try padLabel(cs, try layRow(cs, x.over), true);
+    const low: ?Box = if (x.under) |o| try padLabel(c.with(c.style.sub()), try layRow(c.with(c.style.sub()), o), false) else null;
+    var lw = up.w;
+    if (low) |b| lw = @max(lw, b.w);
+    const gid = c.f.glyphFor(x.cp);
+    const arrow: Box = if (gid == 0) .{} else (try stretch(c, gid, false, lw)).box;
+    return underOver(c, arrow, up, low, .stretch);
+}
+
+fn textFace(c: Ctx, v: tree.Font) *const Font {
+    const bold = v == .bf or v == .bfit or v == .bsym or v == .sfbf or v == .sfbfit;
+    const italic = v == .it or v == .bfit or v == .bsym or v == .sfit or v == .sfbfit;
+    const pick = if (bold) (if (italic) c.text.bold_italic else c.text.bold) else (if (italic) c.text.italic else c.text.regular);
+    return pick orelse font.bundled(bold, italic);
+}
+
+fn layText(c: Ctx, str: []const u8, v: tree.Font, color: ?u32) Err!Box {
+    const face = textFace(c, v);
     var bl: Builder = .{ .a = c.a };
     var x: f32 = 0;
     var prev: u16 = 0;
+    const s = c.unit(face);
     var it = (std.unicode.Utf8View.init(str) catch return .{}).iterator();
     while (it.nextCodepoint()) |cp| {
-        const gid = c.tf.glyphFor(cp);
-        x += @as(f32, @floatCast(c.tf.kern(prev, gid))) * s;
-        var b: Box = .{ .w = @as(f32, @floatCast(c.tf.advance(gid))) * s, .kind = .{ .glyph = .{ .gid = gid, .px = px, .face = c.tf } } };
-        const bb = c.tf.bbox(gid);
-        b.h = @max(@as(f32, @floatFromInt(bb.y1)), 0) * s;
-        b.d = @max(-@as(f32, @floatFromInt(bb.y0)), 0) * s;
+        const gid = face.glyphFor(cp);
+        x += @as(f32, @floatCast(face.kern(prev, gid))) * s;
+        const b = glyphBoxOn(c, face, gid, false);
         try bl.add(x, 0, b);
         x += b.w;
         prev = gid;
@@ -784,39 +950,59 @@ fn layNumber(c: Ctx, str: []const u8) Err!Box {
 fn colorBox(c: Ctx, b: Box, rgb: u32) Err!Box {
     const child = try c.a.create(Box);
     child.* = b;
-    return .{ .w = b.w, .h = b.h, .d = b.d, .ic = b.ic, .accent_x = b.accent_x, .kind = .{ .color = .{ .rgb = rgb, .child = child } } };
+    return .{ .w = b.w, .h = b.h, .d = b.d, .ic = b.ic, .kind = .{ .color = .{ .rgb = rgb, .child = child } } };
 }
 
-const named_colors = [_]struct { name: []const u8, rgb: u32 }{
-    .{ .name = "black", .rgb = 0x000000 },
-    .{ .name = "white", .rgb = 0xFFFFFF },
-    .{ .name = "red", .rgb = 0xFF0000 },
-    .{ .name = "green", .rgb = 0x00FF00 },
-    .{ .name = "blue", .rgb = 0x0000FF },
-    .{ .name = "cyan", .rgb = 0x00FFFF },
-    .{ .name = "magenta", .rgb = 0xFF00FF },
-    .{ .name = "yellow", .rgb = 0xFFFF00 },
-    .{ .name = "gray", .rgb = 0x808080 },
-    .{ .name = "orange", .rgb = 0xFFA500 },
-    .{ .name = "purple", .rgb = 0x800080 },
-    .{ .name = "brown", .rgb = 0xA52A2A },
-    .{ .name = "pink", .rgb = 0xFFC0CB },
+const Primer = struct { name: []const u8, dark: u32, light: u32 };
+
+const primer = [_]Primer{
+    .{ .name = "red", .dark = 0xF27D83, .light = 0xC50D28 },
+    .{ .name = "blue", .dark = 0x4DA0FF, .light = 0x005FCC },
+    .{ .name = "green", .dark = 0x41B445, .light = 0x2B6E3F },
+    .{ .name = "orange", .dark = 0xED8326, .light = 0xA24610 },
+    .{ .name = "yellow", .dark = 0xD3910D, .light = 0x805900 },
+    .{ .name = "purple", .dark = 0xB687F7, .light = 0x783AE4 },
+    .{ .name = "gray", .dark = 0x92A1B5, .light = 0x5C6570 },
 };
 
-fn rgbOf(col: tree.Color) u32 {
-    if (col.rgb) |v| return v;
-    for (named_colors) |n| if (std.ascii.eqlIgnoreCase(n.name, col.name)) return n.rgb;
-    return 0x000000;
-}
+const css_colors = [_]struct { name: []const u8, rgb: u32 }{
+    .{ .name = "black", .rgb = 0x000000 },
+    .{ .name = "white", .rgb = 0xFFFFFF },
+    .{ .name = "cyan", .rgb = 0x00FFFF },
+    .{ .name = "magenta", .rgb = 0xFF00FF },
+    .{ .name = "pink", .rgb = 0xFFC0CB },
+    .{ .name = "brown", .rgb = 0xA52A2A },
+    .{ .name = "lime", .rgb = 0x00FF00 },
+    .{ .name = "teal", .rgb = 0x008080 },
+    .{ .name = "navy", .rgb = 0x000080 },
+    .{ .name = "maroon", .rgb = 0x800000 },
+    .{ .name = "olive", .rgb = 0x808000 },
+    .{ .name = "silver", .rgb = 0xC0C0C0 },
+    .{ .name = "aqua", .rgb = 0x00FFFF },
+    .{ .name = "fuchsia", .rgb = 0xFF00FF },
+    .{ .name = "gold", .rgb = 0xFFD700 },
+    .{ .name = "violet", .rgb = 0xEE82EE },
+    .{ .name = "indigo", .rgb = 0x4B0082 },
+    .{ .name = "crimson", .rgb = 0xDC143C },
+    .{ .name = "salmon", .rgb = 0xFA8072 },
+    .{ .name = "tomato", .rgb = 0xFF6347 },
+    .{ .name = "coral", .rgb = 0xFF7F50 },
+    .{ .name = "turquoise", .rgb = 0x40E0D0 },
+    .{ .name = "lightgray", .rgb = 0xD3D3D3 },
+    .{ .name = "darkgray", .rgb = 0xA9A9A9 },
+    .{ .name = "grey", .rgb = 0x808080 },
+};
 
-fn rulesAt(a: tree.Array, ci: usize, n: usize) u8 {
-    if (ci == n) return a.trailing_rules;
-    return if (ci < a.cols.len) a.cols[ci].rules_before else 0;
+fn rgbOf(c: Ctx, col: tree.Color) u32 {
+    if (col.rgb) |v| return v;
+    for (primer) |p| if (std.mem.eql(u8, p.name, col.name)) return if (c.dark) p.dark else p.light;
+    for (css_colors) |n| if (std.ascii.eqlIgnoreCase(n.name, col.name)) return n.rgb;
+    return if (c.dark) 0xFFFFFF else 0x000000;
 }
 
 fn layArray(c: Ctx, arr: tree.Array) Err!Box {
     const nrows = arr.rows.len;
-    var ncols = arr.cols.len;
+    var ncols: usize = 0;
     var cells: usize = 0;
     for (arr.rows) |r| {
         ncols = @max(ncols, r.cells.len);
@@ -824,98 +1010,65 @@ fn layArray(c: Ctx, arr: tree.Array) Err!Box {
     }
     if (cells > max_cells) return error.TooComplex;
     if (nrows == 0 or ncols == 0) return .{};
-    const cs = c.with(styleFromCmd(arr.cell_style, false));
-    const em = cs.size();
+    const cell_style: tree.Style = if (arr.kind == .smallmatrix) .text else arr.cell_style;
+    const cs = c.with(styleFromCmd(cell_style, false));
+    const pad_v = exOf(cs) / 2;
+    const pad_h = 0.4 * cs.size();
     const boxes = try c.a.alloc(Box, nrows * ncols);
     @memset(boxes, .{});
     const col_w = try c.a.alloc(f32, ncols);
     @memset(col_w, 0);
-    const row_h = try c.a.alloc(f32, nrows);
-    const row_d = try c.a.alloc(f32, nrows);
+    const row_asc = try c.a.alloc(f32, nrows);
+    const row_desc = try c.a.alloc(f32, nrows);
     for (arr.rows, 0..) |r, ri| {
-        row_h[ri] = 0.86 * em;
-        row_d[ri] = 0.3 * em;
+        row_asc[ri] = 0;
+        row_desc[ri] = 0;
         for (r.cells, 0..) |cell, ci| {
             const b = try layRow(cs, cell);
             boxes[ri * ncols + ci] = b;
             col_w[ci] = @max(col_w[ci], b.w);
-            row_h[ri] = @max(row_h[ri], b.h);
-            row_d[ri] = @max(row_d[ri], b.d);
+            row_asc[ri] = @max(row_asc[ri], b.h);
+            row_desc[ri] = @max(row_desc[ri], b.d);
         }
     }
-    const rule_w = 0.04 * em;
-    const left_pad: f32 = if (rulesAt(arr, 0, ncols) > 0) rule_w + 0.1 * em else 0;
-    const right_pad: f32 = if (arr.trailing_rules > 0) rule_w + 0.1 * em else 0;
     const col_x = try c.a.alloc(f32, ncols);
-    var x: f32 = left_pad;
+    var x: f32 = 0;
     for (0..ncols) |ci| {
         col_x[ci] = x;
-        x += col_w[ci];
-        if (ci + 1 < ncols) x += arr.col_gap[ci % 2] * em;
+        x += col_w[ci] + 2 * pad_h;
     }
-    const total_w = x + right_pad;
-
-    const row_y = try c.a.alloc(f32, nrows);
-    const hl_y = try c.a.alloc(f32, nrows + 1);
-    const hl_n = try c.a.alloc(u8, nrows + 1);
-    @memset(hl_n, 0);
+    const row_base = try c.a.alloc(f32, nrows);
     var y: f32 = 0;
     for (0..nrows) |ri| {
-        const nh = arr.rows[ri].hlines_before;
-        hl_n[ri] = nh;
-        hl_y[ri] = y;
-        y += rule_w * @as(f32, @floatFromInt(nh));
-        y += row_h[ri];
-        row_y[ri] = y;
-        y += row_d[ri];
-        if (ri + 1 < nrows) y += (arr.row_gap + arr.rows[ri].gap_after) * em;
+        row_base[ri] = y + pad_v + row_asc[ri];
+        y += 2 * pad_v + row_asc[ri] + row_desc[ri];
     }
-    hl_n[nrows] = arr.trailing_hlines;
-    hl_y[nrows] = y;
-    y += rule_w * @as(f32, @floatFromInt(arr.trailing_hlines));
-    const total_h = y;
-    const top_above = total_h / 2 + c.axis();
+    const top_above = y / 2 + c.axis();
 
     var bl: Builder = .{ .a = c.a };
     for (0..nrows) |ri| {
         for (0..ncols) |ci| {
             const b = boxes[ri * ncols + ci];
-            const al: tree.Align = if (ci < arr.cols.len) arr.cols[ci].align_ else arr.col_align[ci % 2];
-            const dx: f32 = switch (al) {
-                .l => 0,
-                .c => (col_w[ci] - b.w) / 2,
-                .r => col_w[ci] - b.w,
-            };
-            try bl.add(col_x[ci] + dx, row_y[ri] - top_above, b);
+            try bl.add(col_x[ci] + pad_h + (col_w[ci] - b.w) / 2, row_base[ri] - top_above, b);
         }
-    }
-    for (0..nrows + 1) |i| {
-        var t: u8 = 0;
-        while (t < hl_n[i]) : (t += 1) {
-            try bl.add(0, hl_y[i] + @as(f32, @floatFromInt(t + 1)) * rule_w - top_above, rule(total_w, rule_w));
-        }
-    }
-    for (0..ncols + 1) |ci| {
-        if (rulesAt(arr, ci, ncols) == 0) continue;
-        const vx = if (ci == 0) 0 else if (ci == ncols) total_w - rule_w else col_x[ci] - arr.col_gap[(ci - 1) % 2] * em / 2 - rule_w / 2;
-        try bl.add(vx, total_h - top_above, rule(rule_w, total_h));
     }
     var out = bl.finish();
-    out.w = total_w;
+    out.w = x;
     out.h = top_above;
-    out.d = total_h - top_above;
+    out.d = y - top_above;
     if (arr.open == null and arr.close == null) return out;
     return fenceParts(c, arr.open, arr.close, &.{out}, &.{});
 }
 
 fn layEnclose(c: Ctx, e: anytype) Err!Box {
     const body = try layRow(c, e.body);
+    if (e.border and e.bg == null and e.border_color == null) return body;
     const pad = 0.3 * c.size();
     const t: f32 = if (e.border) 0.04 * c.size() else 0;
     const o = pad + t;
     const w = body.w + 2 * o;
     var bl: Builder = .{ .a = c.a };
-    if (e.bg) |bg| try bl.add(0, body.d + o, try colorBox(c, rule(w, body.h + body.d + 2 * o), rgbOf(bg)));
+    if (e.bg) |bg| try bl.add(0, body.d + o, try colorBox(c, rule(w, body.h + body.d + 2 * o), rgbOf(c, bg)));
     try bl.add(o, 0, body);
     if (e.border) {
         var fr: Builder = .{ .a = c.a };
@@ -924,7 +1077,7 @@ fn layEnclose(c: Ctx, e: anytype) Err!Box {
         try fr.add(0, body.d + o, rule(t, body.h + body.d + 2 * o));
         try fr.add(w - t, body.d + o, rule(t, body.h + body.d + 2 * o));
         var frame = fr.finish();
-        if (e.border_color) |bc| frame = try colorBox(c, frame, rgbOf(bc));
+        if (e.border_color) |bc| frame = try colorBox(c, frame, rgbOf(c, bc));
         try bl.add(0, 0, frame);
     }
     var out = bl.finish();
@@ -939,9 +1092,8 @@ fn layNegate(c: Ctx, inner: *const Node) Err!Box {
     var gid = c.f.glyphFor(0x338);
     if (gid == 0) gid = c.f.glyphFor('/');
     const g = glyphBox(c, gid);
-    const bb = c.f.bbox(gid);
-    const kk = c.size() / @as(f32, @floatFromInt(c.f.upem));
-    const cx = @as(f32, @floatFromInt(@as(i32, bb.x0) + bb.x1)) / 2 * kk;
+    const m = c.cache.get(c.f, gid);
+    const cx = @as(f32, @floatFromInt(@as(i32, m.x0) + m.x1)) / 2 * c.unit(c.f);
     var bl: Builder = .{ .a = c.a };
     try bl.add(0, 0, body);
     try bl.add(body.w / 2 - cx, 0, g);
@@ -982,14 +1134,14 @@ fn layNode(c: Ctx, n: *const Node) Err!Box {
         .fenced => |f| return layFenced(c, f),
         .middle => return .{},
         .big => |b| {
-            const sizes = [_]f32{ 1.2, 1.8, 2.4, 3.0 };
-            return delimBox(c, b.cp, sizes[@min(@max(b.size, 1), 4) - 1] * c.base);
+            const sz = big_sizes[@min(@max(b.size, 1), 4) - 1] * c.size();
+            return fenceBox(c, b.cp, 0, 0, sz, sz);
         },
         .accent => |a| return layAccent(c, a),
         .line => |l| return layLine(c, l),
         .stack => |s| return layStack(c, s),
         .xarrow => |x| return layXArrow(c, x),
-        .text => |t| return layText(c, t.str, null),
+        .text => |t| return layText(c, t.str, t.font, null),
         .font => |f| {
             var cc = c;
             cc.face = f.font;
@@ -1001,7 +1153,7 @@ fn layNode(c: Ctx, n: *const Node) Err!Box {
             return layRow(cc, s.body);
         },
         .style => |s| return layRow(c.with(styleFromCmd(s.style, c.style.cramped())), s.body),
-        .color => |x| return colorBox(c, try layRow(c, x.body), rgbOf(x.color)),
+        .color => |x| return colorBox(c, try layRow(c, x.body), rgbOf(c, x.color)),
         .space => |s| return kern(s.width * (if (s.reset_script) c.base else c.size())),
         .phantom => |p| {
             const b = try layRow(c, p.body);
@@ -1027,26 +1179,29 @@ fn layNode(c: Ctx, n: *const Node) Err!Box {
         },
         .negate => |b| return layNegate(c, b),
         .array => |a| return layArray(c, a),
-        .undefined_cs => |s| return layText(c.with(.t), s, error_rgb),
-        .parse_error => |s| return layText(c.with(.t), s, error_rgb),
+        .undefined_cs => |s| return layText(c.with(.t), s, .rm, error_rgb),
+        .parse_error => |s| return layText(c.with(.t), s, .rm, error_rgb),
     }
 }
 
 pub fn layoutNodes(alloc: Allocator, nodes: []const Node, f: *const Font, opts: Options) Error!Box {
     const math = if (f.math) |*m| m else return error.NoMathTable;
     var budget: Budget = .{};
+    var local = GlyphCache.init(alloc);
     const c: Ctx = .{
         .a = alloc,
         .f = f,
-        .tf = opts.text_font orelse font.bundled(false, false),
+        .text = opts.text_fonts,
+        .cache = opts.cache orelse &local,
         .k = &math.constants,
         .base = opts.size,
         .style = if (opts.display) .d else .t,
+        .dark = opts.dark,
         .budget = &budget,
     };
     return layRow(c, nodes) catch |e| switch (e) {
         error.OutOfMemory => error.OutOfMemory,
-        error.TooComplex => layText(c.with(.t), "Math too complex", error_rgb) catch error.OutOfMemory,
+        error.TooComplex => layText(c.with(.t), "Math too complex", .rm, error_rgb) catch error.OutOfMemory,
     };
 }
 
@@ -1077,15 +1232,15 @@ fn openTestFont(a: Allocator) !Font {
     return Font.init(try testfont.build(a), 0);
 }
 
-test "superscript uses SuperscriptShiftUp and the italic correction" {
+test "superscript shift is the largest bound, placed at the end of the base" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const f = try openTestFont(arena.allocator());
     const b = try run(arena.allocator(), &f, .{ .supsub = .{ .base = &nx, .sup = &two_row, .sub = null, .limits = .side } }, false);
     const items = b.kind.group;
     try near(-360, items[1].y);
-    try near(600, items[1].x);
-    try near(1004, b.w);
+    try near(500, items[1].x);
+    try near(904, b.w);
     try near(850, b.h);
     try near(0, b.d);
 }
@@ -1096,23 +1251,24 @@ test "subscript shift is the largest of the three bounds" {
     const f = try openTestFont(arena.allocator());
     const b = try run(arena.allocator(), &f, .{ .supsub = .{ .base = &nx, .sup = null, .sub = &two_row, .limits = .side } }, false);
     try near(150, b.kind.group[1].y);
+    try near(500, b.kind.group[1].x);
     try near(904, b.w);
     try near(150, b.d);
 }
 
-test "both scripts apply the gap rule and the bottom-max rule" {
+test "both scripts: push the superscript up first, then the subscript down" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const f = try openTestFont(arena.allocator());
     const b = try run(arena.allocator(), &f, .{ .supsub = .{ .base = &nx, .sup = &two_row, .sub = &two_row, .limits = .side } }, false);
-    try near(-400, b.kind.group[1].y);
-    try near(250, b.kind.group[2].y);
+    try near(250, b.kind.group[1].y);
+    try near(-400, b.kind.group[2].y);
     try near(890, b.h);
     try near(250, b.d);
-    try near(1004, b.w);
+    try near(904, b.w);
 }
 
-test "fraction shifts in text and display style" {
+test "fraction shifts in text and display style, with the 1px padding" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const f = try openTestFont(arena.allocator());
@@ -1123,25 +1279,26 @@ test "fraction shifts in text and display style" {
     try near(-210, t.kind.group[2].y);
     try near(890, t.h);
     try near(380, t.d);
-    try near(364, t.w);
+    try near(366, t.w);
     const d = try run(arena.allocator(), &f, node, true);
     try near(-650, d.kind.group[0].y);
     try near(690, d.kind.group[1].y);
     try near(1350, d.h);
     try near(690, d.d);
-    try near(520, d.w);
+    try near(522, d.w);
 }
 
-test "radical clearance centres the sign on the radicand" {
+test "radical: surd top at the bar centre, box sizes from the MathML Core formulas" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const f = try openTestFont(arena.allocator());
     const b = try run(arena.allocator(), &f, .{ .sqrt = .{ .body = &x_row } }, false);
     const items = b.kind.group;
-    try near(-5, items[0].y);
-    try near(-745, items[2].y);
-    try near(885, b.h);
-    try near(195, b.d);
+    try near(250, items[0].y);
+    try near(600, items[1].x);
+    try near(-520, items[2].y);
+    try near(690, b.h);
+    try near(390, b.d);
     try near(1100, b.w);
 }
 
@@ -1160,7 +1317,7 @@ test "spacing between atoms follows the TeX table" {
     try testing.expectEqual(@as(u8, 0), spaceMu(.open, .ord, false));
 }
 
-test "delimiters pick the smallest covering variant, then an assembly" {
+test "fences: minimum is the base glyph, then variants by ink height, then an assembly" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -1177,9 +1334,27 @@ test "delimiters pick the smallest covering variant, then an assembly" {
     const tall_rule = [_]Node{.{ .rule = .{ .w = 0.1, .h = 2.0, .d = 0, .raise = -0.5 } }};
     const tall = try run(a, &f, .{ .fenced = .{ .open = '(', .close = '(', .body = &tall_rule } }, false);
     const asm_box = tall.kind.group[0].box;
-    try near(1400, asm_box.h);
-    try near(900, asm_box.d);
+    try near(1500, asm_box.h);
+    try near(1000, asm_box.d);
     try testing.expectEqual(@as(usize, 5), asm_box.kind.group[0].box.kind.group.len);
+    try near(-2500 + 600, asm_box.kind.group[0].box.kind.group[0].y);
+}
+
+test "tables: padding is 0.5ex by 0.4em, rows and columns touch, centred on the axis" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const f = try openTestFont(a);
+    const cells = [_]tree.Cell{ &x_row, &two_row };
+    const rows = [_]tree.Row{.{ .cells = &cells }};
+    const b = try run(a, &f, .{ .array = .{ .kind = .matrix, .rows = &rows, .cols = &.{} } }, false);
+    const items = b.kind.group;
+    try near(400, items[0].x);
+    try near(100, items[0].y);
+    try near(1700, items[1].x);
+    try near(2620, b.w);
+    try near(825, b.h);
+    try near(325, b.d);
 }
 
 test "character mapping" {
@@ -1192,6 +1367,19 @@ test "character mapping" {
     try testing.expectEqual(@as(u32, 0x1D400), mapChar('A', .bf, false));
     try testing.expectEqual(@as(u32, 'x'), mapChar('x', .rm, true));
     try testing.expectEqual(@as(u32, 0x1D7D8), mapChar('0', .bb, false));
+}
+
+test "named colours follow GitHub's Primer remap" {
+    var budget: Budget = .{};
+    var cache = GlyphCache.init(testing.allocator);
+    defer cache.deinit();
+    const f = font.embeddedMathFont(testing.io);
+    var c: Ctx = .{ .a = testing.allocator, .f = f, .text = .{}, .cache = &cache, .k = &f.math.?.constants, .base = 16, .style = .t, .dark = true, .budget = &budget };
+    try testing.expectEqual(@as(u32, 0xF27D83), rgbOf(c, .{ .name = "red", .rgb = null }));
+    try testing.expectEqual(@as(u32, 0x00FFFF), rgbOf(c, .{ .name = "cyan", .rgb = null }));
+    try testing.expectEqual(@as(u32, 0x112233), rgbOf(c, .{ .name = "red", .rgb = 0x112233 }));
+    c.dark = false;
+    try testing.expectEqual(@as(u32, 0xC50D28), rgbOf(c, .{ .name = "red", .rgb = null }));
 }
 
 fn loadCambria(a: Allocator) !Font {
@@ -1217,6 +1405,7 @@ test "Cambria Math constants drive x^2 and a display fraction" {
     try near(-1550, fr.kind.group[0].y);
     try near(1370, fr.kind.group[1].y);
     try near(-(585 - 133.0 / 2.0), fr.kind.group[2].y);
+    try near(956, xHeightUnits(&f));
 }
 
 test "embedded STIX Two Math lays out every construct without failing" {
@@ -1235,9 +1424,13 @@ test "embedded STIX Two Math lays out every construct without failing" {
         .{ .accent = .{ .base = &x_row, .cp = 0x2C6, .wide = true } },
         .{ .line = .{ .body = &x_row, .over = true } },
         .{ .negate = &nx },
+        .{ .text = .{ .str = "ab", .font = .bfit } },
     };
-    const b = try layoutNodes(a, &root, f, .{ .size = 20, .display = true });
+    var cache = GlyphCache.init(testing.allocator);
+    defer cache.deinit();
+    const b = try layoutNodes(a, &root, f, .{ .size = 20, .display = true, .cache = &cache });
     try testing.expect(b.w > 20 and b.h > 10 and b.d > 0);
+    try testing.expect(cache.map.count() > 5);
     const svg = try @import("scene.zig").toSvg(a, b, 0);
     try testing.expect(std.mem.indexOf(u8, svg, "<path") != null);
 }

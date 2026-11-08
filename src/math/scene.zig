@@ -37,8 +37,7 @@ fn glyphPath(o: *Out, g: layout.Glyph, x: f32, y: f32) Error!void {
     if (o.paths > max_paths) return error.TooLarge;
     var path: font.Path = .{};
     defer path.deinit(o.a);
-    const s: f64 = g.px / @as(f64, @floatFromInt(g.face.upem));
-    g.face.outline(o.a, g.gid, .{ .a = s, .d = -s, .e = x, .f = y }, &path) catch |e| switch (e) {
+    g.face.outlineAt(o.a, g.gid, g.px, x, y, &path) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return,
     };

@@ -311,8 +311,7 @@ const Raster = struct {
             .glyph => |g| {
                 var path: font.Path = .{};
                 defer path.deinit(r.a);
-                const k: f64 = @as(f64, g.px) * s / @as(f64, @floatFromInt(g.face.upem));
-                try g.face.outline(r.a, g.gid, .{ .a = k, .d = -k, .e = @as(f64, x) * s, .f = @as(f64, y) * s }, &path);
+                try g.face.outlineAt(r.a, g.gid, @as(f64, g.px) * s, @as(f64, x) * s, @as(f64, y) * s, &path);
                 try r.flatten(path);
                 try r.fill(colour);
             },
