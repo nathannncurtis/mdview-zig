@@ -10,10 +10,11 @@ How they were made (the scripts are not part of the repo):
 
 - Headless Chromium (the build bundled with Playwright), device scale factor 1, element screenshot with the page background omitted.
 - SVGs without text were loaded as an `<img>` of the target size, which is how GitHub shows them: no scripts, no external resources.
-- SVGs with text were placed inline in a page, because an image cannot use fonts the page loads. The page declared `@font-face` rules for the family names the fixtures use (`DejaVu Sans`, `Verdana`, `Geneva`, `Segoe UI`, `Ubuntu`, `Helvetica Neue`, `Arial`, `DejaVu Sans Mono`, `DejaVu Serif`, `Georgia`) pointing at the same DejaVu 2.37 glyphs the renderer embeds, so both sides draw the same outlines.
-- The `card.svg` reference was taken after its CSS animations finished.
+- SVGs with text, animation or keyframes were placed inline in a page, because an image cannot use fonts the page loads and cannot be paused. Text uses `font-family="mdview Sans"`, declared with `@font-face` from the unmodified Liberation Sans 2.1.5 files whose Latin subset the renderer bundles, so both sides draw the same outlines on every OS. Animated fixtures were paused and seeked with `SVGSVGElement.setCurrentTime` and `Animation.currentTime` to the time in the test table.
+- The browser context used `prefers-color-scheme: dark`, as mdview is dark only.
+- The `card.svg` reference was taken at the time in its table row (all its animations end before it).
 
-The comparison is on premultiplied channels. A fixture passes when the mean absolute error and the share of pixels with an error above 40/255 are under the limits in `render_test.zig`. Text fixtures have higher limits because Chromium's glyph rasterizer applies a contrast boost and vertical hinting that the renderer does not.
+The comparison is on premultiplied channels. A fixture passes when the mean absolute error and the share of pixels with an error above 40/255 are under the limits in `render_test.zig`. Text fixtures have higher limits because the glyph rasterizers differ in hinting. Fixtures that exercise Chromium-specific corners (`feImage` placement, lighting) have the highest limits.
 
 ## Fixtures
 
@@ -39,7 +40,13 @@ The comparison is on premultiplied channels. A fixture passes when the mean abso
 | `viewbox_slice.svg` | root `viewBox` with `slice` rendered at an aspect ratio different from the intrinsic one |
 | `css_selectors.svg` | root, attribute, sibling, descendant and `:first-child` selectors, `font` shorthand |
 | `units.svg` | `em`, `mm`, `pt` and percentage lengths in stroke width and dash arrays |
+| `dark.svg` | `@media (prefers-color-scheme: dark)`, `@supports`, custom properties, `var()` with fallback, `calc()` |
+| `anim_smil.svg` | `animate` with values, spline easing and freeze, `set`, `animateTransform`, `animateMotion`, colour interpolation (rendered at 1.2 s) |
+| `anim_css.svg` | `@keyframes` with several stops, per-stop easing, `alternate`, `steps()`, `transform-origin` with `transform-box: fill-box` (rendered at 0.9 s) |
+| `blend.svg` | `mix-blend-mode`, `isolation`, `vector-effect: non-scaling-stroke` |
+| `cssfilters.svg` | CSS filter functions: blur, drop-shadow, grayscale, contrast, hue-rotate, saturate, sepia, brightness, invert, opacity |
+| `filters4.svg` | `feImage` (data URI and element), `feTile`, diffuse and specular lighting |
 | `nested.svg` | `viewBox` with `slice`, nested viewport with `meet`, rotated and scaled groups, group opacity |
 | `card.svg` | a stats-card style SVG with CSS `animation` and `fill-mode: forwards` |
 
-The font files in `src/image/svg_font_*.ttf` are subsets of DejaVu Sans, Sans Mono and Serif 2.37 (Basic Latin, Latin-1 and common punctuation, without hinting or kerning). The licence is in `src/image/svg_font_LICENSE`.
+Text is drawn from the shared font layer in `src/font`: installed fonts resolved like a browser does, with the bundled Liberation Sans subset as the last resort.
