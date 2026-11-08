@@ -39,6 +39,23 @@ pub fn Transitive(comptime T: type) type {
             return 0;
         }
 
+        // ModelOrderBarycenterHeuristic.compareBasedOnTansitiveDependencies: its last lookup reads smallerThan
+        pub fn checkSmaller(self: *Self, n1: *T, n2: *T) lg.Error!i32 {
+            if (try self.ensure(&self.bigger_than, n1)) |s| {
+                if (s.contains(n2)) return 1;
+            }
+            if (try self.ensure(&self.bigger_than, n2)) |s| {
+                if (s.contains(n1)) return -1;
+            }
+            if (try self.ensure(&self.smaller_than, n1)) |s| {
+                if (s.contains(n2)) return -1;
+            }
+            if (try self.ensure(&self.smaller_than, n2)) |s| {
+                if (s.contains(n1)) return 1;
+            }
+            return 0;
+        }
+
         fn snapshot(self: *Self, s: *Set) lg.Error![]*T {
             const out = try self.a.alloc(*T, s.count());
             var it = s.keyIterator();

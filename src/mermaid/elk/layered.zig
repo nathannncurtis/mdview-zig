@@ -43,6 +43,7 @@ const im = struct {
     const label_dummy_remover = @import("intermediate/label_dummy_remover.zig");
     const reversed_edge_restorer = @import("intermediate/reversed_edge_restorer.zig");
     const hierarchical_node_resizer = @import("intermediate/hierarchical_node_resizing_processor.zig");
+    const hyperedge_dummy_merger = @import("intermediate/hyperedge_dummy_merger.zig");
 };
 
 // LayeredPhases, then IntermediateProcessorStrategy in its declaration order (the order AlgorithmAssembler sorts
@@ -323,6 +324,7 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
             .label_dummy_remover => try im.label_dummy_remover.process(g),
             .reversed_edge_restorer => try im.reversed_edge_restorer.process(g),
             .hierarchical_node_resizer => try im.hierarchical_node_resizer.process(g),
+            .hyperedge_dummy_merger => try im.hyperedge_dummy_merger.process(g),
             .end_label_preprocessor => endLabelPreprocessor(g),
             // they act on HEAD / TAIL labels only, which Mermaid's layout-elk never hands to ELK
             .end_label_sorter, .end_label_postprocessor => {},

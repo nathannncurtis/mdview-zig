@@ -46,14 +46,27 @@ pub fn placeNodesHorizontally(layer: *lg.Layer, xoffset: f64) void {
     }
 }
 
-// LEdge.reverse; the collector-port branch (adaptPorts) needs mergeEdges or hypernodes, which never occur here
+// LEdge.reverse(graph, true)
 pub fn reverseEdge(e: *lg.LEdge) lg.Error!void {
+    return reverseEdgeAdapt(e, true);
+}
+
+// LEdge.reverse(graph, adaptPorts)
+pub fn reverseEdgeAdapt(e: *lg.LEdge, adapt_ports: bool) lg.Error!void {
     const old_source = e.source.?;
     const old_target = e.target.?;
     try e.setSource(null);
     try e.setTarget(null);
-    try e.setSource(old_target);
-    try e.setTarget(old_source);
+    if (adapt_ports and old_target.p.input_collect) {
+        try e.setSource((try provideCollectorPort(old_target.owner.?, .output, .east)).?);
+    } else {
+        try e.setSource(old_target);
+    }
+    if (adapt_ports and old_source.p.output_collect) {
+        try e.setTarget((try provideCollectorPort(old_source.owner.?, .input, .west)).?);
+    } else {
+        try e.setTarget(old_source);
+    }
     for (e.labels.items) |label| {
         switch (label.p.edge_labels_placement) {
             .tail => label.p.edge_labels_placement = .head,

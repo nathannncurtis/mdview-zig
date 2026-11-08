@@ -8,7 +8,7 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
             for (node.ports.items) |port| {
                 const edges = try g.a.dupe(*lg.LEdge, port.outgoing.items);
                 for (edges) |edge| {
-                    if (edge.p.reversed) try gu.reverseEdge(edge);
+                    if (edge.p.reversed) try gu.reverseEdgeAdapt(edge, false);
                 }
             }
         }

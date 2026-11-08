@@ -11,7 +11,7 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
         const previous_layer = g.layers.items[if (layer_index == 0) 0 else layer_index - 1];
         for (layer.nodes.items) |node| {
             if (node.p.port_constraints != .fixed_order and node.p.port_constraints != .fixed_pos) {
-                var cmp = ModelOrderPortComparator.init(a, previous_layer.nodes.items, try longEdgeTargetNodePreprocessing(node), g.p.consider_model_order_port_model_order);
+                var cmp = ModelOrderPortComparator.init(a, previous_layer.nodes.items, g.p.consider_model_order, try longEdgeTargetNodePreprocessing(node), g.p.consider_model_order_port_model_order);
                 try util.javaSort(*lg.LPort, a, node.ports.items, &cmp, ModelOrderPortComparator.compare);
             }
         }

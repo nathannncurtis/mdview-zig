@@ -5,6 +5,7 @@ const files = .{
     @import("graph_info_holder.zig"),
     @import("layer_sweep_type_decider.zig"),
     @import("barycenter_heuristic.zig"),
+    @import("model_order_barycenter_heuristic.zig"),
     @import("forster_constraint_resolver.zig"),
     @import("sweep_copy.zig"),
     @import("abstract_barycenter_port_distributor.zig"),

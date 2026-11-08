@@ -3,6 +3,7 @@ const lg = @import("../lgraph.zig");
 const util = @import("../util.zig");
 const ForsterConstraintResolver = @import("forster_constraint_resolver.zig").ForsterConstraintResolver;
 const AbstractBarycenterPortDistributor = @import("abstract_barycenter_port_distributor.zig").AbstractBarycenterPortDistributor;
+const ModelOrderBarycenterHeuristic = @import("model_order_barycenter_heuristic.zig").ModelOrderBarycenterHeuristic;
 
 pub const BarycenterState = struct {
     node: *lg.LNode,
@@ -18,8 +19,7 @@ const random_amount: f64 = random_amount_f32;
 const half_random_amount_f32: f32 = 0.035;
 const half_random_amount: f64 = half_random_amount_f32;
 
-// BarycenterHeuristic. ModelOrderBarycenterHeuristic is only built when crossingMinimization.forceNodeModelOrder is
-// true, which Mermaid never sets, so it is not ported.
+// BarycenterHeuristic; with `model_order` set it acts as ModelOrderBarycenterHeuristic
 pub const BarycenterHeuristic = struct {
     a: std.mem.Allocator,
     port_ranks: []f64 = &.{},
@@ -27,6 +27,7 @@ pub const BarycenterHeuristic = struct {
     constraint_resolver: *ForsterConstraintResolver,
     barycenter_state: [][]BarycenterState = &.{},
     port_distributor: *AbstractBarycenterPortDistributor,
+    model_order: ?*ModelOrderBarycenterHeuristic = null,
 
     pub fn create(a: std.mem.Allocator, resolver: *ForsterConstraintResolver, random: *lg.JavaRandom, distributor: *AbstractBarycenterPortDistributor) lg.Error!*BarycenterHeuristic {
         const self = try a.create(BarycenterHeuristic);
@@ -42,8 +43,12 @@ pub const BarycenterHeuristic = struct {
             self.fillInUnknownBarycenters(layer.items, pre_ordered);
         }
         if (layer.items.len > 1) {
-            try util.javaSort(*lg.LNode, self.a, layer.items, self, barycenterStateComparator);
-            try self.constraint_resolver.processConstraints(layer);
+            if (self.model_order) |mo| {
+                try mo.insertionSort(layer.items);
+            } else {
+                try util.javaSort(*lg.LNode, self.a, layer.items, self, barycenterStateComparator);
+                try self.constraint_resolver.processConstraints(layer);
+            }
         }
     }
 
@@ -137,7 +142,7 @@ pub const BarycenterHeuristic = struct {
         }
     }
 
-    fn stateOf(self: *BarycenterHeuristic, node: *lg.LNode) *BarycenterState {
+    pub fn stateOf(self: *BarycenterHeuristic, node: *lg.LNode) *BarycenterState {
         return &self.barycenter_state[@intCast(node.layer.?.id)][@intCast(node.id)];
     }
 

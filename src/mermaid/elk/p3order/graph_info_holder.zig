@@ -10,6 +10,7 @@ const ISweepPortDistributor = @import("i_sweep_port_distributor.zig").ISweepPort
 const AllCrossingsCounter = @import("counting/all_crossings_counter.zig").AllCrossingsCounter;
 const ForsterConstraintResolver = @import("forster_constraint_resolver.zig").ForsterConstraintResolver;
 const BarycenterHeuristic = @import("barycenter_heuristic.zig").BarycenterHeuristic;
+const ModelOrderBarycenterHeuristic = @import("model_order_barycenter_heuristic.zig").ModelOrderBarycenterHeuristic;
 const AbstractBarycenterPortDistributor = @import("abstract_barycenter_port_distributor.zig").AbstractBarycenterPortDistributor;
 const GreedyPortDistributor = @import("greedy_port_distributor.zig").GreedyPortDistributor;
 const GreedySwitchHeuristic = @import("../intermediate/greedyswitch/greedy_switch_heuristic.zig").GreedySwitchHeuristic;
@@ -136,10 +137,10 @@ pub const GraphInfoHolder = struct {
             .greedy => |d| IInitializable{ .greedy_dist = d },
         });
         if (cmt == .barycenter) {
-            // forceNodeModelOrder (ModelOrderBarycenterHeuristic) is never set by Mermaid
             const resolver = try ForsterConstraintResolver.create(a, order);
             try list.append(a, .{ .forster = resolver });
             const h = try BarycenterHeuristic.create(a, resolver, random, self.port_distributor.barycenter);
+            if (graph.p.force_node_model_order) h.model_order = try ModelOrderBarycenterHeuristic.create(a, h);
             self.cross_minimizer = .{ .barycenter = h };
             try list.append(a, .{ .bary_heur = h });
         } else {

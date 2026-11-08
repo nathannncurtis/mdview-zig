@@ -44,10 +44,33 @@ pub const Edge = struct {
     arrow_type_end: []const u8 = "none",
 };
 
+pub const ElkConfig = struct {
+    merge_edges: bool = false,
+    node_placement_strategy: ?[]const u8 = null,
+    node_placement_alignment: ?[]const u8 = null,
+    preset: []const u8 = "default",
+    layering_strategy: ?[]const u8 = null,
+    layering_layer_bound: f64 = 4,
+    cycle_breaking_strategy: ?[]const u8 = null,
+    force_node_model_order: bool = false,
+    consider_model_order: []const u8 = "NODES_AND_EDGES",
+    keep_entry_node_on_top: bool = false,
+};
+
+const Preset = struct { layering: []const u8, placement: []const u8, container_placement: []const u8, alignment: []const u8, cycle_breaking: []const u8 };
+
+fn presetOf(name: []const u8) Preset {
+    if (std.mem.eql(u8, name, "legacy")) return .{ .layering = "NETWORK_SIMPLEX", .placement = "BRANDES_KOEPF", .container_placement = "BRANDES_KOEPF", .alignment = "NONE", .cycle_breaking = "GREEDY" };
+    if (std.mem.eql(u8, name, "modelOrder")) return .{ .layering = "NETWORK_SIMPLEX", .placement = "NETWORK_SIMPLEX", .container_placement = "BRANDES_KOEPF", .alignment = "NONE", .cycle_breaking = "GREEDY_MODEL_ORDER" };
+    if (std.mem.eql(u8, name, "depthFirst")) return .{ .layering = "NETWORK_SIMPLEX", .placement = "NETWORK_SIMPLEX", .container_placement = "BRANDES_KOEPF", .alignment = "NONE", .cycle_breaking = "DEPTH_FIRST" };
+    return .{ .layering = "NETWORK_SIMPLEX", .placement = "BRANDES_KOEPF", .container_placement = "BRANDES_KOEPF", .alignment = "BALANCED", .cycle_breaking = "DEPTH_FIRST" };
+}
+
 pub const Config = struct {
     direction: Dir = .tb,
     straighten_edges: bool = true,
     orient_feedback_edges: bool = true,
+    elk: ElkConfig = .{},
 };
 
 pub const NodeOut = struct { x: f64, y: f64, width: f64, height: f64 };
@@ -94,6 +117,7 @@ fn markerPathOffset(name: []const u8) f64 {
 
 const State = struct {
     a: Allocator,
+    ecfg: ElkConfig,
     nodes: []const Node,
     index: std.StringHashMap(usize),
     parent: []?usize,
@@ -183,6 +207,8 @@ fn setOpts(o: *eg.Options, kv: []const [2][]const u8) void {
 
 fn subgraphOptions(st: *const State, i: usize, o: *eg.Options) Allocator.Error!void {
     const n = st.nodes[i];
+    const ec = st.ecfg;
+    const preset = presetOf(ec.preset);
     if (n.paints_title) {
         eg.setOption(o, "nodeSize.constraints", "[MINIMUM_SIZE, NODE_LABELS]");
         eg.setOption(o, "nodeSize.minimum", try std.fmt.allocPrint(st.a, "({d}, 0)", .{st.groupTitleWidth(i)}));
@@ -194,10 +220,10 @@ fn subgraphOptions(st: *const State, i: usize, o: *eg.Options) Allocator.Error!v
         .{ "spacing.nodeNode", "50" },
         .{ "elk.padding", "[top=24,left=24,bottom=24,right=24]" },
         .{ "nodeLabels.placement", "[H_CENTER V_TOP, INSIDE]" },
-        .{ "elk.layered.mergeEdges", "false" },
-        .{ "elk.layered.nodePlacement.bk.fixedAlignment", "BALANCED" },
-        .{ "elk.layered.nodePlacement.strategy", "BRANDES_KOEPF" },
-        .{ "elk.layered.cycleBreaking.strategy", "DEPTH_FIRST" },
+        .{ "elk.layered.mergeEdges", if (ec.merge_edges) "true" else "false" },
+        .{ "elk.layered.nodePlacement.bk.fixedAlignment", ec.node_placement_alignment orelse preset.alignment },
+        .{ "elk.layered.nodePlacement.strategy", ec.node_placement_strategy orelse preset.container_placement },
+        .{ "elk.layered.cycleBreaking.strategy", ec.cycle_breaking_strategy orelse preset.cycle_breaking },
         .{ "elk.layered.nodePlacement.networkSimplex.nodeFlexibility", "PORT_POSITION" },
         .{ "elk.spacing.portsSurrounding", ports_surrounding },
     });
@@ -313,6 +339,7 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
     const n = nodes.len;
     var st: State = .{
         .a = a,
+        .ecfg = cfg.elk,
         .nodes = nodes,
         .index = std.StringHashMap(usize).init(a),
         .parent = try a.alloc(?usize, n),
@@ -347,18 +374,21 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
     for (nodes, 0..) |_, i| if (st.parent[i]) |p| try st.children[p].append(a, i);
 
     const root = try eg.createNode(a, null, "root");
+    const root_preset = presetOf(cfg.elk.preset);
+    const layer_bound = try std.fmt.allocPrint(a, "{d}", .{cfg.elk.layering_layer_bound});
     setOpts(&root.opts, &.{
         .{ "elk.hierarchyHandling", "INCLUDE_CHILDREN" },
         .{ "elk.algorithm", "elk.layered" },
-        .{ "elk.layered.nodePlacement.strategy", "BRANDES_KOEPF" },
-        .{ "elk.layered.nodePlacement.bk.fixedAlignment", "BALANCED" },
-        .{ "elk.layered.mergeEdges", "false" },
+        .{ "elk.layered.nodePlacement.strategy", cfg.elk.node_placement_strategy orelse root_preset.placement },
+        .{ "elk.layered.nodePlacement.bk.fixedAlignment", cfg.elk.node_placement_alignment orelse root_preset.alignment },
+        .{ "elk.layered.mergeEdges", if (cfg.elk.merge_edges) "true" else "false" },
         .{ "spacing.baseValue", "40" },
-        .{ "elk.layered.crossingMinimization.forceNodeModelOrder", "false" },
-        .{ "elk.layered.considerModelOrder.strategy", "NODES_AND_EDGES" },
+        .{ "elk.layered.crossingMinimization.forceNodeModelOrder", if (cfg.elk.force_node_model_order) "true" else "false" },
+        .{ "elk.layered.considerModelOrder.strategy", cfg.elk.consider_model_order },
         .{ "elk.layered.unnecessaryBendpoints", "true" },
-        .{ "elk.layered.cycleBreaking.strategy", "DEPTH_FIRST" },
-        .{ "elk.layered.layering.strategy", "NETWORK_SIMPLEX" },
+        .{ "elk.layered.cycleBreaking.strategy", cfg.elk.cycle_breaking_strategy orelse root_preset.cycle_breaking },
+        .{ "elk.layered.layering.strategy", cfg.elk.layering_strategy orelse root_preset.layering },
+        .{ "elk.layered.layering.coffmanGraham.layerBound", layer_bound },
         .{ "elk.layered.edgeRouting.selfLoopDistribution", "EQUALLY" },
         .{ "elk.layered.mergeHierarchyEdges", "true" },
         .{ "elk.spacing.portsSurrounding", ports_surrounding },
@@ -404,6 +434,7 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
         }
     }
 
+    if (cfg.elk.keep_entry_node_on_top) try applyEntryConstraint(&st);
     try layered.layout(a, root);
 
     try applyPositions(&st, root, 0, 0);
@@ -1105,4 +1136,102 @@ fn circleIntersect(ctx: *anyopaque, p: P) ?P {
     var dy = @abs((rx * rx * py) / det);
     if (p.y < r.y) dy = -dy;
     return .{ .x = r.x + dx, .y = r.y + dy };
+}
+
+fn reaches(adj: []const std.ArrayList(usize), from: usize, to: usize, seen: []bool, stack: *std.ArrayList(usize), a: Allocator) Allocator.Error!bool {
+    @memset(seen, false);
+    stack.clearRetainingCapacity();
+    seen[from] = true;
+    try stack.append(a, from);
+    while (stack.pop()) |cur| {
+        if (cur == to) return true;
+        for (adj[cur].items) |nx| if (!seen[nx]) {
+            seen[nx] = true;
+            try stack.append(a, nx);
+        };
+    }
+    return false;
+}
+
+// findCyclicEntryNodes: the entry of every container component that has no source gets layerConstraint FIRST
+fn applyEntryConstraint(st: *State) Allocator.Error!void {
+    const a = st.a;
+    const n = st.nodes.len;
+    const comp = try a.alloc(usize, n);
+    const seen = try a.alloc(bool, n);
+    var stack: std.ArrayList(usize) = .empty;
+    const containers = try a.alloc(?usize, n + 1);
+    var n_containers: usize = 0;
+    for (0..n) |i| {
+        var known = false;
+        for (containers[0..n_containers]) |c| if (c == st.parent[i]) {
+            known = true;
+        };
+        if (!known) {
+            containers[n_containers] = st.parent[i];
+            n_containers += 1;
+        }
+    }
+    for (containers[0..n_containers]) |container| {
+        var ids: std.ArrayList(usize) = .empty;
+        for (0..n) |i| if (st.parent[i] == container) try ids.append(a, i);
+        const in_deg = try a.alloc(usize, n);
+        @memset(in_deg, 0);
+        const neighbors = try a.alloc(std.ArrayList(usize), n);
+        const forward = try a.alloc(std.ArrayList(usize), n);
+        for (neighbors) |*l| l.* = .empty;
+        for (forward) |*l| l.* = .empty;
+        var internal: std.ArrayList([2]usize) = .empty;
+        for (st.edges) |e| {
+            const s = st.lookup(e.start) orelse continue;
+            const t = st.lookup(e.end) orelse continue;
+            if (s == t or st.parent[s] != container or st.parent[t] != container) continue;
+            in_deg[t] += 1;
+            try neighbors[s].append(a, t);
+            try neighbors[t].append(a, s);
+            try internal.append(a, .{ s, t });
+        }
+        const unset = std.math.maxInt(usize);
+        @memset(comp, unset);
+        var comp_count: usize = 0;
+        for (ids.items) |id| {
+            if (comp[id] != unset) continue;
+            stack.clearRetainingCapacity();
+            try stack.append(a, id);
+            comp[id] = comp_count;
+            while (stack.pop()) |cur| {
+                for (neighbors[cur].items) |nx| if (comp[nx] == unset) {
+                    comp[nx] = comp_count;
+                    try stack.append(a, nx);
+                };
+            }
+            comp_count += 1;
+        }
+        const has_source = try a.alloc(bool, comp_count);
+        @memset(has_source, false);
+        for (ids.items) |id| if (in_deg[id] == 0) {
+            has_source[comp[id]] = true;
+        };
+        var all = true;
+        for (has_source) |h| if (!h) {
+            all = false;
+        };
+        if (all) continue;
+        const residual = try a.alloc(usize, n);
+        @memset(residual, 0);
+        for (internal.items) |p| {
+            if (try reaches(forward, p[1], p[0], seen, &stack, a)) continue;
+            try forward[p[0]].append(a, p[1]);
+            residual[p[1]] += 1;
+        }
+        const nominated = try a.alloc(bool, comp_count);
+        @memset(nominated, false);
+        for (ids.items) |id| {
+            const c = comp[id];
+            if (!has_source[c] and !nominated[c] and residual[id] == 0) {
+                eg.setOption(&st.elk[id].?.opts, "elk.layered.layering.layerConstraint", "FIRST");
+                nominated[c] = true;
+            }
+        }
+    }
 }

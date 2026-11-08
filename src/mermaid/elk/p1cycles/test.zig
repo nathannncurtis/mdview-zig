@@ -22,3 +22,10 @@ test {
     std.testing.refAllDecls(@import("../intermediate/self_loop_router.zig"));
     std.testing.refAllDecls(@import("../intermediate/self_loop_post_processor.zig"));
 }
+
+test {
+    std.testing.refAllDecls(@import("greedy_cycle_breaker.zig"));
+    std.testing.refAllDecls(@import("interactive_cycle_breaker.zig"));
+    std.testing.refAllDecls(@import("model_order_cycle_breaker.zig"));
+    std.testing.refAllDecls(@import("../intermediate/interactive_external_port_positioner.zig"));
+}

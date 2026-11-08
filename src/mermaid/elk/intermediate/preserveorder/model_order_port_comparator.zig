@@ -6,16 +6,15 @@ fn intCompare(x: i32, y: i32) i32 {
     return if (x < y) -1 else if (x == y) 0 else 1;
 }
 
-// ModelOrderPortComparator. OrderingStrategy.PREFER_NODES is not in lg.OrderingStrategy (Mermaid uses
-// NODES_AND_EDGES), so its branch is left out.
 pub const ModelOrderPortComparator = struct {
     target_node_model_order: ?*std.AutoHashMapUnmanaged(*lg.LNode, i32),
     port_model_order: bool,
     previous_layer: []*lg.LNode,
+    strategy: lg.OrderingStrategy,
     t: Transitive(lg.LPort),
 
-    pub fn init(a: std.mem.Allocator, previous_layer: []*lg.LNode, target_node_model_order: ?*std.AutoHashMapUnmanaged(*lg.LNode, i32), port_model_order: bool) ModelOrderPortComparator {
-        return .{ .target_node_model_order = target_node_model_order, .port_model_order = port_model_order, .previous_layer = previous_layer, .t = .{ .a = a } };
+    pub fn init(a: std.mem.Allocator, previous_layer: []*lg.LNode, strategy: lg.OrderingStrategy, target_node_model_order: ?*std.AutoHashMapUnmanaged(*lg.LNode, i32), port_model_order: bool) ModelOrderPortComparator {
+        return .{ .target_node_model_order = target_node_model_order, .port_model_order = port_model_order, .previous_layer = previous_layer, .strategy = strategy, .t = .{ .a = a } };
     }
 
     pub fn compare(self: *ModelOrderPortComparator, original_p1: *lg.LPort, original_p2: *lg.LPort) lg.Error!i32 {
@@ -57,6 +56,14 @@ pub const ModelOrderPortComparator = struct {
         if (p1.outgoing.items.len != 0 and p2.outgoing.items.len != 0) {
             const p1_target = p1.p.long_edge_target_node;
             const p2_target = p2.p.long_edge_target_node;
+            if (self.strategy == .prefer_nodes and p1_target != null and p2_target != null and
+                p1_target.?.p.model_order != null and p2_target.?.p.model_order != null)
+            {
+                const mo1 = p1_target.?.p.model_order.?;
+                const mo2 = p2_target.?.p.model_order.?;
+                if (mo1 > mo2) try self.t.update(p1, p2) else try self.t.update(p2, p1);
+                return intCompare(mo1, mo2);
+            }
             if (self.port_model_order) {
                 if (try self.portModelOrderResult(p1, p2)) |r| return r;
             }

@@ -1,7 +1,20 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const Error = Allocator.Error || error{Unsupported};
+pub const Error = Allocator.Error || error{ Unsupported, ElkException };
+
+threadlocal var elk_message_buf: [512]u8 = undefined;
+threadlocal var elk_message_len: usize = 0;
+
+pub fn setElkMessage(msg: []const u8) void {
+    const n = @min(msg.len, elk_message_buf.len);
+    @memcpy(elk_message_buf[0..n], msg[0..n]);
+    elk_message_len = n;
+}
+
+pub fn elkMessage() []const u8 {
+    return elk_message_buf[0..elk_message_len];
+}
 
 pub const Vec = struct {
     x: f64 = 0,
@@ -131,7 +144,7 @@ pub const CycleBreaking = enum { greedy, depth_first, interactive, model_order, 
 pub const Layering = enum { network_simplex, longest_path, longest_path_source, coffman_graham, interactive, stretch_width, min_width, bf_model_order, df_model_order };
 pub const NodePlacement = enum { simple, interactive, linear_segments, brandes_koepf, network_simplex };
 pub const FixedAlignment = enum { none, leftdown, rightdown, leftup, rightup, balanced };
-pub const OrderingStrategy = enum { none, nodes_and_edges, prefer_edges };
+pub const OrderingStrategy = enum { none, nodes_and_edges, prefer_edges, prefer_nodes };
 pub const LongEdgeOrderingStrategy = enum { dummy_node_over, dummy_node_under, equal };
 pub const GreedySwitchType = enum { off, one_sided, two_sided };
 pub const EdgeLabelPlacement = enum { center, head, tail };
