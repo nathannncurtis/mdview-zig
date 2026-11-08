@@ -455,17 +455,18 @@ pub fn apply(r: *draw.Renderer, fnode: *Node, layer: *draw.Layer, st: *const dra
             var in = try c.input(ch.attr("in"));
             defer in.deinit(gpa);
             const rc = c.inputRect(ch.attr("in")) orelse Rect{ .x0 = 0, .y0 = 0, .x1 = @intCast(rw), .y1 = @intCast(rh) };
-            const tx0 = std.math.clamp(rc.x0, 0, @as(isize, @intCast(rw)) - 1);
-            const ty0 = std.math.clamp(rc.y0, 0, @as(isize, @intCast(rh)) - 1);
-            const tw = @max(1, std.math.clamp(rc.x1, 1, @as(isize, @intCast(rw))) - tx0);
-            const th = @max(1, std.math.clamp(rc.y1, 1, @as(isize, @intCast(rh))) - ty0);
+            const tw = @max(1, rc.x1 - rc.x0);
+            const th = @max(1, rc.y1 - rc.y0);
             out = try filt.Img.init(gpa, rw, rh);
             out.linear = in.linear;
+            const iw: isize = @intCast(rw);
+            const ih: isize = @intCast(rh);
             for (0..rh) |row| {
                 for (0..rw) |col| {
-                    const sx: usize = @intCast(tx0 + @mod(@as(isize, @intCast(col)) - tx0, tw));
-                    const sy: usize = @intCast(ty0 + @mod(@as(isize, @intCast(row)) - ty0, th));
-                    @memcpy(out.px[(row * rw + col) * 4 ..][0..4], in.px[(sy * rw + sx) * 4 ..][0..4]);
+                    const sx = rc.x0 + @mod(@as(isize, @intCast(col)) - rc.x0, tw);
+                    const sy = rc.y0 + @mod(@as(isize, @intCast(row)) - rc.y0, th);
+                    if (sx < 0 or sy < 0 or sx >= iw or sy >= ih) continue;
+                    @memcpy(out.px[(row * rw + col) * 4 ..][0..4], in.px[(@as(usize, @intCast(sy)) * rw + @as(usize, @intCast(sx))) * 4 ..][0..4]);
                 }
             }
         } else if (std.mem.eql(u8, tag, "feImage")) {
