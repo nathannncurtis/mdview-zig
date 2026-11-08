@@ -18,6 +18,32 @@ var needs_redraw: bool = true;
 var wm_delete_window: c.Atom = 0;
 var hand_cursor: c.Cursor = 0;
 var over_link = false;
+/// Device pixels per layout unit; layout is in these units and the cairo context scales them up.
+var g_scale: f32 = 1;
+
+/// The `Xft.dpi` value of an X resource database, which is what desktops set for their text scale.
+fn xftDpi(db: []const u8) ?f32 {
+    var lines = std.mem.splitScalar(u8, db, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        const key = "Xft.dpi:";
+        if (!std.mem.startsWith(u8, line, key)) continue;
+        const dpi = std.fmt.parseFloat(f32, std.mem.trim(u8, line[key.len..], " \t")) catch return null;
+        return if (dpi > 0) dpi else null;
+    }
+    return null;
+}
+
+fn detectScale(dpy: *c.Display) f32 {
+    const scale: f32 = blk: {
+        if (c.XResourceManagerString(dpy)) |db| {
+            if (xftDpi(std.mem.span(db))) |dpi| break :blk dpi / 96.0;
+        }
+        const gdk = app.environ.get("GDK_SCALE") orelse break :blk 1;
+        break :blk std.fmt.parseFloat(f32, gdk) catch 1;
+    };
+    return std.math.clamp(scale, 0.75, 4);
+}
 
 // ============================================================
 // Colors
@@ -67,8 +93,10 @@ pub fn run() void {
     attrs.event_mask = c.ExposureMask | c.KeyPressMask | c.ButtonPressMask |
         c.ButtonReleaseMask | c.StructureNotifyMask | c.PointerMotionMask;
 
-    const width: c_uint = 900;
-    const height: c_uint = 700;
+    g_scale = detectScale(dpy);
+    app.images.dpi_scale = g_scale;
+    const width: c_uint = @intFromFloat(900 * g_scale);
+    const height: c_uint = @intFromFloat(700 * g_scale);
 
     window = c.XCreateWindow(
         dpy,
@@ -85,9 +113,11 @@ pub fn run() void {
         &attrs,
     );
 
-    app.window_width = @floatFromInt(width);
-    app.window_height = @floatFromInt(height);
+    app.window_width = 900;
+    app.window_height = 700;
     hand_cursor = c.XCreateFontCursor(dpy, c.XC_hand2);
+    app.images.create_native = createNative;
+    app.images.free_native = freeNative;
 
     // Set window title
     _ = c.XStoreName(dpy, window, "mdview");
@@ -108,6 +138,7 @@ pub fn run() void {
     // Event loop with select()-based timeout
     const x11_fd = c.ConnectionNumber(dpy);
     var last_save_time: i64 = std.Io.Timestamp.now(app.io, .awake).toMilliseconds();
+    var last_file_check: i64 = last_save_time;
     var running = true;
 
     while (running) {
@@ -123,8 +154,8 @@ pub fn run() void {
                 },
                 c.ConfigureNotify => {
                     const ce = ev.xconfigure;
-                    app.window_width = @floatFromInt(ce.width);
-                    app.window_height = @floatFromInt(ce.height);
+                    app.window_width = @as(f32, @floatFromInt(ce.width)) / g_scale;
+                    app.window_height = @as(f32, @floatFromInt(ce.height)) / g_scale;
                     needs_redraw = true;
                 },
                 c.KeyPress => {
@@ -142,7 +173,7 @@ pub fn run() void {
                 },
                 c.MotionNotify => {
                     const me = ev.xmotion;
-                    const over = app.pointerMoved(@floatFromInt(me.x), @floatFromInt(me.y));
+                    const over = app.pointerMoved(@as(f32, @floatFromInt(me.x)) / g_scale, @as(f32, @floatFromInt(me.y)) / g_scale);
                     if (over != over_link) {
                         over_link = over;
                         if (over) _ = c.XDefineCursor(dpy, window, hand_cursor) else _ = c.XUndefineCursor(dpy, window);
@@ -150,7 +181,7 @@ pub fn run() void {
                 },
                 c.ButtonRelease => {
                     const be = ev.xbutton;
-                    if (be.button == 1) _ = app.mouseUp(@floatFromInt(be.x), @floatFromInt(be.y));
+                    if (be.button == 1) _ = app.mouseUp(@as(f32, @floatFromInt(be.x)) / g_scale, @as(f32, @floatFromInt(be.y)) / g_scale);
                 },
                 c.ButtonPress => {
                     const be = ev.xbutton;
@@ -175,8 +206,8 @@ pub fn run() void {
                     }
                     // Left click
                     else if (be.button == 1) {
-                        const bx: f32 = @floatFromInt(be.x);
-                        const by: f32 = @floatFromInt(be.y);
+                        const bx: f32 = @as(f32, @floatFromInt(be.x)) / g_scale;
+                        const by: f32 = @as(f32, @floatFromInt(be.y)) / g_scale;
                         // Close button: top-right area
                         if (bx > app.window_width - 40 and by < 36) {
                             running = false;
@@ -199,6 +230,8 @@ pub fn run() void {
             }
         }
 
+        if (app.images.tick()) needs_redraw = true;
+
         // Render if needed
         if (needs_redraw) {
             needs_redraw = false;
@@ -212,11 +245,14 @@ pub fn run() void {
             last_save_time = now;
         }
 
-        // Use poll() with 500ms timeout for file watching
+        // Poll with a short timeout while an animation or a load is pending, otherwise 500ms for file watching
         var pollfds = [_]posix.pollfd{.{ .fd = x11_fd, .events = posix.POLL.IN, .revents = 0 }};
-        const poll_result = posix.poll(&pollfds, 500) catch 0;
-        if (poll_result == 0) {
+        const wait: i32 = if (app.images.timerDelay()) |d| @intCast(@min(d, 500)) else 500;
+        const poll_result = posix.poll(&pollfds, wait) catch 0;
+        const after = std.Io.Timestamp.now(app.io, .awake).toMilliseconds();
+        if (poll_result == 0 and after - last_file_check >= 500) {
             app.checkFileChanged();
+            last_file_check = after;
         }
     }
 
@@ -347,8 +383,8 @@ fn initiateMove(dpy: *c.Display, win: c.Window, root_x: c_int, root_y: c_int) vo
 fn render(dpy: *c.Display, win: c.Window) void {
     const screen = c.DefaultScreen(dpy);
     const visual = c.DefaultVisual(dpy, screen);
-    const w: c_int = @intFromFloat(app.window_width);
-    const h: c_int = @intFromFloat(app.window_height);
+    const w: c_int = @intFromFloat(app.window_width * g_scale);
+    const h: c_int = @intFromFloat(app.window_height * g_scale);
 
     if (w <= 0 or h <= 0) return;
 
@@ -361,10 +397,13 @@ fn render(dpy: *c.Display, win: c.Window) void {
     // Clear background
     setColor(cr, col_bg);
     c.cairo_paint(cr);
+    c.cairo_scale(cr, g_scale, g_scale);
 
     // Create Pango layout
     const pango_layout = c.pango_cairo_create_layout(cr) orelse return;
     defer c.g_object_unref(pango_layout);
+    c.pango_cairo_context_set_shape_renderer(c.pango_layout_get_context(pango_layout), drawShape, null, null);
+    resetBoxes();
 
     const padding: f32 = 40;
     const max_width = @max(app.window_width - padding * 2, 100);
@@ -465,6 +504,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
 
     // Close button (X) — drawn in screen coordinates (not scrolled)
     drawCloseButton(cr);
+    if (app.tooltip) |t| drawTooltip(cr, t);
 
     _ = c.cairo_surface_flush(surface);
     if (app.afterRender()) needs_redraw = true;
@@ -524,13 +564,14 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inlin
 fn renderTextBlock(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
-    content: md.Inline,
+    content_in: md.Inline,
     x: f32,
     y: f32,
     max_width: f32,
     color: Color,
     font_desc_str: [*:0]const u8,
 ) f32 {
+    const content = app.images.flow(content_in);
     if (content.text.len == 0) return 0;
     setInline(pango_layout, content, max_width, font_desc_str);
 
@@ -577,6 +618,7 @@ fn fontDesc(font: app.Font) [*:0]const u8 {
 }
 
 pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
+    resetBoxes();
     const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return null;
     defer c.cairo_surface_destroy(surface);
     const cr = c.cairo_create(surface) orelse return null;
@@ -698,6 +740,166 @@ fn padUnits(desc: *const c.PangoFontDescription) c_int {
     return @intFromFloat(md.code_pad_em * md.code_scale * @as(f32, @floatFromInt(c.pango_font_description_get_size(desc))) * 96.0 / 72.0);
 }
 
+const ImageKind = enum { pending, picture, broken };
+
+/// Width of the broken image glyph with its gap to the alt text that follows, and its height.
+const broken_w: f32 = 18;
+const broken_h: f32 = 16;
+
+/// One image in a layout, found again by the shape renderer through the attribute's data pointer.
+const ImageBox = struct { w: f32, h: f32, kind: ImageKind, image: *const md.Image };
+
+var boxes: ?std.heap.ArenaAllocator = null;
+
+fn resetBoxes() void {
+    if (boxes) |*a| _ = a.reset(.free_all);
+}
+
+fn setAlt(layout: *c.PangoLayout, alt: []const u8, width: f32) void {
+    const desc = c.pango_font_description_from_string("Sans 12") orelse return;
+    defer c.pango_font_description_free(desc);
+    c.pango_layout_set_font_description(layout, desc);
+    c.pango_layout_set_width(layout, @intFromFloat(width * @as(f32, c.PANGO_SCALE)));
+    c.pango_layout_set_wrap(layout, c.PANGO_WRAP_WORD_CHAR);
+    c.pango_layout_set_text(layout, alt.ptr, @intCast(alt.len));
+}
+
+fn imageBox(im: *const md.Image, avail: f32) ?*ImageBox {
+    if (boxes == null) boxes = .init(app.gpa);
+    const box = boxes.?.allocator().create(ImageBox) catch return null;
+    box.* = .{ .w = 0, .h = 0, .kind = .pending, .image = im };
+    switch (app.images.look(im.target, avail)) {
+        .pending => {},
+        .picture => |s| {
+            box.w = s.w;
+            box.h = s.h;
+            box.kind = if (s.w > 0) .picture else .pending;
+        },
+        .missing => if (im.alt.len > 0) {
+            box.w = broken_w;
+            box.h = broken_h;
+            box.kind = .broken;
+        },
+    }
+    return box;
+}
+
+fn addImageShape(attr_list: *c.PangoAttrList, box: *ImageBox, start: usize, end: usize) void {
+    const scale: f32 = c.PANGO_SCALE;
+    const rect: c.PangoRectangle = .{ .x = 0, .y = -@as(c_int, @intFromFloat(box.h * scale)), .width = @intFromFloat(box.w * scale), .height = @intFromFloat(box.h * scale) };
+    const attr = c.pango_attr_shape_new_with_data(&rect, &rect, box, null, null) orelse return;
+    attr.*.start_index = @intCast(start);
+    attr.*.end_index = @intCast(end);
+    c.pango_attr_list_insert(attr_list, attr);
+}
+
+fn blit(ctx: *c.cairo_t, handle: *anyopaque, pw: u32, ph: u32, x: f64, y: f64, w: f64, h: f64) void {
+    const native: *const Native = @ptrCast(@alignCast(handle));
+    const iw: f64 = @floatFromInt(pw);
+    const ih: f64 = @floatFromInt(ph);
+    c.cairo_save(ctx);
+    c.cairo_translate(ctx, x, y);
+    c.cairo_scale(ctx, w / iw, h / ih);
+    c.cairo_set_source_surface(ctx, native.surface, 0, 0);
+    const pattern = c.cairo_get_source(ctx);
+    c.cairo_pattern_set_filter(pattern, c.CAIRO_FILTER_BEST);
+    c.cairo_pattern_set_extend(pattern, c.CAIRO_EXTEND_PAD);
+    c.cairo_rectangle(ctx, 0, 0, iw, ih);
+    c.cairo_fill(ctx);
+    c.cairo_restore(ctx);
+}
+
+fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: ?*anyopaque) callconv(.c) void {
+    const ctx = cr orelse return;
+    const box: *const ImageBox = @ptrCast(@alignCast(attr.*.data orelse return));
+    var x: f64 = 0;
+    var y: f64 = 0;
+    c.cairo_get_current_point(ctx, &x, &y);
+    const top = y - box.h;
+    if (box.w <= 0 or top + box.h < 0 or top > app.window_height) return;
+    switch (box.kind) {
+        .pending => {},
+        .picture => {
+            const bm = app.images.bitmap(box.image.target, .{ .w = box.w, .h = box.h }) orelse return;
+            blit(ctx, bm.native, bm.w, bm.h, x, top, box.w, box.h);
+        },
+        .broken => {
+            if (app.images.brokenIcon()) |icon| {
+                blit(ctx, icon.native, icon.pw, icon.ph, x, top, icon.w, icon.h);
+                return;
+            }
+            setColor(ctx, col_quote);
+            c.cairo_new_path(ctx);
+            for (alerts.brokenImage()) |op| switch (op) {
+                .move => |p| c.cairo_move_to(ctx, x + p[0], top + p[1]),
+                .line => |p| c.cairo_line_to(ctx, x + p[0], top + p[1]),
+                .cubic => |q| c.cairo_curve_to(ctx, x + q[0], top + q[1], x + q[2], top + q[3], x + q[4], top + q[5]),
+                .close => c.cairo_close_path(ctx),
+            };
+            c.cairo_set_fill_rule(ctx, c.CAIRO_FILL_RULE_WINDING);
+            c.cairo_fill(ctx);
+        },
+    }
+}
+
+const Native = struct { surface: *c.cairo_surface_t, data: []u8 };
+
+fn createNative(rgba: []const u8, w: u32, h: u32) ?*anyopaque {
+    const data = app.gpa.alloc(u8, rgba.len) catch return null;
+    var i: usize = 0;
+    while (i + 3 < rgba.len) : (i += 4) {
+        const a: u32 = rgba[i + 3];
+        data[i] = @intCast((@as(u32, rgba[i + 2]) * a + 127) / 255);
+        data[i + 1] = @intCast((@as(u32, rgba[i + 1]) * a + 127) / 255);
+        data[i + 2] = @intCast((@as(u32, rgba[i]) * a + 127) / 255);
+        data[i + 3] = @intCast(a);
+    }
+    const surface = c.cairo_image_surface_create_for_data(data.ptr, c.CAIRO_FORMAT_ARGB32, @intCast(w), @intCast(h), @intCast(w * 4)) orelse {
+        app.gpa.free(data);
+        return null;
+    };
+    const native = app.gpa.create(Native) catch {
+        c.cairo_surface_destroy(surface);
+        app.gpa.free(data);
+        return null;
+    };
+    if (c.cairo_surface_status(surface) != c.CAIRO_STATUS_SUCCESS) {
+        c.cairo_surface_destroy(surface);
+        app.gpa.free(data);
+        app.gpa.destroy(native);
+        return null;
+    }
+    native.* = .{ .surface = surface, .data = data };
+    return native;
+}
+
+fn freeNative(handle: ?*anyopaque) void {
+    const native: *Native = @ptrCast(@alignCast(handle orelse return));
+    c.cairo_surface_destroy(native.surface);
+    app.gpa.free(native.data);
+    app.gpa.destroy(native);
+}
+
+fn drawTooltip(cr: *c.cairo_t, t: app.Tooltip) void {
+    const layout = c.pango_cairo_create_layout(cr) orelse return;
+    defer c.g_object_unref(layout);
+    setAlt(layout, t.text, 360);
+    const size = layoutPixelSize(layout);
+    const w = size[0] + 16;
+    const h = size[1] + 10;
+    const x = @min(t.x + 14, app.window_width - w - 4);
+    const y = if (t.y + 22 + h > app.window_height) t.y - h - 6 else t.y + 22;
+    setColor(cr, col_table_border);
+    drawRoundedRect(cr, x - 1, y - 1, w + 2, h + 2, 5);
+    c.cairo_fill(cr);
+    setColor(cr, col_code_bg);
+    drawRoundedRect(cr, x, y, w, h, 4);
+    c.cairo_fill(cr);
+    setColor(cr, col_text);
+    c.cairo_move_to(cr, x + 8, y + 5);
+    c.pango_cairo_show_layout(cr, layout);
+}
+
 fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
     const desc = c.pango_font_description_from_string(font_desc_str) orelse return;
     defer c.pango_font_description_free(desc);
@@ -757,6 +959,11 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
         insertRange(attr_list, c.pango_attr_rise_new(rise), start, end);
     }
 
+    for (content.images) |*im| {
+        const box = imageBox(im, max_width orelse 100000) orelse continue;
+        addImageShape(attr_list, box, mapStart(spans, im.start), mapEnd(spans, im.start + im.len));
+    }
+
     c.pango_layout_set_attributes(pango_layout, attr_list);
 }
 
@@ -765,7 +972,7 @@ const cell_pad_y: f32 = 6;
 
 fn setCell(pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: ?f32) void {
     const bold = (row == 0 and t.header_row) or (col == 0 and t.header_col);
-    setInline(pango_layout, t.cell(row, col), width, if (bold) "Sans Bold 12" else "Sans 12");
+    setInline(pango_layout, app.images.flow(t.cell(row, col)), width, if (bold) "Sans Bold 12" else "Sans 12");
     c.pango_layout_set_alignment(pango_layout, @intCast(switch (t.aligns[col]) {
         .none, .left => c.PANGO_ALIGN_LEFT,
         .center => c.PANGO_ALIGN_CENTER,
@@ -829,12 +1036,12 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
                     _ = renderTable(cr, pango_layout, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
                 } else {
                     setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
-                    drawCodeBackgrounds(cr, pango_layout, t.cell(row, col), cx + cell_pad_x, row_y + cell_pad_y);
+                    drawCodeBackgrounds(cr, pango_layout, app.images.flow(t.cell(row, col)), cx + cell_pad_x, row_y + cell_pad_y);
                     setColor(cr, col_text);
                     c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
                     c.pango_cairo_show_layout(cr, pango_layout);
                     app.noteHit(.{
-                        .content = t.cell(row, col), .x = cx + cell_pad_x, .y = row_y + cell_pad_y + app.scroll_y, .w = w - cell_pad_x * 2,
+                        .content = app.images.flow(t.cell(row, col)), .x = cx + cell_pad_x, .y = row_y + cell_pad_y + app.scroll_y, .w = w - cell_pad_x * 2,
                         .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
                     });
                 }
@@ -937,7 +1144,8 @@ fn drawAlertIcon(cr: *c.cairo_t, alert: md.Alert, x: f32, y: f32) void {
     c.cairo_fill(cr);
 }
 
-fn renderErrorBox(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32, w: f32) f32 {
+fn renderErrorBox(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32, w: f32) f32 {
+    const content = app.images.flow(content_in);
     setInline(pango_layout, content, @max(w - 34, 20), "Sans 12");
     const h = layoutPixelSize(pango_layout)[1] + 32;
     drawRoundedRect(cr, x, y, w, h, 6);
@@ -1138,4 +1346,67 @@ test "the code span padding keeps the neighbouring letters where they were" {
     try std.testing.expectApproxEqAbs(@as(f64, @floatFromInt(pad)), @as(f64, @floatFromInt(b_after.x - (code_end.x + code_end.width))), 2);
     try std.testing.expectEqual(@as(usize, 6), unmap(spans, mapEnd(spans, 6)));
     try std.testing.expectEqual(@as(usize, 3), unmap(spans, mapEnd(spans, 3)));
+}
+
+fn imageLayoutSize(content: md.Inline, width: f32) ![2]f32 {
+    const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return error.NoSurface;
+    defer c.cairo_surface_destroy(surface);
+    const cr = c.cairo_create(surface) orelse return error.NoContext;
+    defer c.cairo_destroy(cr);
+    const layout = c.pango_cairo_create_layout(cr) orelse return error.NoLayout;
+    defer c.g_object_unref(layout);
+    setInline(layout, content, width, "Sans 12");
+    return layoutPixelSize(layout);
+}
+
+test "an image scales down to the layout width and is hit like a character" {
+    app.gpa = std.testing.allocator;
+    app.images.init(std.testing.allocator, std.testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetBoxes();
+    try app.images.injectReady("wide.png", 1000, 500);
+    var doc = try md.parse(std.testing.allocator, "![w](wide.png) after");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+
+    const wide = try imageLayoutSize(content, 2000);
+    try std.testing.expect(wide[0] >= 1000 and wide[1] >= 500);
+    const narrow = try imageLayoutSize(content, 400);
+    try std.testing.expect(narrow[0] <= 400.5);
+    try std.testing.expect(narrow[1] >= 200 and narrow[1] < 260);
+
+    const hit: app.Hit = .{ .content = content, .x = 0, .y = 0, .w = 400, .h = narrow[1] };
+    const index = textIndexAt(hit, 100, 100) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(content.imageAt(index) != null);
+}
+
+test "a missing image lays out a glyph and its alt text in the flow and a reference image resolves" {
+    app.gpa = std.testing.allocator;
+    app.images.init(std.testing.allocator, std.testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetBoxes();
+    var doc = try md.parse(std.testing.allocator, "![a long alt text](gone.png)\n\n![ref image][r]\n\n[r]: gone.png");
+    defer doc.deinit();
+    try std.testing.expectEqualStrings("gone.png", doc.blocks[1].content.images[0].target);
+    const deadline = app.images.now() + 5000;
+    while (app.images.now() < deadline) {
+        _ = app.images.tick();
+        if (app.images.look("gone.png", 400) == .missing) break;
+        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
+    }
+    try std.testing.expect(app.images.look("gone.png", 400) == .missing);
+    const alt = try imageLayoutSize(app.images.flow(doc.blocks[0].content), 400);
+    const plain = try imageLayoutSize(.{ .text = "a long alt text" }, 400);
+    try std.testing.expectApproxEqAbs(plain[0] + broken_w, alt[0], 2);
+    try std.testing.expectApproxEqAbs(plain[1], alt[1], 2);
+}
+
+test "the X resource database gives the text scale as Xft.dpi" {
+    try std.testing.expectEqual(@as(?f32, 144), xftDpi("*background:\tblack\nXft.dpi:\t144\nXft.hinting: 1\n"));
+    try std.testing.expectEqual(@as(?f32, 96), xftDpi("Xft.dpi: 96"));
+    try std.testing.expectEqual(@as(?f32, null), xftDpi("Xft.hinting: 1\n"));
+    try std.testing.expectEqual(@as(?f32, null), xftDpi("Xft.dpi: wide\n"));
+    try std.testing.expectEqual(@as(?f32, null), xftDpi("Xft.dpi: 0\n"));
 }

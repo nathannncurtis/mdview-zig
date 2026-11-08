@@ -5,6 +5,9 @@ const emoji = @import("../data/emoji.zig");
 const unicode = @import("../data/unicode.zig");
 
 pub const Kind = enum { em, strong, strike, code, emoji, link, image, sup };
+/// An image takes one of these in the text; the alt text travels with the image.
+pub const object_char = "\u{fffc}";
+
 pub const EventTag = enum { open, close, html, soft, hard };
 
 /// `pos` is a byte offset into `Parsed.text`. `soft` and `hard` consume one byte of text
@@ -156,6 +159,26 @@ const Scanner = struct {
         const nx = items[id].next;
         if (pv != none) items[pv].next = nx else s.head = nx;
         if (nx != none) items[nx].prev = pv else s.tail = pv;
+    }
+
+    /// The plain text of everything after node `from`, which is what an image shows when it cannot be drawn.
+    fn altText(s: *Scanner, from: u32) Allocator.Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(s.heap);
+        var id = s.nodes.items[from].next;
+        while (id != none) : (id = s.nodes.items[id].next) {
+            const n = s.nodes.items[id];
+            switch (n.tag) {
+                .text => try out.appendSlice(s.heap, n.s),
+                .open => if (n.kind == .image) {
+                    try out.appendSlice(s.heap, n.s);
+                    id = s.nodes.items[id].next;
+                },
+                .soft, .hard => try out.append(s.heap, ' '),
+                .close, .html => {},
+            }
+        }
+        return s.a.dupe(u8, out.items);
     }
 
     fn text(s: *Scanner, str: []const u8) Allocator.Error!void {
@@ -425,12 +448,15 @@ const Scanner = struct {
             if (s.nodes.items[inner].bare) s.unlink(inner);
             inner = nx;
         }
+        const alt = if (b.image) try s.altText(b.node) else "";
+        if (b.image) while (s.tail != b.node) s.unlink(s.tail);
         const opener = &s.nodes.items[b.node];
         opener.tag = .open;
         opener.kind = if (b.image) .image else .link;
-        opener.s = "";
+        opener.s = alt;
         opener.url = m.url;
         opener.title = m.title;
+        if (b.image) try s.text(object_char);
         if (m.replace.len > 0) {
             if (m.sup) _ = try s.push(.{ .tag = .open, .kind = .sup });
             try s.text(m.replace);
@@ -545,7 +571,7 @@ const Scanner = struct {
             }
             switch (n.tag) {
                 .text => try buf.appendSlice(s.heap, n.s),
-                .open => try events.append(s.heap, .{ .tag = .open, .kind = n.kind, .pos = pos, .url = n.url, .title = n.title }),
+                .open => try events.append(s.heap, .{ .tag = .open, .kind = n.kind, .pos = pos, .url = n.url, .title = n.title, .raw = n.s }),
                 .close => try events.append(s.heap, .{ .tag = .close, .kind = n.kind, .pos = pos }),
                 .html => try events.append(s.heap, .{ .tag = .html, .pos = pos, .raw = n.s }),
                 .soft => {

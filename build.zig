@@ -74,7 +74,9 @@ pub fn build(b: *std.Build) void {
     });
     parser_tests.root_module.addImport("testdata", testdata);
     const test_step = b.step("test", "Run parser tests");
-    test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+    const run_parser = b.addRunArtifact(parser_tests);
+    run_parser.setCwd(b.path("."));
+    test_step.dependOn(&run_parser.step);
 
     const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
     const svg_mod = b.createModule(.{
@@ -83,6 +85,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     svg_mod.addImport("font", font_mod);
+    exe_mod.addImport("font", font_mod);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = svg_mod })).step);
     const svg_render_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -110,6 +113,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    image_tests.root_module.addImport("font", font_mod);
     const run_image_tests = b.addRunArtifact(image_tests);
     run_image_tests.setCwd(b.path("."));
     test_step.dependOn(&run_image_tests.step);
@@ -136,6 +140,7 @@ pub fn build(b: *std.Build) void {
         for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
@@ -148,6 +153,7 @@ pub fn build(b: *std.Build) void {
         .filters = &.{"stress files"},
     });
     stress_tests.root_module.addImport("testdata", testdata);
+    stress_tests.root_module.addImport("font", font_mod);
     const run_stress = b.addRunArtifact(stress_tests);
     if (b.option([]const u8, "stress-dir", "Directory of files from gen-stress for the stress step")) |dir| {
         run_stress.setEnvironmentVariable("MDVIEW_STRESS_DIR", dir);
@@ -169,6 +175,7 @@ pub fn build(b: *std.Build) void {
             hit_tests.root_module.linkSystemLibrary(lib, .{});
         }
         hit_tests.root_module.addImport("testdata", testdata);
+        hit_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
 
@@ -185,7 +192,39 @@ pub fn build(b: *std.Build) void {
     fuzz_tests.root_module.addImport("testdata", testdata);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
-    b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
+    const fuzz_step = b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)");
+    fuzz_step.dependOn(&run_fuzz.step);
+
+    const math_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/tex_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    math_tests.root_module.addImport("testdata", testdata);
+    test_step.dependOn(&b.addRunArtifact(math_tests).step);
+
+    const math_stack = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/stack.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(math_stack).step);
+
+    const math_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_math_fuzz = b.addRunArtifact(math_fuzz);
+    test_step.dependOn(&run_math_fuzz.step);
+    fuzz_step.dependOn(&run_math_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
@@ -228,6 +267,7 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .{ .step = "gen-unicode", .file = "tools/gen/gen_unicode.zig", .what = "Regenerate src/data/unicode.zig: <UnicodeData.txt> <out.zig>" },
         .{ .step = "gen-highlight-colors", .file = "tools/gen/gen_highlight_colors.zig", .what = "Regenerate src/data/highlight_colors.zig: <primer-dark.json> <out.zig>" },
         .{ .step = "gen-spec-cases", .file = "tools/gen/gen_spec_cases.zig", .what = "Regenerate src/markdown/spec_inline_cases.zig: <spec.txt> <out.zig>" },
+        .{ .step = "gen-math-symbols", .file = "tools/gen/gen_math_symbols.zig", .what = "Regenerate src/math/symbols.zig: <KaTeX symbols.ts> <out.zig>" },
         .{ .step = "gen-stress", .file = "tools/gen/gen_stress.zig", .what = "Write adversarial Markdown files: <outdir> [small]" },
         .{ .step = "stress-app", .file = "tools/check/stress_app.zig", .what = "Run the built app on the gen-stress files: <mdview exe> <stress dir> <work dir> [options]" },
         .{ .step = "release-notes", .file = "tools/release/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
