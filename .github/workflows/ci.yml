@@ -122,7 +122,7 @@ jobs:
         run: |
           zig build fuzz -Dfuzz-filter="fuzz ${{ matrix.target }}" --fuzz=${{ matrix.iterations }} -Doptimize=ReleaseSafe --summary all 2>&1 | tee fuzz.log
           ! grep -qE 'panic|run test failure|FAILED' fuzz.log
-          grep -q 'run test 1 pass (1 total)' fuzz.log
+          grep -qF 'Fuzz test: "fuzz.test.fuzz ${{ matrix.target }}"' fuzz.log
 
   # Parses the generator's adversarial files within a time and memory limit, on each OS (reduced sizes).
   stress-parser:
