@@ -39,6 +39,21 @@ pub fn faceCount(d: []const u8) u32 {
 }
 
 pub const oblique_skew = 0.25;
+
+pub const Decoded = struct { cp: u32, len: usize };
+
+pub fn decodeAt(text: []const u8, i: usize) Decoded {
+    if (std.unicode.utf8ByteSequenceLength(text[i])) |n| {
+        if (i + n <= text.len) {
+            if (std.unicode.utf8Decode(text[i..][0..n])) |c| return .{ .cp = c, .len = n } else |_| {}
+        }
+    } else |_| {}
+    return .{ .cp = 0xFFFD, .len = 1 };
+}
+
+pub fn isZeroWidth(cp: u32) bool {
+    return cp < 0x20 or cp == 0x200B or cp == 0x200C or cp == 0x200D or cp == 0xFEFF;
+}
 const max_kern_lookups = 48;
 
 pub const Font = struct {
@@ -219,6 +234,14 @@ pub const Font = struct {
     pub fn topAccent(f: *const Font, g: u16) i16 {
         if (f.math) |m| if (m.topAccent(g)) |v| return v;
         return @intFromFloat(f.advance(g) / 2);
+    }
+
+    pub fn isExtendedShape(f: *const Font, g: u16) bool {
+        return if (f.math) |m| m.isExtended(g) else false;
+    }
+
+    pub fn mathKern(f: *const Font, g: u16, corner: math_mod.Corner) ?math_mod.Kern {
+        return if (f.math) |m| m.kernOf(g, corner) else null;
     }
 
     pub fn vertVariants(f: *const Font, g: u16) math_mod.Variants {
@@ -408,19 +431,10 @@ pub const Font = struct {
         var prev: u16 = 0;
         var i: usize = 0;
         while (i < text.len) {
-            var cp: u32 = 0xFFFD;
-            var step: usize = 1;
-            if (std.unicode.utf8ByteSequenceLength(text[i])) |n| {
-                if (i + n <= text.len) {
-                    if (std.unicode.utf8Decode(text[i..][0..n])) |c| {
-                        cp = c;
-                        step = n;
-                    } else |_| {}
-                }
-            } else |_| {}
-            i += step;
-            if (cp < 0x20 or cp == 0x200B or cp == 0x200C or cp == 0x200D or cp == 0xFEFF) continue;
-            const g = f.glyphIndex(cp);
+            const d = decodeAt(text, i);
+            i += d.len;
+            if (isZeroWidth(d.cp)) continue;
+            const g = f.glyphIndex(d.cp);
             units += f.advance(g);
             if (kerning) units += f.kern(prev, g);
             prev = g;

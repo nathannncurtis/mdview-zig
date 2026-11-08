@@ -175,6 +175,52 @@ fn valueTable(a: std.mem.Allocator, f: *const Font, table: usize, kept: []const 
     return b.items;
 }
 
+fn kernInfo(a: std.mem.Allocator, f: *const Font, kept: []const u16) ![]u8 {
+    const m = f.math.?;
+    const corners = [_]ttf.math.Corner{ .top_right, .top_left, .bottom_right, .bottom_left };
+    var gids: std.ArrayList(u16) = .empty;
+    var recs: Buf = .empty;
+    var tables: Buf = .empty;
+    for (kept, 0..) |old, new| {
+        var any = false;
+        for (corners) |c| {
+            if (m.kernOf(old, c) != null) any = true;
+        }
+        if (!any) continue;
+        try gids.append(a, @intCast(new));
+        for (corners) |c| {
+            const k = m.kernOf(old, c) orelse {
+                try put16(&recs, a, 0);
+                continue;
+            };
+            try put16(&recs, a, 4 + 0 + tables.items.len);
+            try put16(&tables, a, k.count);
+            for (0..k.count) |i| {
+                try put16(&tables, a, k.height(i).?);
+                try put16(&tables, a, 0);
+            }
+            for (0..k.count + 1) |i| {
+                try put16(&tables, a, k.value(i).?);
+                try put16(&tables, a, 0);
+            }
+        }
+    }
+    if (gids.items.len == 0) return &.{};
+    const rec_base = 4 + gids.items.len * 8;
+    var out: Buf = .empty;
+    try put16(&out, a, rec_base + tables.items.len);
+    try put16(&out, a, gids.items.len);
+    var i: usize = 0;
+    while (i < recs.items.len) : (i += 2) {
+        const v = std.mem.readInt(u16, recs.items[i..][0..2], .big);
+        try put16(&out, a, if (v == 0) 0 else v + gids.items.len * 8);
+    }
+    try out.appendSlice(a, tables.items);
+    try coverageBytes(&out, a, gids.items);
+    if (out.items.len > 65535) return error.KernTooLarge;
+    return out.items;
+}
+
 fn mathTable(a: std.mem.Allocator, f: *const Font, kept: []const u16, remap: *const std.AutoHashMapUnmanaged(u16, u16), base: *const Set) ![]u8 {
     const m = f.math.?;
     var consts: Buf = .empty;
@@ -185,12 +231,21 @@ fn mathTable(a: std.mem.Allocator, f: *const Font, kept: []const u16, remap: *co
     var info: Buf = .empty;
     const ital = try valueTable(a, f, m.italics, kept);
     const acc = try valueTable(a, f, m.accents, kept);
+    var ext_gids: std.ArrayList(u16) = .empty;
+    for (kept, 0..) |old, new| if (m.isExtended(old)) try ext_gids.append(a, @intCast(new));
+    var ext: Buf = .empty;
+    if (ext_gids.items.len > 0) try coverageBytes(&ext, a, ext_gids.items);
+    const kern_bytes = try kernInfo(a, f, kept);
+    const acc_at = 8 + ital.len;
+    const ext_at = acc_at + acc.len;
     try put16(&info, a, 8);
-    try put16(&info, a, 8 + ital.len);
-    try put16(&info, a, 0);
-    try put16(&info, a, 0);
+    try put16(&info, a, acc_at);
+    try put16(&info, a, if (ext.items.len > 0) ext_at else 0);
+    try put16(&info, a, if (kern_bytes.len > 0) ext_at + ext.items.len else 0);
     try info.appendSlice(a, ital);
     try info.appendSlice(a, acc);
+    try info.appendSlice(a, ext.items);
+    try info.appendSlice(a, kern_bytes);
 
     var vars: Buf = .empty;
     var lists: [2]std.ArrayList(u16) = .{ .empty, .empty };
@@ -338,6 +393,18 @@ fn verify(a: std.mem.Allocator, src: []const u8, out: []const u8) !void {
             if (ga == 0) return error.MissingGlyph;
             try samePath(a, &f, fa, &g, ga);
             if (f.italicCorrection(fa) != g.italicCorrection(ga) or f.topAccent(fa) != g.topAccent(ga)) return error.InfoMismatch;
+            if (f.isExtendedShape(fa) != g.isExtendedShape(ga)) return error.InfoMismatch;
+            for ([_]ttf.math.Corner{ .top_right, .top_left, .bottom_right, .bottom_left }) |corner| {
+                const k1 = f.mathKern(fa, corner);
+                const k2 = g.mathKern(ga, corner);
+                if ((k1 == null) != (k2 == null)) return error.KernMismatch;
+                if (k1) |x| {
+                    const y = k2.?;
+                    if (x.count != y.count) return error.KernMismatch;
+                    for (0..x.count) |i| if (x.height(i).? != y.height(i).?) return error.KernMismatch;
+                    for (0..x.count + 1) |i| if (x.value(i).? != y.value(i).?) return error.KernMismatch;
+                }
+            }
             for ([_]Dir{ .vert, .horiz }) |dir| {
                 const v1 = f.math.?.variantsOf(fa, dir);
                 const v2 = g.math.?.variantsOf(ga, dir);

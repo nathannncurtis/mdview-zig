@@ -76,6 +76,33 @@ pub const Constants = struct {
 
 pub const Dir = enum { vert, horiz };
 
+pub const Corner = enum { top_right, top_left, bottom_right, bottom_left };
+
+pub const Kern = struct {
+    data: []const u8,
+    at: usize,
+    count: usize,
+
+    pub fn height(k: Kern, i: usize) ?i16 {
+        if (i >= k.count) return null;
+        return i16At(k.data, k.at + 2 + i * 4) catch null;
+    }
+
+    pub fn value(k: Kern, i: usize) ?i16 {
+        if (i > k.count) return null;
+        return i16At(k.data, k.at + 2 + k.count * 4 + i * 4) catch null;
+    }
+
+    pub fn atHeight(k: Kern, h: i16) i16 {
+        var i: usize = 0;
+        while (i < k.count) : (i += 1) {
+            const ch = k.height(i) orelse break;
+            if (h < ch) break;
+        }
+        return k.value(i) orelse 0;
+    }
+};
+
 pub const Variant = struct { gid: u16, advance: u16 };
 
 pub const Part = struct { gid: u16, start_connector: u16, end_connector: u16, full_advance: u16, extender: bool };
@@ -117,6 +144,8 @@ pub const Math = struct {
     constants_at: usize,
     italics: usize,
     accents: usize,
+    extended: usize,
+    kern_info: usize,
     variants: usize,
     min_connector_overlap: u16,
 
@@ -130,6 +159,8 @@ pub const Math = struct {
             .constants_at = consts,
             .italics = 0,
             .accents = 0,
+            .extended = 0,
+            .kern_info = 0,
             .variants = 0,
             .min_connector_overlap = 0,
         };
@@ -139,6 +170,10 @@ pub const Math = struct {
             const ta = try u16At(d, info + 2);
             if (ic != 0) m.italics = info + ic;
             if (ta != 0) m.accents = info + ta;
+            const es = try u16At(d, info + 4);
+            const mk = try u16At(d, info + 6);
+            if (es != 0) m.extended = info + es;
+            if (mk != 0) m.kern_info = info + mk;
         }
         if (var_off != 0) {
             m.variants = at + var_off;
@@ -154,6 +189,25 @@ pub const Math = struct {
         const count = u16At(d, table + 2) catch return null;
         if (idx >= count) return null;
         return i16At(d, table + 4 + @as(usize, idx) * 4) catch null;
+    }
+
+    pub fn isExtended(m: Math, g: u16) bool {
+        if (m.extended == 0) return false;
+        const found = coverage(m.data, m.extended, g) catch return false;
+        return found != null;
+    }
+
+    pub fn kernOf(m: Math, g: u16, corner: Corner) ?Kern {
+        if (m.kern_info == 0) return null;
+        const d = m.data;
+        const idx = (coverage(d, m.kern_info + (u16At(d, m.kern_info) catch return null), g) catch return null) orelse return null;
+        const n = u16At(d, m.kern_info + 2) catch return null;
+        if (idx >= n) return null;
+        const rec = m.kern_info + 4 + @as(usize, idx) * 8;
+        const off = u16At(d, rec + @as(usize, @intFromEnum(corner)) * 2) catch return null;
+        if (off == 0) return null;
+        const at = m.kern_info + off;
+        return .{ .data = d, .at = at, .count = u16At(d, at) catch return null };
     }
 
     pub fn italicCorrection(m: Math, g: u16) i16 {

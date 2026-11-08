@@ -24,6 +24,19 @@ const windows_fonts = [_]Entry{
     e("calibri", "calibri.ttf", "calibrib.ttf", "calibrii.ttf", "calibriz.ttf"),
     e("comic sans ms", "comic.ttf", "comicbd.ttf", "comici.ttf", "comicz.ttf"),
     e("impact", "impact.ttf", "", "", ""),
+    e("segoe ui symbol", "seguisym.ttf", "", "", ""),
+    e("segoe ui emoji", "seguiemj.ttf", "", "", ""),
+    e("yu gothic ui", "YuGothR.ttc", "YuGothB.ttc", "", ""),
+    e("microsoft yahei", "msyh.ttc", "msyhbd.ttc", "", ""),
+    e("malgun gothic", "malgun.ttf", "malgunbd.ttf", "", ""),
+};
+
+const linux_fonts = [_]Entry{
+    e("dejavu sans", "dejavusans.ttf", "dejavusans-bold.ttf", "dejavusans-oblique.ttf", "dejavusans-boldoblique.ttf"),
+    e("noto sans", "notosans-regular.ttf", "notosans-bold.ttf", "notosans-italic.ttf", "notosans-bolditalic.ttf"),
+    e("noto sans cjk", "notosanscjk-regular.ttc", "notosanscjk-bold.ttc", "", ""),
+    e("noto sans symbols", "notosanssymbols-regular.ttf", "notosanssymbols-bold.ttf", "", ""),
+    e("noto sans symbols2", "notosanssymbols2-regular.ttf", "", "", ""),
 };
 
 const mac_fonts = [_]Entry{
@@ -39,6 +52,11 @@ const mac_fonts = [_]Entry{
     e("menlo", "Menlo.ttc", "Menlo.ttc", "Menlo.ttc", "Menlo.ttc"),
     e("comic sans ms", "Comic Sans MS.ttf", "Comic Sans MS Bold.ttf", "", ""),
     e("impact", "Impact.ttf", "", "", ""),
+    e("helvetica neue", "HelveticaNeue.ttc", "HelveticaNeue.ttc", "HelveticaNeue.ttc", "HelveticaNeue.ttc"),
+    e("hiragino sans", "ヒラギノ角ゴシック W3.ttc", "ヒラギノ角ゴシック W6.ttc", "", ""),
+    e("pingfang sc", "PingFang.ttc", "PingFang.ttc", "", ""),
+    e("apple sd gothic neo", "AppleSDGothicNeo.ttc", "AppleSDGothicNeo.ttc", "", ""),
+    e("apple symbols", "Apple Symbols.ttf", "", "", ""),
 };
 
 const Lookup = union(enum) { named: []const u8, bundled };
@@ -78,10 +96,11 @@ fn alias(os: std.Target.Os.Tag, name: []const u8) Lookup {
     return .{ .named = name };
 }
 
-fn table(os: std.Target.Os.Tag) []const Entry {
+fn tables(os: std.Target.Os.Tag) [2][]const Entry {
     return switch (os) {
-        .macos => &mac_fonts,
-        else => &windows_fonts,
+        .windows => .{ &windows_fonts, &.{} },
+        .macos => .{ &mac_fonts, &.{} },
+        else => .{ &linux_fonts, &windows_fonts },
     };
 }
 
@@ -111,7 +130,7 @@ pub const Candidates = struct {
 
 pub fn fileNames(os: std.Target.Os.Tag, name: []const u8, bold: bool, italic: bool) Candidates {
     var c: Candidates = .{};
-    for (table(os)) |en| {
+    for (tables(os)) |tab| for (tab) |en| {
         if (!std.mem.eql(u8, en.name, name)) continue;
         const idx: usize = @intFromBool(bold) + 2 * @as(usize, @intFromBool(italic));
         const file = en.files[idx];
@@ -124,7 +143,7 @@ pub fn fileNames(os: std.Target.Os.Tag, name: []const u8, bold: bool, italic: bo
             const suffix = suffixes[idx];
             c.add("{s}{s}.ttf", .{ under[0..n], suffix });
         }
-    }
+    };
     return c;
 }
 
@@ -167,7 +186,7 @@ const gpa = std.heap.smp_allocator;
 
 const FileEntry = struct { path: []const u8, data: ?[]const u8 };
 const FontEntry = struct { path: []const u8, face: u32, oblique: bool, font: *Font };
-const Request = struct { key: []const u8, font: *const Font };
+const Request = struct { families: []const u8, bold: bool, italic: bool, chain: *const Chain };
 const Indexed = struct { lower: []const u8, path: []const u8 };
 
 var lock: std.Io.Mutex = .init;
@@ -254,7 +273,7 @@ fn findIndexed(file: []const u8) ?[]const u8 {
     return null;
 }
 
-fn loadNamed(io: std.Io, os: std.Target.Os.Tag, name: []const u8, bold: bool, italic: bool) ?*const Font {
+fn loadNamed(io: std.Io, os: std.Target.Os.Tag, name: []const u8, bold: bool, italic: bool, lenient: bool) ?*const Font {
     const st = styleFallback(os, name, bold, italic);
     const cands = fileNames(os, name, st.bold, st.italic);
     var pbuf: [512]u8 = undefined;
@@ -264,47 +283,157 @@ fn loadNamed(io: std.Io, os: std.Target.Os.Tag, name: []const u8, bold: bool, it
             for (dirs(os)) |d| {
                 const sep = if (os == .windows) "\\" else "/";
                 const p = std.fmt.bufPrint(&pbuf, "{s}{s}{s}", .{ d, sep, file }) catch continue;
-                if (loadPath(io, p, name, st.bold, st.italic, st.oblique)) |f| return f;
+                if (loadPath(io, p, name, st.bold, st.italic, st.oblique, lenient)) |f| return f;
             }
         } else if (findLinux(io, file)) |p| {
-            if (loadPath(io, p, name, st.bold, st.italic, st.oblique)) |f| return f;
+            if (loadPath(io, p, name, st.bold, st.italic, st.oblique, lenient)) |f| return f;
         }
     }
     return null;
 }
 
-fn loadPath(io: std.Io, path: []const u8, name: []const u8, bold: bool, italic: bool, oblique: bool) ?*const Font {
+fn loadPath(io: std.Io, path: []const u8, name: []const u8, bold: bool, italic: bool, oblique: bool, lenient: bool) ?*const Font {
     const data = readFile(io, path) orelse return null;
-    const face = if (ttf.faceCount(data) > 1 or std.mem.endsWith(u8, path, ".ttc")) pickFace(data, name, bold, italic) orelse return null else 0;
+    const is_ttc = ttf.faceCount(data) > 1 or std.mem.endsWith(u8, path, ".ttc");
+    const face = if (is_ttc) pickFace(data, name, bold, italic) orelse (if (lenient) 0 else return null) else 0;
     return fontFrom(path, data, face, oblique);
 }
 
-fn resolveLocked(io: std.Io, families: []const u8, bold: bool, italic: bool) *const Font {
+const Group = enum { text, symbol, cjk, hangul };
+
+fn groupOf(cp: u32) Group {
+    if ((cp >= 0xAC00 and cp <= 0xD7AF) or (cp >= 0x1100 and cp <= 0x11FF) or (cp >= 0x3130 and cp <= 0x318F)) return .hangul;
+    if ((cp >= 0x2E80 and cp <= 0x30FF) or (cp >= 0x31F0 and cp <= 0x31FF) or (cp >= 0x3400 and cp <= 0x4DBF) or
+        (cp >= 0x4E00 and cp <= 0x9FFF) or (cp >= 0xF900 and cp <= 0xFAFF) or (cp >= 0xFF00 and cp <= 0xFFEF) or
+        (cp >= 0x20000 and cp <= 0x2FFFF)) return .cjk;
+    if ((cp >= 0x2190 and cp <= 0x2BFF) or (cp >= 0x1F000 and cp <= 0x1FFFF)) return .symbol;
+    return .text;
+}
+
+fn fallbackNames(os: std.Target.Os.Tag, g: Group) []const []const u8 {
+    return switch (os) {
+        .windows => switch (g) {
+            .text => &.{"segoe ui"},
+            .symbol => &.{ "segoe ui symbol", "segoe ui emoji", "segoe ui" },
+            .cjk => &.{ "yu gothic ui", "microsoft yahei", "malgun gothic", "segoe ui" },
+            .hangul => &.{ "malgun gothic", "microsoft yahei", "yu gothic ui", "segoe ui" },
+        },
+        .macos => switch (g) {
+            .text => &.{"helvetica neue"},
+            .symbol => &.{ "apple symbols", "helvetica neue" },
+            .cjk => &.{ "hiragino sans", "pingfang sc", "apple sd gothic neo", "helvetica neue" },
+            .hangul => &.{ "apple sd gothic neo", "pingfang sc", "hiragino sans", "helvetica neue" },
+        },
+        else => switch (g) {
+            .text => &.{ "noto sans", "dejavu sans" },
+            .symbol => &.{ "noto sans symbols", "noto sans symbols2", "dejavu sans", "noto sans" },
+            .cjk, .hangul => &.{ "noto sans cjk", "dejavu sans", "noto sans" },
+        },
+    };
+}
+
+pub const Chain = struct {
+    io: std.Io,
+    bold: bool,
+    italic: bool,
+    faces: []const *const Font,
+    primary: *const Font,
+
+    pub const Glyph = struct { font: *const Font, gid: u16 };
+
+    pub fn glyphFor(c: *const Chain, cp: u32) Glyph {
+        for (c.faces) |f| {
+            const g = f.glyphIndex(cp);
+            if (g != 0) return .{ .font = f, .gid = g };
+        }
+        return c.fallback(cp);
+    }
+
+    fn fallback(c: *const Chain, cp: u32) Glyph {
+        lock.lockUncancelable(c.io);
+        defer lock.unlock(c.io);
+        for (fallbackNames(builtin.os.tag, groupOf(cp))) |name| {
+            const f = loadNamed(c.io, builtin.os.tag, name, c.bold, c.italic, true) orelse continue;
+            const g = f.glyphIndex(cp);
+            if (g != 0) return .{ .font = f, .gid = g };
+        }
+        const last = bundled(c.bold, c.italic);
+        const g = last.glyphIndex(cp);
+        if (g != 0) return .{ .font = last, .gid = g };
+        return .{ .font = c.primary, .gid = 0 };
+    }
+
+    pub fn measure(c: *const Chain, text: []const u8, size: f64) struct { w: f64, h: f64 } {
+        var w: f64 = 0;
+        var h: f64 = c.primary.lineHeight(size);
+        var prev: ?Glyph = null;
+        var i: usize = 0;
+        while (i < text.len) {
+            const d = ttf.decodeAt(text, i);
+            i += d.len;
+            if (ttf.isZeroWidth(d.cp)) continue;
+            const g = c.glyphFor(d.cp);
+            const scale = size / @as(f64, @floatFromInt(g.font.upem));
+            w += g.font.advance(g.gid) * scale;
+            if (prev) |p| {
+                if (p.font == g.font) w += g.font.kern(p.gid, g.gid) * scale;
+            }
+            h = @max(h, g.font.lineHeight(size));
+            prev = g;
+        }
+        return .{ .w = w, .h = h };
+    }
+
+    pub fn outlineAt(c: *const Chain, alloc: std.mem.Allocator, cp: u32, size: f64, x: f64, y: f64, path: anytype) ttf.Error!void {
+        const g = c.glyphFor(cp);
+        try g.font.outlineAt(alloc, g.gid, size, x, y, path);
+    }
+
+    pub fn advancePx(c: *const Chain, cp: u32, size: f64) f64 {
+        const g = c.glyphFor(cp);
+        return g.font.advance(g.gid) * size / @as(f64, @floatFromInt(g.font.upem));
+    }
+};
+
+fn buildChain(io: std.Io, families: []const u8, bold: bool, italic: bool) *const Chain {
+    var faces: [16]*const Font = undefined;
+    var n: usize = 0;
     var it = std.mem.splitScalar(u8, families, ',');
     while (it.next()) |raw| {
         var name_buf: [96]u8 = undefined;
         const trimmed = std.mem.trim(u8, raw, " \t\r\n\"'");
         if (trimmed.len == 0 or trimmed.len > name_buf.len) continue;
         const name = std.ascii.lowerString(&name_buf, trimmed);
-        switch (alias(builtin.os.tag, name)) {
-            .bundled => return bundled(bold, italic),
-            .named => |n| if (loadNamed(io, builtin.os.tag, n, bold, italic)) |f| return f,
-        }
+        const f = switch (alias(builtin.os.tag, name)) {
+            .bundled => bundled(bold, italic),
+            .named => |nm| loadNamed(io, builtin.os.tag, nm, bold, italic, false) orelse continue,
+        };
+        if (std.mem.indexOfScalar(*const Font, faces[0..n], f) != null) continue;
+        if (n == faces.len) break;
+        faces[n] = f;
+        n += 1;
     }
-    return bundled(bold, italic);
+    if (n == 0) {
+        faces[0] = bundled(bold, italic);
+        n = 1;
+    }
+    const owned = gpa.dupe(*const Font, faces[0..n]) catch @panic("out of memory");
+    const c = gpa.create(Chain) catch @panic("out of memory");
+    c.* = .{ .io = io, .bold = bold, .italic = italic, .faces = owned, .primary = owned[0] };
+    return c;
 }
 
-pub fn resolve(io: std.Io, families: []const u8, weight: u16, italic: bool) *const Font {
+pub fn resolve(io: std.Io, families: []const u8, weight: u16, italic: bool) *const Chain {
     const bold = weight >= 600;
     lock.lockUncancelable(io);
     defer lock.unlock(io);
-    var key_buf: [256]u8 = undefined;
-    const key = std.fmt.bufPrint(&key_buf, "{d}{d}{s}", .{ @intFromBool(bold), @intFromBool(italic), families }) catch return resolveLocked(io, families, bold, italic);
-    for (requests.items) |r| if (std.mem.eql(u8, r.key, key)) return r.font;
-    const f = resolveLocked(io, families, bold, italic);
-    const owned = gpa.dupe(u8, key) catch return f;
-    requests.append(gpa, .{ .key = owned, .font = f }) catch return f;
-    return f;
+    for (requests.items) |r| {
+        if (r.bold == bold and r.italic == italic and std.mem.eql(u8, r.families, families)) return r.chain;
+    }
+    const c = buildChain(io, families, bold, italic);
+    const owned = gpa.dupe(u8, families) catch return c;
+    requests.append(gpa, .{ .families = owned, .bold = bold, .italic = italic, .chain = c }) catch return c;
+    return c;
 }
 
 const math_blob = @embedFile("stix_math.z");

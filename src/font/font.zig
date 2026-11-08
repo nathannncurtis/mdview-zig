@@ -9,6 +9,11 @@ pub const Mat = ttf.Mat;
 pub const Pt = ttf.Pt;
 pub const Error = ttf.Error;
 pub const resolve = resolver.resolve;
+pub const Chain = resolver.Chain;
+
+pub fn resolveFont(io: std.Io, families: []const u8, weight: u16, italic: bool) *const Font {
+    return resolve(io, families, weight, italic).primary;
+}
 pub const bundled = resolver.bundled;
 pub const mathFont = resolver.mathFont;
 pub const embeddedMathFont = resolver.embeddedMathFont;
@@ -22,6 +27,10 @@ pub fn measure(font: *const Font, utf8: []const u8, size: f64) Size {
 }
 
 const sample = "Validate order? Wait: AV Team / Ship Today (Type 2)";
+
+test {
+    _ = @import("cff.zig");
+}
 
 test "bundled font metrics" {
     const f = bundled(false, false);
@@ -98,14 +107,14 @@ test "measure sums advances and applies kerning" {
 
 test "resolver falls back to the bundled font" {
     const io = std.testing.io;
-    try std.testing.expect(resolve(io, "no-such-family-zz", 400, false) == bundled(false, false));
-    try std.testing.expect(resolve(io, "'No Such', \"Other One\"", 700, false) == bundled(true, false));
-    try std.testing.expect(resolve(io, "", 400, true) == bundled(false, true));
-    try std.testing.expect(resolve(io, "no-such-family-zz", 400, false) == bundled(false, false));
+    try std.testing.expect(resolveFont(io, "no-such-family-zz", 400, false) == bundled(false, false));
+    try std.testing.expect(resolveFont(io, "'No Such', \"Other One\"", 700, false) == bundled(true, false));
+    try std.testing.expect(resolveFont(io, "", 400, true) == bundled(false, true));
+    try std.testing.expect(resolveFont(io, "no-such-family-zz", 400, false) == bundled(false, false));
 }
 
 test "sans-serif resolves to a face with Arial metrics" {
-    const f = resolve(std.testing.io, "sans-serif", 400, false);
+    const f = resolveFont(std.testing.io, "sans-serif", 400, false);
     const ratio = f.advance(f.glyphIndex('A')) / @as(f64, @floatFromInt(f.upem));
     try std.testing.expectApproxEqAbs(@as(f64, 0.667), ratio, 0.002);
     const w = f.width(sample, 16, false);
@@ -184,12 +193,12 @@ test "installed fonts match DirectWrite advances on Windows" {
         .{ .families = "verdana", .weight = 400, .expect = 431.6250 },
     };
     for (cases) |c| {
-        const f = resolve(io, c.families, c.weight, false);
+        const f = resolveFont(io, c.families, c.weight, false);
         if (f == bundled(c.weight >= 600, false)) return error.SkipZigTest;
         try std.testing.expectApproxEqAbs(c.expect, f.width(sample, 16, false), 0.1);
         try std.testing.expect(f.width(sample, 16, true) < c.expect);
     }
-    const arial = resolve(io, "arial", 400, false);
+    const arial = resolveFont(io, "arial", 400, false);
     try std.testing.expectEqual(@as(f64, -152), arial.kern(arial.glyphIndex('A'), arial.glyphIndex('V')));
     try std.testing.expectEqual(@as(f64, 18), arial.lineHeight(16));
 }
@@ -358,4 +367,65 @@ test "damaged math fonts never crash the parser" {
             }
         }
     }
+}
+
+test "a Mermaid-style label with CJK and symbols falls back per character" {
+    const a = std.testing.allocator;
+    const io = std.testing.io;
+    const chain = resolve(io, "\"trebuchet ms\", verdana, arial, sans-serif", 400, false);
+    for ([_]u32{ 0x2192, 0x2605, 0x4E2D, 0x6587, 0xD55C }) |cp| {
+        const g = chain.glyphFor(cp);
+        try std.testing.expect(g.gid != 0);
+        try std.testing.expect(g.font != chain.primary);
+        var p: Path = .{};
+        defer p.deinit(a);
+        try g.font.outline(a, g.gid, .{}, &p);
+        try std.testing.expect(p.segs.items.len > 2);
+    }
+    const em = chain.advancePx(0x4E2D, 16);
+    try std.testing.expect(em > 14 and em < 18);
+    const ascii = chain.measure("Start  done", 16);
+    const mixed = chain.measure("Start \u{2192} \u{4E2D}\u{6587} \u{D55C} \u{2605} done", 16);
+    try std.testing.expect(mixed.w > ascii.w + 3 * em);
+    try std.testing.expect(mixed.h >= ascii.h);
+    var p: Path = .{};
+    defer p.deinit(a);
+    try chain.outlineAt(a, 0x4E2D, 16, 0, 16, &p);
+    try std.testing.expect(p.segs.items.len > 2);
+}
+
+test "the chain ends at the bundled font and then notdef" {
+    const io = std.testing.io;
+    const chain = resolve(io, "arial", 400, false);
+    const g = chain.glyphFor(0xFFFF);
+    try std.testing.expectEqual(@as(u16, 0), g.gid);
+    try std.testing.expect(g.font == chain.primary);
+    try std.testing.expect(chain.measure("a\u{FFFF}b", 16).w > 0);
+    const unknown = resolve(io, "no-such-family-zz", 400, false);
+    try std.testing.expectEqual(@as(usize, 1), unknown.faces.len);
+    try std.testing.expect(unknown.primary == bundled(false, false));
+    const latin = unknown.glyphFor('A');
+    try std.testing.expect(latin.font == unknown.primary and latin.gid != 0);
+}
+
+test "math kern info and extended shapes are exposed" {
+    const f = embeddedMathFont(std.testing.io);
+    var kerned: usize = 0;
+    var extended: usize = 0;
+    for (ranges) |r| {
+        var cp = r[0];
+        while (cp <= r[1]) : (cp += 1) {
+            const g = f.glyphFor(cp);
+            if (g == 0) continue;
+            if (f.isExtendedShape(g)) extended += 1;
+            for ([_]math.Corner{ .top_right, .top_left, .bottom_right, .bottom_left }) |corner| {
+                const k = f.mathKern(g, corner) orelse continue;
+                kerned += 1;
+                _ = k.atHeight(0);
+                try std.testing.expect(k.value(k.count) != null);
+            }
+        }
+    }
+    try std.testing.expect(kerned > 50);
+    try std.testing.expect(extended > 0);
 }

@@ -47,12 +47,74 @@ const Index = struct {
     }
 };
 
+const DictInfo = struct {
+    charset: usize = 0,
+    charstrings: ?usize = null,
+    private: ?[2]usize = null,
+    subrs: ?usize = null,
+    fd_array: ?usize = null,
+    fd_select: ?usize = null,
+    cid: bool = false,
+};
+
+fn parseDict(dict: []const u8) Error!DictInfo {
+    var info: DictInfo = .{};
+    var stack: [max_stack]f64 = @splat(0);
+    var sp: usize = 0;
+    var p: usize = 0;
+    while (p < dict.len) {
+        const b = dict[p];
+        if (b > 21) {
+            const r = try dictNumber(dict, p);
+            p = r.next;
+            if (sp == max_stack) return error.Corrupt;
+            stack[sp] = r.v;
+            sp += 1;
+            continue;
+        }
+        var op: u16 = b;
+        p += 1;
+        if (b == 12) {
+            if (p >= dict.len) return error.Corrupt;
+            op = 0x0c00 | @as(u16, dict[p]);
+            p += 1;
+        }
+        const last: usize = if (sp >= 1) @intFromFloat(@max(0, stack[sp - 1])) else 0;
+        switch (op) {
+            15 => info.charset = last,
+            17 => info.charstrings = last,
+            18 => if (sp >= 2) {
+                info.private = .{ @intFromFloat(@max(0, stack[sp - 2])), last };
+            },
+            19 => info.subrs = last,
+            0x0c1e => info.cid = true,
+            0x0c24 => info.fd_array = last,
+            0x0c25 => info.fd_select = last,
+            else => {},
+        }
+        sp = 0;
+    }
+    return info;
+}
+
 pub const Cff = struct {
     data: []const u8,
+    table: usize,
     charstrings: Index,
     gsubrs: Index,
     lsubrs: Index,
+    fd_array: Index,
+    fd_select: usize,
+    charset: usize,
     num_glyphs: usize,
+
+    fn privateSubrs(d: []const u8, table: usize, size: usize, off: usize) Error!Index {
+        if (table + off > d.len) return error.Corrupt;
+        const pd = d[table + off ..][0..@min(size, d.len - table - off)];
+        const info = try parseDict(pd);
+        const subrs = info.subrs orelse return .{};
+        return Index.parse(d, table + off + subrs);
+    }
 
     pub fn init(d: []const u8, table: usize) Error!Cff {
         if (table + 4 > d.len) return error.Corrupt;
@@ -61,74 +123,112 @@ pub const Cff = struct {
         const tops = try Index.parse(d, names.end);
         const strings = try Index.parse(d, tops.end);
         const gsubrs = try Index.parse(d, strings.end);
-        const top = try tops.get(d, 0);
-        var cs_off: ?usize = null;
-        var priv: ?[2]usize = null;
-        var stack: [max_stack]f64 = undefined;
-        var sp: usize = 0;
-        var p: usize = 0;
-        while (p < top.len) {
-            const b = top[p];
-            if (b <= 21) {
-                var op: u16 = b;
-                p += 1;
-                if (b == 12) {
-                    if (p >= top.len) return error.Corrupt;
-                    op = 0x0c00 | @as(u16, top[p]);
-                    p += 1;
-                }
-                switch (op) {
-                    17 => if (sp >= 1) {
-                        cs_off = @intFromFloat(@max(0, stack[sp - 1]));
-                    },
-                    18 => if (sp >= 2) {
-                        priv = .{ @intFromFloat(@max(0, stack[sp - 2])), @intFromFloat(@max(0, stack[sp - 1])) };
-                    },
-                    0x0c1e, 0x0c24, 0x0c25 => return error.Unsupported,
-                    else => {},
-                }
-                sp = 0;
+        const top = try parseDict(try tops.get(d, 0));
+        const cs = try Index.parse(d, table + (top.charstrings orelse return error.Corrupt));
+        var c: Cff = .{
+            .data = d,
+            .table = table,
+            .charstrings = cs,
+            .gsubrs = gsubrs,
+            .lsubrs = .{},
+            .fd_array = .{},
+            .fd_select = 0,
+            .charset = top.charset,
+            .num_glyphs = cs.count,
+        };
+        if (top.cid) {
+            c.fd_array = try Index.parse(d, table + (top.fd_array orelse return error.Corrupt));
+            c.fd_select = table + (top.fd_select orelse return error.Corrupt);
+            if (c.fd_array.count == 0) return error.Corrupt;
+        } else if (top.private) |pr| {
+            c.lsubrs = try privateSubrs(d, table, pr[0], pr[1]);
+        }
+        return c;
+    }
+
+    fn fdOf(c: *const Cff, g: u16) Error!usize {
+        const d = c.data;
+        if (c.fd_select >= d.len) return error.Corrupt;
+        const fmt = d[c.fd_select];
+        if (fmt == 0) {
+            if (c.fd_select + 1 + g >= d.len) return error.Corrupt;
+            return d[c.fd_select + 1 + g];
+        }
+        if (fmt != 3) return error.Unsupported;
+        const n = try read.u16At(d, c.fd_select + 1);
+        var fd: usize = 0;
+        for (0..n) |i| {
+            const at = c.fd_select + 3 + i * 3;
+            if (at + 3 > d.len) return error.Corrupt;
+            if ((try read.u16At(d, at)) > g) break;
+            fd = d[at + 2];
+        }
+        return fd;
+    }
+
+    fn localSubrs(c: *const Cff, g: u16) Error!Index {
+        if (c.fd_array.count == 0) return c.lsubrs;
+        const dict = try c.fd_array.get(c.data, try c.fdOf(g));
+        const info = try parseDict(dict);
+        const pr = info.private orelse return .{};
+        return privateSubrs(c.data, c.table, pr[0], pr[1]);
+    }
+
+    fn gidForSid(c: *const Cff, sid: u16) ?u16 {
+        if (c.charset <= 2) {
+            return if (c.charset == 0 and sid <= 228 and sid < c.num_glyphs) sid else null;
+        }
+        const d = c.data;
+        var p = c.table + c.charset;
+        if (p >= d.len) return null;
+        const fmt = d[p];
+        p += 1;
+        var gid: usize = 1;
+        while (gid < c.num_glyphs) {
+            if (fmt == 0) {
+                if ((read.u16At(d, p) catch return null) == sid) return @intCast(gid);
+                p += 2;
+                gid += 1;
                 continue;
             }
-            const r = try dictNumber(top, p);
-            p = r.next;
-            if (sp == max_stack) return error.Corrupt;
-            stack[sp] = r.v;
-            sp += 1;
+            const first = read.u16At(d, p) catch return null;
+            const left: usize = if (fmt == 1) (if (p + 2 < d.len) d[p + 2] else return null) else (read.u16At(d, p + 2) catch return null);
+            p += if (fmt == 1) 3 else 4;
+            if (sid >= first and sid - first <= left) return @intCast(gid + (sid - first));
+            gid += left + 1;
         }
-        var lsubrs: Index = .{};
-        if (priv) |pr| {
-            if (table + pr[1] > d.len) return error.Corrupt;
-            const pd = d[table + pr[1] ..][0..@min(pr[0], d.len - table - pr[1])];
-            var q: usize = 0;
-            sp = 0;
-            while (q < pd.len) {
-                const b = pd[q];
-                if (b <= 21) {
-                    q += 1;
-                    if (b == 12) q += 1;
-                    if (b == 19 and sp >= 1) lsubrs = try Index.parse(d, table + pr[1] + @as(usize, @intFromFloat(@max(0, stack[sp - 1]))));
-                    sp = 0;
-                    continue;
-                }
-                const r = try dictNumber(pd, q);
-                q = r.next;
-                if (sp == max_stack) return error.Corrupt;
-                stack[sp] = r.v;
-                sp += 1;
-            }
-        }
-        const cs = try Index.parse(d, table + (cs_off orelse return error.Corrupt));
-        return .{ .data = d, .charstrings = cs, .gsubrs = gsubrs, .lsubrs = lsubrs, .num_glyphs = cs.count };
+        return null;
     }
 
     pub fn outline(c: *const Cff, alloc: std.mem.Allocator, g: u16, m: Mat, sink: anytype) Error!void {
+        try c.outlineDepth(alloc, g, m, sink, 0);
+    }
+
+    fn outlineDepth(c: *const Cff, alloc: std.mem.Allocator, g: u16, m: Mat, sink: anytype, depth: u32) Error!void {
         const code = try c.charstrings.get(c.data, g);
-        var it: Interp(@TypeOf(sink)) = .{ .c = c, .alloc = alloc, .m = m, .sink = sink };
+        var it: Interp(@TypeOf(sink)) = .{ .c = c, .alloc = alloc, .m = m, .sink = sink, .lsubrs = try c.localSubrs(g), .seac_depth = depth };
         _ = try it.run(code, 0);
         if (it.open) try sink.close(alloc);
     }
 };
+
+const std_high = [_][2]u16{
+    .{ 161, 96 },  .{ 162, 97 },  .{ 163, 98 },  .{ 164, 99 },  .{ 165, 100 }, .{ 166, 101 }, .{ 167, 102 }, .{ 168, 103 },
+    .{ 169, 104 }, .{ 170, 105 }, .{ 171, 106 }, .{ 172, 107 }, .{ 173, 108 }, .{ 174, 109 }, .{ 175, 110 }, .{ 177, 111 },
+    .{ 178, 112 }, .{ 179, 113 }, .{ 180, 114 }, .{ 182, 115 }, .{ 183, 116 }, .{ 184, 117 }, .{ 185, 118 }, .{ 186, 119 },
+    .{ 187, 120 }, .{ 188, 121 }, .{ 189, 122 }, .{ 191, 123 }, .{ 193, 124 }, .{ 194, 125 }, .{ 195, 126 }, .{ 196, 127 },
+    .{ 197, 128 }, .{ 198, 129 }, .{ 199, 130 }, .{ 200, 131 }, .{ 202, 132 }, .{ 203, 133 }, .{ 205, 134 }, .{ 206, 135 },
+    .{ 207, 136 }, .{ 208, 137 }, .{ 225, 138 }, .{ 227, 139 }, .{ 232, 140 }, .{ 233, 141 }, .{ 234, 142 }, .{ 235, 143 },
+    .{ 241, 144 }, .{ 245, 145 }, .{ 248, 146 }, .{ 249, 147 }, .{ 250, 148 }, .{ 251, 149 },
+};
+
+fn standardSid(code: f64) ?u16 {
+    if (code < 0 or code > 255) return null;
+    const k: u16 = @intFromFloat(code);
+    if (k >= 32 and k <= 126) return k - 31;
+    for (std_high) |e| if (e[0] == k) return e[1];
+    return null;
+}
 
 const Num = struct { v: f64, next: usize };
 
@@ -166,6 +266,8 @@ fn Interp(comptime Sink: type) type {
         alloc: std.mem.Allocator,
         m: Mat,
         sink: Sink,
+        lsubrs: Index,
+        seac_depth: u32,
         stack: [max_stack]f64 = @splat(0),
         sp: usize = 0,
         x: f64 = 0,
@@ -210,6 +312,20 @@ fn Interp(comptime Sink: type) type {
             const b = s.pt(x2, y2);
             const e = s.pt(s.x, s.y);
             try s.sink.cubicTo(s.alloc, a.x, a.y, b.x, b.y, e.x, e.y);
+        }
+
+        fn seac(s: *Self) Error!void {
+            if (s.seac_depth >= 2) return error.Corrupt;
+            const adx = s.stack[s.sp - 4];
+            const ady = s.stack[s.sp - 3];
+            const base = s.c.gidForSid(standardSid(s.stack[s.sp - 2]) orelse return error.Corrupt) orelse return error.Corrupt;
+            const accent = s.c.gidForSid(standardSid(s.stack[s.sp - 1]) orelse return error.Corrupt) orelse return error.Corrupt;
+            if (s.open) {
+                try s.sink.close(s.alloc);
+                s.open = false;
+            }
+            try s.c.outlineDepth(s.alloc, base, s.m, s.sink, s.seac_depth + 1);
+            try s.c.outlineDepth(s.alloc, accent, s.m.mul(.{ .e = adx, .f = ady }), s.sink, s.seac_depth + 1);
         }
 
         fn dropWidth(s: *Self, extra: bool) void {
@@ -340,7 +456,7 @@ fn Interp(comptime Sink: type) type {
                     10, 29 => {
                         if (s.sp < 1) return error.Corrupt;
                         s.sp -= 1;
-                        const idx = if (b == 10) s.c.lsubrs else s.c.gsubrs;
+                        const idx = if (b == 10) s.lsubrs else s.c.gsubrs;
                         const n: i64 = @as(i64, @intFromFloat(s.stack[s.sp])) + @as(i64, @intCast(bias(idx.count)));
                         if (n < 0) return error.Corrupt;
                         if (try s.run(try idx.get(s.c.data, @intCast(n)), depth + 1)) return true;
@@ -348,6 +464,7 @@ fn Interp(comptime Sink: type) type {
                     11 => return false,
                     14 => {
                         s.dropWidth(a.len == 1 or a.len == 5);
+                        if (s.sp >= 4) try s.seac();
                         return true;
                     },
                     12 => {
@@ -385,4 +502,124 @@ fn Interp(comptime Sink: type) type {
             return false;
         }
     };
+}
+
+fn testIndex(a: std.mem.Allocator, objs: []const []const u8) ![]u8 {
+    var b: std.ArrayList(u8) = .empty;
+    try b.appendSlice(a, &.{ 0, @intCast(objs.len) });
+    if (objs.len == 0) return b.items;
+    try b.append(a, 1);
+    var off: usize = 1;
+    try b.append(a, @intCast(off));
+    for (objs) |o| {
+        off += o.len;
+        try b.append(a, @intCast(off));
+    }
+    for (objs) |o| try b.appendSlice(a, o);
+    return b.items;
+}
+
+fn testInt(b: *std.ArrayList(u8), a: std.mem.Allocator, v: usize) !void {
+    var t: [4]u8 = undefined;
+    std.mem.writeInt(u32, &t, @intCast(v), .big);
+    try b.append(a, 29);
+    try b.appendSlice(a, &t);
+}
+
+test "seac composes a base glyph and an accent" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const cs = try testIndex(a, &.{
+        &.{14},
+        &.{ 139, 139, 21, 239, 6, 239, 7, 39, 6, 14 },
+        &.{ 149, 149, 21, 159, 6, 159, 7, 119, 6, 14 },
+        &.{ 189, 199, 204, 247, 86, 14 },
+    });
+    const name = try testIndex(a, &.{"t"});
+    const charset = [_]u8{ 0, 0, 34, 0, 125, 1, 0x87 };
+    const top_idx_len = 2 + 1 + 2 + 23;
+    const charset_off = 4 + name.len + top_idx_len + 4;
+    const cs_off = charset_off + charset.len;
+    const priv_off = cs_off + cs.len;
+    var top: std.ArrayList(u8) = .empty;
+    try testInt(&top, a, charset_off);
+    try top.append(a, 15);
+    try testInt(&top, a, cs_off);
+    try top.append(a, 17);
+    try testInt(&top, a, 4);
+    try testInt(&top, a, priv_off);
+    try top.append(a, 18);
+    var font: std.ArrayList(u8) = .empty;
+    try font.appendSlice(a, &.{ 1, 0, 4, 1 });
+    try font.appendSlice(a, name);
+    try font.appendSlice(a, try testIndex(a, &.{top.items}));
+    try font.appendSlice(a, &.{ 0, 0, 0, 0 });
+    try font.appendSlice(a, &charset);
+    try font.appendSlice(a, cs);
+    try font.appendSlice(a, &.{ 139, 20, 139, 21 });
+    const cff = try Cff.init(font.items, 0);
+    try std.testing.expectEqual(@as(usize, 4), cff.num_glyphs);
+    var p: path_mod.Path = .{};
+    try cff.outline(a, 3, .{}, &p);
+    try std.testing.expectEqual(@as(usize, 10), p.segs.items.len);
+    try std.testing.expectEqual(@as(f64, 100), p.segs.items[2].line.x);
+    try std.testing.expectEqual(@as(f64, 60), p.segs.items[5].move.x);
+    try std.testing.expectEqual(@as(f64, 70), p.segs.items[5].move.y);
+    try std.testing.expectEqual(@as(f64, 80), p.segs.items[6].line.x);
+}
+
+test "CID-keyed fonts take local subrs from the glyph's font dict" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const body = [_]u8{ 139, 139, 21, 32, 10, 239, 7, 14 };
+    const cs = try testIndex(a, &.{ &.{14}, &body, &body });
+    const name = try testIndex(a, &.{"t"});
+    const select = [_]u8{ 3, 0, 2, 0, 0, 0, 0, 2, 1, 0, 3 };
+    const subrs0 = try testIndex(a, &.{&.{ 239, 6, 11 }});
+    const subrs1 = try testIndex(a, &.{&.{ 189, 6, 11 }});
+    const top_idx_len = 2 + 1 + 2 + 25;
+    const select_off = 4 + name.len + top_idx_len + 4;
+    const cs_off = select_off + select.len;
+    const fdarray_off = cs_off + cs.len;
+    const fdarray_len = 2 + 1 + 3 + 22;
+    const priv0 = fdarray_off + fdarray_len;
+    const priv1 = priv0 + 6 + subrs0.len;
+    var fd0: std.ArrayList(u8) = .empty;
+    try testInt(&fd0, a, 6);
+    try testInt(&fd0, a, priv0);
+    try fd0.append(a, 18);
+    var fd1: std.ArrayList(u8) = .empty;
+    try testInt(&fd1, a, 6);
+    try testInt(&fd1, a, priv1);
+    try fd1.append(a, 18);
+    var top: std.ArrayList(u8) = .empty;
+    try top.appendSlice(a, &.{ 139, 139, 139, 12, 30 });
+    try testInt(&top, a, fdarray_off);
+    try top.appendSlice(a, &.{ 12, 36 });
+    try testInt(&top, a, select_off);
+    try top.appendSlice(a, &.{ 12, 37 });
+    try testInt(&top, a, cs_off);
+    try top.append(a, 17);
+    var font: std.ArrayList(u8) = .empty;
+    try font.appendSlice(a, &.{ 1, 0, 4, 1 });
+    try font.appendSlice(a, name);
+    try font.appendSlice(a, try testIndex(a, &.{top.items}));
+    try font.appendSlice(a, &.{ 0, 0, 0, 0 });
+    try font.appendSlice(a, &select);
+    try font.appendSlice(a, cs);
+    try font.appendSlice(a, try testIndex(a, &.{ fd0.items, fd1.items }));
+    try font.appendSlice(a, &.{ 29, 0, 0, 0, 6, 19 });
+    try font.appendSlice(a, subrs0);
+    try font.appendSlice(a, &.{ 29, 0, 0, 0, 6, 19 });
+    try font.appendSlice(a, subrs1);
+    const cff = try Cff.init(font.items, 0);
+    var p1: path_mod.Path = .{};
+    try cff.outline(a, 1, .{}, &p1);
+    try std.testing.expectEqual(@as(usize, 4), p1.segs.items.len);
+    try std.testing.expectEqual(@as(f64, 100), p1.segs.items[1].line.x);
+    var p2: path_mod.Path = .{};
+    try cff.outline(a, 2, .{}, &p2);
+    try std.testing.expectEqual(@as(f64, 50), p2.segs.items[1].line.x);
 }
