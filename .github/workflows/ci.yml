@@ -99,8 +99,38 @@ jobs:
           chmod +x zlint
           git ls-files '*.zig' | ./zlint -S --deny-warnings
 
+  # Rebuilds the bundled font subsets from the pinned upstream fonts and fails if the committed copies differ.
+  font-subsets:
+    needs: changes
+    if: needs.changes.outputs.app == 'true' && github.event.pull_request.draft != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/setup-zig.sh
+      - name: Regenerate
+        run: |
+          mkdir out
+          curl -sSfL --retry 3 --retry-all-errors -o lib.tgz https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz
+          echo "7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0  lib.tgz" | sha256sum -c -
+          tar -xzf lib.tgz
+          curl -sSfL --retry 3 --retry-all-errors -o stix.otf https://tug.ctan.org/fonts/stix2-otf/STIXTwoMath-Regular.otf
+          echo "95bc2729e41faf93b0bcae9e96c4dc4da45855067fd0581e621e30734fe8d90b  stix.otf" | sha256sum -c -
+          zig build subset-font -- liberation-fonts-ttf-2.1.5/LiberationSans-Regular.ttf out/sans_regular.ttf "mdview Sans" Regular
+          zig build subset-font -- liberation-fonts-ttf-2.1.5/LiberationSans-Bold.ttf out/sans_bold.ttf "mdview Sans" Bold
+          zig build subset-math-font -- stix.otf out/stix_math.z
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: font-subsets
+          path: out
+      - name: Committed copies match
+        run: |
+          for f in sans_regular.ttf sans_bold.ttf stix_math.z; do cmp out/$f src/font/$f; done
+
   # One leg per fuzz target, each with its own iteration budget. To add a target: write its
   # `test "fuzz <name>"` in src/fuzz.zig and add `<name>` and an iteration count here.
+  # Size it so the slowest observed run, about 450 runs a second, stays under 10 minutes.
   fuzz:
     needs: changes
     if: needs.changes.outputs.app == 'true' && github.event.pull_request.draft != true
@@ -109,11 +139,13 @@ jobs:
       matrix:
         include:
           - target: markdown.parse
-            iterations: 800K
+            iterations: 250K
           - target: html.Builder
-            iterations: 800K
+            iterations: 150K
           - target: mermaid.elk
             iterations: 200K
+          - target: font.parse
+            iterations: 2M
           - target: image.decode
             iterations: 400K
     name: fuzz (${{ matrix.target }})
@@ -193,7 +225,7 @@ jobs:
           fail: true
 
   ci-ok:
-    needs: [changes, rules, build, lint, fuzz, stress-parser, stress-app, docs]
+    needs: [changes, rules, build, lint, font-subsets, fuzz, stress-parser, stress-app, docs]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -210,7 +242,7 @@ jobs:
           out = n["changes"]["outputs"]
           app, docs = out.get("app") == "true", out.get("docs") == "true"
           want = {"changes": True, "rules": True, "build": app, "lint": app,
-                  "fuzz": app and not draft, "stress-parser": app and not draft,
+                  "font-subsets": app and not draft, "fuzz": app and not draft, "stress-parser": app and not draft,
                   "stress-app": app and not draft, "docs": docs and not draft}
           bad = [f"{k}: {n[k]['result']}" for k, run in want.items()
                  if n[k]["result"] != ("success" if run else "skipped")]

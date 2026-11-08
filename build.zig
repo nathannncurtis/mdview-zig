@@ -76,6 +76,15 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
 
+    const font_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/font/font.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(font_tests).step);
+
     const image_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/image/tests.zig"),
@@ -86,6 +95,7 @@ pub fn build(b: *std.Build) void {
     const run_image_tests = b.addRunArtifact(image_tests);
     run_image_tests.setCwd(b.path("."));
     test_step.dependOn(&run_image_tests.step);
+
     const dagre_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/mermaid/dagre_test.zig"),
@@ -245,6 +255,24 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .target = b.graph.host,
     }));
     _ = toolStep(b, "gen-languages", "Regenerate src/data/languages.zig: <languages.yml> <out.zig>", languages);
+
+    const subset = toolExe(b, "subset-font", "tools/gen/subset_font.zig");
+    subset.root_module.addImport("ttf", b.createModule(.{
+        .root_source_file = b.path("src/font/ttf.zig"),
+        .target = b.graph.host,
+    }));
+    _ = toolStep(b, "subset-font", "Write the Latin subset of a TrueType font: <in.ttf> <out.ttf> <family> <style>", subset);
+
+    const subset_math = toolExe(b, "subset-math-font", "tools/gen/subset_math_font.zig");
+    subset_math.root_module.addImport("ttf", b.createModule(.{
+        .root_source_file = b.path("src/font/ttf.zig"),
+        .target = b.graph.host,
+    }));
+    subset_math.root_module.addImport("math_ranges", b.createModule(.{
+        .root_source_file = b.path("src/font/math_ranges.zig"),
+        .target = b.graph.host,
+    }));
+    _ = toolStep(b, "subset-math-font", "Write the deflated math subset of an OpenType math font: <in.otf> <out.z>", subset_math);
 
     const compare = toolExe(b, "mermaid-compare", "tools/check/mermaid_compare.zig");
     addStubs(b, compare.root_module);
