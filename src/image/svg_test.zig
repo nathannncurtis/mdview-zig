@@ -91,8 +91,7 @@ fn checkFixture(comptime f: Fixture) !void {
                     line[n] = " .:-=+*#%@"[@min(level, 9)];
                     n += 1;
                 }
-                std.debug.print("{s}
-", .{line[0..n]});
+                std.debug.print("{s}\n", .{line[0..n]});
             }
         }
         std.debug.print("{s}: mean {d:.3} (limit {d}), bad {d:.3}% (limit {d}%)\n", .{ f.name, mean, f.mean, bad_pct, f.bad });
