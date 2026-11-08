@@ -2,9 +2,9 @@
 
 # Centred header
 
-<img src="images/render_wide.svg" width="240" alt="wide logo">
+<img src="../images/render_wide.svg" width="240" alt="wide logo">
 
-<a href="https://example.org"><img src="images/render_badge.svg" alt="badge"></a> <a href="https://example.org/two"><img src="images/render_badge.svg" alt="badge two"></a>
+<a href="https://example.org"><img src="../images/render_badge.svg" alt="badge"></a> <a href="https://example.org/two"><img src="../images/render_badge.svg" alt="badge two"></a>
 
 A centred line of text inside a div.
 
@@ -64,7 +64,7 @@ Deep content.
 
 ## Float
 
-<img src="images/render_badge.svg" align="right" width="160" alt="floated right">
+<img src="../images/render_badge.svg" align="right" width="160" alt="floated right">
 
 This paragraph sits to the left of the picture. It runs long enough that its text wraps over several lines beside the floated image, which is what a browser does with an image that has an align attribute. More words follow so the line count is not trivially small, and the text keeps going down the page.
 
