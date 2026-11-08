@@ -22,6 +22,7 @@ pub const Options = struct {
 };
 
 pub const Output = render_mod.Output;
+pub const fuzz = @import("fuzz_test.zig");
 
 pub const Result = union(enum) {
     ok: Output,
