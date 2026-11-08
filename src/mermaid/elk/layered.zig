@@ -333,7 +333,10 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
 
 // ElkLayered.layout
 fn layoutComponent(g: *lg.LGraph, procs: []const Processor) lg.Error!void {
-    for (procs) |p| try runProcessor(p, g);
+    for (procs) |p| {
+        try runProcessor(p, g);
+        if (trace) traceDump(g, procName(p));
+    }
     for (g.layers.items) |layer| {
         try g.layerless_nodes.appendSlice(g.a, layer.nodes.items);
         layer.nodes.clearRetainingCapacity();
@@ -400,8 +403,10 @@ fn hierarchicalLayout(root: *lg.LGraph) lg.Error!void {
                 pos[i] += 1;
                 if (!p.hierarchyAware()) {
                     try runProcessor(p, g);
+                    if (trace) traceDump(g, procName(p));
                 } else if (g.parent_node == null) {
                     try runProcessor(p, g);
+                    if (trace) traceDump(g, procName(p));
                     break;
                 } else {
                     break;
@@ -427,4 +432,62 @@ pub fn layoutNode(a: std.mem.Allocator, elkgraph: *eg.ElkNode) lg.Error!void {
 // the edge's containing node)
 pub fn layout(a: std.mem.Allocator, root: *eg.ElkNode) lg.Error!void {
     try recursive.layout(a, root);
+}
+
+pub var trace = false;
+
+fn tnum(x: f64) f64 {
+    return @round(x * 1000) / 1000;
+}
+
+fn tname(n: *const lg.LNode, buf: *[96]u8) []const u8 {
+    const t = @tagName(n.type);
+    const short = switch (n.type) {
+        .normal => "NOR",
+        .long_edge => "LON",
+        .external_port => "EXT",
+        .north_south_port => "NOR",
+        .label => "LAB",
+        .breaking_point => "BRE",
+    };
+    _ = t;
+    if (n.p.debug_id.len > 0) return std.fmt.bufPrint(buf, "{s}:{s}", .{ short, n.p.debug_id }) catch short;
+    return short;
+}
+
+fn traceDump(g: *lg.LGraph, label: []const u8) void {
+    if (g.parent_node != null) return;
+    std.debug.print("== {s}\n", .{label});
+    var all: std.ArrayList(*lg.LNode) = .empty;
+    defer all.deinit(g.a);
+    all.appendSlice(g.a, g.layerless_nodes.items) catch return;
+    var b1: [96]u8 = undefined;
+    var b2: [96]u8 = undefined;
+    if (g.layers.items.len > 0) {
+        for (g.layers.items, 0..) |l, li| {
+            std.debug.print(" L{d}:", .{li});
+            for (l.nodes.items) |n| {
+                std.debug.print(" {s}[{d},{d} {d}x{d}]", .{ tname(n, &b1), tnum(n.pos.x), tnum(n.pos.y), tnum(n.size.x), tnum(n.size.y) });
+                all.append(g.a, n) catch return;
+            }
+            std.debug.print("\n", .{});
+        }
+    } else {
+        std.debug.print(" N:", .{});
+        for (g.layerless_nodes.items) |n| std.debug.print(" {s}", .{tname(n, &b1)});
+        std.debug.print("\n", .{});
+    }
+    for (all.items) |n| for (n.ports.items) |p| for (p.outgoing.items) |e| {
+        const t = e.target.?;
+        std.debug.print("  E {s}.?[{d},{d}] -> {s}.?[{d},{d}] ", .{ tname(n, &b1), tnum(p.pos.x), tnum(p.pos.y), tname(t.owner.?, &b2), tnum(t.pos.x), tnum(t.pos.y) });
+        for (e.bend_points.items) |bp| std.debug.print("({d},{d})", .{ tnum(bp.x), tnum(bp.y) });
+        std.debug.print("\n", .{});
+    };
+}
+
+fn procName(p: Processor) []const u8 {
+    return switch (p) {
+        .phase => |ph| @tagName(ph),
+        .strategy => |s| @tagName(s),
+    };
 }

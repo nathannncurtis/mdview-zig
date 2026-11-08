@@ -24,9 +24,9 @@ fn run(g: *lg.LGraph, to_internal_ltr: bool) lg.Error!void {
         .down => transposeAll(g, nodes.items),
         .up => if (to_internal_ltr) {
             transposeAll(g, nodes.items);
-            mirrorAllY(g, nodes.items);
+            mirrorAllX(g, nodes.items);
         } else {
-            mirrorAllY(g, nodes.items);
+            mirrorAllX(g, nodes.items);
             transposeAll(g, nodes.items);
         },
         else => {},
@@ -37,12 +37,6 @@ fn mirrorAllX(g: *lg.LGraph, nodes: []*lg.LNode) void {
     mirrorNodesX(nodes, g);
     mirrorMarginX(&g.padding);
     mirrorMarginX(&g.p.node_labels_padding);
-}
-
-fn mirrorAllY(g: *lg.LGraph, nodes: []*lg.LNode) void {
-    mirrorNodesY(nodes, g);
-    mirrorMarginY(&g.padding);
-    mirrorMarginY(&g.p.node_labels_padding);
 }
 
 fn transposeAll(g: *lg.LGraph, nodes: []*lg.LNode) void {
@@ -105,57 +99,8 @@ fn mirrorNodesX(nodes: []*lg.LNode, graph: *const lg.LGraph) void {
     }
 }
 
-fn mirrorNodesY(nodes: []*lg.LNode, graph: *const lg.LGraph) void {
-    var offset: f64 = 0;
-    if (graph.size.y == 0) {
-        for (nodes) |node| offset = util.javaMax(offset, node.pos.y + node.size.y + node.margin.bottom);
-    } else {
-        offset = graph.size.y - graph.offset.y;
-    }
-    offset -= graph.offset.y;
-    for (nodes) |node| {
-        node.pos.y = (offset - node.size.y) - node.pos.y;
-        mirrorMarginY(&node.padding);
-        mirrorPlacementY(&node.p.node_labels_placement);
-        node.p.alignment = switch (node.p.alignment) {
-            .top => .bottom,
-            .bottom => .top,
-            else => |x| x,
-        };
-        const node_size = node.size;
-        for (node.ports.items) |port| {
-            port.pos.y = (node_size.y - port.size.y) - port.pos.y;
-            port.anchor.y = port.size.y - port.anchor.y;
-            port.setSide(mirroredSideY(port.side));
-            reverseIndex(port);
-            for (port.outgoing.items) |edge| {
-                for (edge.bend_points.items) |*bp| bp.y = offset - bp.y;
-                for (edge.p.junction_points.items) |*jp| jp.y = offset - jp.y;
-                for (edge.labels.items) |label| label.pos.y = (offset - label.size.y) - label.pos.y;
-            }
-            for (port.labels.items) |label| label.pos.y = (port.size.y - label.size.y) - label.pos.y;
-        }
-        if (node.type == .external_port) {
-            node.p.ext_port_side = mirroredSideY(node.p.ext_port_side);
-            node.p.in_layer_constraint = switch (node.p.in_layer_constraint) {
-                .top => .bottom,
-                .bottom => .top,
-                .none => .none,
-            };
-        }
-        for (node.labels.items) |label| {
-            mirrorPlacementY(&label.p.node_labels_placement);
-            label.pos.y = (node_size.y - label.size.y) - label.pos.y;
-        }
-    }
-}
-
 fn mirrorMarginX(m: *lg.Margin) void {
     std.mem.swap(f64, &m.left, &m.right);
-}
-
-fn mirrorMarginY(m: *lg.Margin) void {
-    std.mem.swap(f64, &m.top, &m.bottom);
 }
 
 // An unset placement is the empty default, which every placement transform leaves unchanged.
@@ -169,28 +114,10 @@ fn mirrorPlacementX(p: *lg.NodeLabelPlacement) void {
     }
 }
 
-fn mirrorPlacementY(p: *lg.NodeLabelPlacement) void {
-    if (p.v_top) {
-        p.v_top = false;
-        p.v_bottom = true;
-    } else if (p.v_bottom) {
-        p.v_bottom = false;
-        p.v_top = true;
-    }
-}
-
 fn mirroredSideX(side: lg.PortSide) lg.PortSide {
     return switch (side) {
         .east => .west,
         .west => .east,
-        else => side,
-    };
-}
-
-fn mirroredSideY(side: lg.PortSide) lg.PortSide {
-    return switch (side) {
-        .north => .south,
-        .south => .north,
         else => side,
     };
 }

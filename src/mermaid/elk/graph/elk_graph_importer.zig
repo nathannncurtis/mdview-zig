@@ -198,6 +198,7 @@ pub const Importer = struct {
         const lnode = try lg.LNode.init(self.a, g);
         elknode.opts.applyTo(&lnode.p);
         lnode.p.origin = try self.origin(.{ .node = elknode });
+        lnode.p.debug_id = elknode.id;
         lnode.size = .{ .x = elknode.width, .y = elknode.height };
         lnode.pos = .{ .x = elknode.x, .y = elknode.y };
         try g.layerless_nodes.append(self.a, lnode);

@@ -300,6 +300,7 @@ pub const Props = struct {
     separate_layer_connections: HiddenNodeConnections = .none,
     self_loop_holder: ?*anyopaque = null,
     // opaque slots for state a single processor family owns (self loops, label cells, ...)
+    debug_id: []const u8 = "",
     slot_a: ?*anyopaque = null,
     slot_b: ?*anyopaque = null,
 };
