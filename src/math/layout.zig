@@ -777,24 +777,18 @@ fn layLap(c: Ctx, l: tree.Lap) Err!Box {
 }
 
 fn layVArrow(c: Ctx, v: tree.VArrow) Err!Box {
-    const cs = c.with(c.style.sup());
+    const cs = c.with(.s);
     const left = try layRow(cs, v.left);
     const right = try layRow(cs, v.right);
-    const gid = c.f.glyphFor(v.cp);
-    const arrow: Box = if (gid == 0) .{} else blk: {
-        const st = try stretch(c, gid, true, 2 * c.size());
-        break :blk try shifted(c, st.box, ((st.asc - st.desc) - 2 * c.axis()) / 2);
-    };
-    const gap = 0.2 * c.size();
+    const t_asc = @max(left.h, right.h);
+    const t_desc = @max(left.d, right.d);
+    const arrow = try fenceBox(c, v.cp, t_asc, t_desc, 1.75 * c.size(), null);
     var bl: Builder = .{ .a = c.a };
-    var x: f32 = 0;
-    for ([_]Box{ left, arrow, right }, 0..) |b, i| {
-        if (i > 0 and b.w > 0) x += gap;
-        try bl.add(x, if (i == 1) 0 else -(c.axis() - (b.h - b.d) / 2), b);
-        x += b.w;
-    }
+    try bl.add(0, 0, left);
+    try bl.add(0, 0, arrow);
+    try bl.add(arrow.w, 0, right);
     var out = bl.finish();
-    out.w = x;
+    out.w = arrow.w;
     return out;
 }
 
