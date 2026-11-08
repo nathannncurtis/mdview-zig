@@ -32,7 +32,15 @@ pub const Span = [2]u32;
 pub const StyleKind = enum { sub, kbd, underline, mark, tt };
 pub const Styled = struct { span: Span, kind: StyleKind };
 /// What a block is within its HTML element: a `summary` or `dt` line.
-pub const Role = enum { none, summary, dt };
+pub const Role = enum {
+    none,
+    summary,
+    dt,
+    /// Text of only line breaks directly in a container: as many lines as breaks, with no margin after.
+    break_lines,
+    /// An empty `<p>` that opens the document: no height, then the usual 16px margin.
+    empty,
+};
 pub const Anchor = struct { name: []const u8, block: u32 };
 
 pub const Inline = struct {
@@ -1140,8 +1148,10 @@ const Parser = struct {
         if (!isBlockEl(el)) return p.inlineClose(p.frag(), el, n.attrs, st.pos);
         if (p.cur != null) return;
         if (el == .summary) p.markSummary();
+        const had_content = p.frag().any;
         try p.htmlFlush();
         switch (el) {
+            .p => if (!had_content and p.blocks.items.len == 0 and p.cellOf() == null) try p.emit(.{ .kind = .paragraph, .role = .empty, .content = try p.plain("") }),
             .li => if (p.leads.items.len > 0) try p.emit(.{ .kind = .paragraph, .content = try p.plain(" ") }),
             .details => if (!st.seen) try p.synthSummary(id),
             else => {},
@@ -1181,7 +1191,7 @@ const Parser = struct {
         if (opened) try p.mdClose(kind);
     }
 
-    const Kind = struct { kind: BlockKind = .paragraph, role: Role = .none, compact: bool = false };
+    const Kind = struct { kind: BlockKind = .paragraph, role: Role = .none, compact: bool = false, in_p: bool = false };
 
     fn curKind(p: *Parser) Kind {
         const chain = p.anc();
@@ -1196,7 +1206,8 @@ const Parser = struct {
                 .summary => return .{ .role = .summary },
                 .dt => return .{ .role = .dt },
                 .li => return .{ .compact = true },
-                .p, .div, .section, .ul, .ol, .dl, .dd, .blockquote, .details, .table, .td, .th => return .{},
+                .p => return .{ .in_p = true },
+                .div, .section, .ul, .ol, .dl, .dd, .blockquote, .details, .table, .td, .th => return .{},
                 else => {},
             }
         }
@@ -1225,9 +1236,11 @@ const Parser = struct {
             const kept = std.mem.trimEnd(u8, f.text.items, "\n").len;
             if (kept > 0 and kept < f.text.items.len) f.truncate(@intCast(kept));
         }
+        var role = k.role;
+        if (k.kind == .paragraph and role == .none and !k.in_p and std.mem.trim(u8, f.text.items, "\n").len == 0) role = .break_lines;
         const raw = try p.commit(f);
         f.reset();
-        try p.emit(.{ .kind = k.kind, .role = k.role, .content = raw, .compact = k.compact });
+        try p.emit(.{ .kind = k.kind, .role = role, .content = raw, .compact = k.compact });
         p.run_ctx = html.nil;
     }
 
@@ -2747,7 +2760,17 @@ test "html: div centres Markdown inside it, p does not" {
 
     var p = try parseTest("<p align=\"center\">\n\nText\n");
     defer p.deinit();
-    try testing.expectEqual(Align.none, p.blocks[0].alignment);
+    try testing.expectEqual(@as(usize, 2), p.blocks.len);
+    try testing.expectEqual(Role.empty, p.blocks[0].role);
+    try testing.expectEqual(Align.none, p.blocks[1].alignment);
+
+    var mid = try parseTest("before\n\n<p align=\"center\">\n\nText\n");
+    defer mid.deinit();
+    try testing.expectEqual(@as(usize, 2), mid.blocks.len);
+
+    var stray = try parseTest("before\n\n</p>\n\nafter\n");
+    defer stray.deinit();
+    try testing.expectEqual(@as(usize, 2), stray.blocks.len);
 }
 
 test "html: heading align and anchors" {
@@ -2953,10 +2976,15 @@ test "html: spec examples" {
 }
 
 test "html: a lone br is a spacer" {
-    var doc = try parseTest("<br>\n\n</p>\n");
+    var doc = try parseTest("before\n\n<br>\n\n</p>\n\nafter\n");
     defer doc.deinit();
-    try testing.expectEqual(@as(usize, 1), doc.blocks.len);
-    try testing.expectEqualStrings("\n", doc.blocks[0].content.text);
+    try testing.expectEqual(@as(usize, 3), doc.blocks.len);
+    try testing.expectEqual(Role.break_lines, doc.blocks[1].role);
+    try testing.expectEqualStrings("\n", doc.blocks[1].content.text);
+
+    var in_p = try parseTest("<p><br></p>\n");
+    defer in_p.deinit();
+    try testing.expectEqual(Role.none, in_p.blocks[0].role);
 }
 
 test "html: tables with spans" {
