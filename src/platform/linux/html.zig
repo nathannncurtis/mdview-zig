@@ -44,7 +44,7 @@ pub const Bands = struct {
     right_w: f32 = 0,
     right_bottom: f32 = 0,
 
-    fn at(b: Bands, y: f32) Beside {
+    pub fn at(b: Bands, y: f32) Beside {
         var out: Beside = .{};
         if (b.left_bottom > y) {
             out.left = b.left_w;
@@ -321,7 +321,7 @@ pub fn applyStyles(attr_list: *c.PangoAttrList, content: md.Inline, spans: []con
                 insertRange(attr_list, c.pango_attr_background_new(0xbbbb, 0x8080, 0x0909), start, end);
                 insertRange(attr_list, c.pango_attr_background_alpha_new(0x2626), start, end);
             },
-            .kbd, .tt, .small, .abbr => {},
+            .kbd, .tt => {},
         }
     }
 }
