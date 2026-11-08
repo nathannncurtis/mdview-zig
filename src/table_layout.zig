@@ -26,25 +26,21 @@ pub fn sum(extents: []const f32, start: usize, span: usize) f32 {
 pub fn solve(out: []f32, sizes: []const f32, t: md.Table, axis: Axis) void {
     @memset(out, 0);
     const rows = t.rows();
-    var widest: usize = 1;
     for (0..rows) |r| for (0..t.columns) |c| {
         if (covered(t, r, c)) continue;
         const tr = trackOf(t, axis, r, c);
-        widest = @max(widest, tr.span);
         if (tr.span == 1) out[tr.start] = @max(out[tr.start], sizes[r * t.columns + c]);
     };
-    for (2..widest + 1) |len| {
-        for (0..rows) |r| for (0..t.columns) |c| {
-            if (covered(t, r, c)) continue;
-            const tr = trackOf(t, axis, r, c);
-            if (tr.span != len) continue;
-            const have = sum(out, tr.start, len);
-            const want = sizes[r * t.columns + c];
-            if (want <= have) continue;
-            const add = (want - have) / @as(f32, @floatFromInt(len));
-            for (out[tr.start..@min(out.len, tr.start + len)]) |*e| e.* += add;
-        };
-    }
+    for (0..rows) |r| for (0..t.columns) |c| {
+        if (covered(t, r, c)) continue;
+        const tr = trackOf(t, axis, r, c);
+        if (tr.span < 2) continue;
+        const have = sum(out, tr.start, tr.span);
+        const want = sizes[r * t.columns + c];
+        if (want <= have) continue;
+        const add = (want - have) / @as(f32, @floatFromInt(tr.span));
+        for (out[tr.start..@min(out.len, tr.start + tr.span)]) |*e| e.* += add;
+    };
 }
 
 pub fn columnWidths(out: []f32, natural: []const f32, t: md.Table, available: f32, min_width: f32) void {

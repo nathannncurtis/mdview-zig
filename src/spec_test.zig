@@ -132,7 +132,7 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
         var want_ordered: std.ArrayList(md.Frame) = .empty;
         for (b.frames) |f| {
             switch (f.kind) {
-                .details, .dd, .figure => continue,
+                .details, .dd => continue,
                 .quote => try want.append(a, .{ .kind = .quote, .id = f.id }),
                 .list => {
                     try want.append(a, .{ .kind = .list, .id = f.group });
