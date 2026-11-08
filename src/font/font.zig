@@ -429,44 +429,167 @@ test "math kern info and extended shapes are exposed" {
     try std.testing.expect(extended > 0);
 }
 
-test "family lists parse the way Chrome parses font-family" {
-    const p = resolver.parseFamilies("\"trebuchet ms\", verdana, arial, sans-serif").?;
-    try std.testing.expectEqual(@as(usize, 4), p.n);
-    try std.testing.expectEqualStrings("trebuchet ms", p.name(0));
-    try std.testing.expectEqualStrings("sans-serif", p.name(3));
-    try std.testing.expect(p.quoted[0] and !p.quoted[1]);
+// Rows: Chromium 158 style.fontFamily read-back, null = declaration dropped, else lowercased names joined by |; var() rows resolve to the default serif.
+const family_cases = [_]struct { []const u8, ?[]const u8 }{
+    .{ "\"trebuchet ms\", verdana, arial, sans-serif", "trebuchet ms|verdana|arial|sans-serif" },
+    .{ "\"trebuchet ms\", verdana, arial, sans-serif;", null },
+    .{ "Segoe  UI   Symbol , 'Noto Sans' ,-apple-system", "segoe ui symbol|noto sans|-apple-system" },
+    .{ "\"A\\\"B\", Foo\\20 Bar", "a\"b|foo bar" },
+    .{ "inherit", "inherit" },
+    .{ "initial", "initial" },
+    .{ "unset", "unset" },
+    .{ "revert", "revert" },
+    .{ "default", null },
+    .{ "serif, inherit", null },
+    .{ "inherit, serif", null },
+    .{ "default, serif", null },
+    .{ "a default", "a default" },
+    .{ "initial a", "initial a" },
+    .{ "'unterminated", "unterminated" },
+    .{ "\"unterminated", "unterminated" },
+    .{ "'broken\u{a}string'", null },
+    .{ "\"a\\", "a" },
+    .{ "a\\", "a\u{fffd}" },
+    .{ "", null },
+    .{ "   ", null },
+    .{ "a,,b", null },
+    .{ "a,", null },
+    .{ ",a", null },
+    .{ "1abc", null },
+    .{ "a 1", null },
+    .{ "a1", "a1" },
+    .{ "1", null },
+    .{ "Foo \"bar\"", null },
+    .{ "a b;", null },
+    .{ "Foo(bar)", null },
+    .{ "a.b", null },
+    .{ "a/b", null },
+    .{ "a#b", null },
+    .{ "a@b", null },
+    .{ "a%b", null },
+    .{ "a+b", null },
+    .{ "a*b", null },
+    .{ "a:b", null },
+    .{ "a=b", null },
+    .{ "a<b", null },
+    .{ "a>b", null },
+    .{ "a?b", null },
+    .{ "a[b]", null },
+    .{ "a{b}", null },
+    .{ "a|b", null },
+    .{ "a~b", null },
+    .{ "a`b", null },
+    .{ "a$b", null },
+    .{ "a^b", null },
+    .{ "a&b", null },
+    .{ "--", "--" },
+    .{ "--x", "--x" },
+    .{ "-", null },
+    .{ "-x", "-x" },
+    .{ "- x", null },
+    .{ "a-", "a-" },
+    .{ "-1x", null },
+    .{ "-_x", "-_x" },
+    .{ "--1", "--1" },
+    .{ "-- x", "-- x" },
+    .{ "x --", "x --" },
+    .{ "_a", "_a" },
+    .{ "a_b", "a_b" },
+    .{ "\u{e9}", "\u{e9}" },
+    .{ "a\u{a0}b", "a\u{a0}b" },
+    .{ "a\u{9}b", "a b" },
+    .{ "a\u{a}b", "a b" },
+    .{ "a\u{c}b", "a b" },
+    .{ "a /* c */, b", "a|b" },
+    .{ "a,/*x*/b", "a|b" },
+    .{ "/*x*/a", "a" },
+    .{ "a/*x*/b", "a b" },
+    .{ "a /*x", "a" },
+    .{ "\"a\" b", null },
+    .{ "a \"b\"", null },
+    .{ "'a''b'", null },
+    .{ "\"a\" \"b\"", null },
+    .{ "a\\,b", "a,b" },
+    .{ "a\\ b", "a b" },
+    .{ "\\31 a", "1a" },
+    .{ "\\0 a", "\u{fffd}a" },
+    .{ "\\110000 a", "\u{fffd}a" },
+    .{ "\\D800 a", "\u{fffd}a" },
+    .{ "A", "a" },
+    .{ "SERIF", "serif" },
+    .{ "Sans-Serif", "sans-serif" },
+    .{ "serif", "serif" },
+    .{ "\"serif\"", "serif" },
+    .{ "'sans-serif', serif", "sans-serif|serif" },
+    .{ "system-ui", "system-ui" },
+    .{ "-apple-system, BlinkMacSystemFont", "-apple-system|blinkmacsystemfont" },
+    .{ "ui-monospace", "ui-monospace" },
+    .{ "url(x)", null },
+    .{ "a()", null },
+    .{ "a(", null },
+    .{ "a)", null },
+    .{ "{}", null },
+    .{ "[]", null },
+    .{ "a,b,", null },
+    .{ "'a',", null },
+    .{ "'a' 'b'", null },
+    .{ "a 'b'", null },
+    .{ "'a' b", null },
+    .{ "\u{4e2d}\u{6587}", "\u{4e2d}\u{6587}" },
+    .{ "a\u{1f600}b", "a\u{1f600}b" },
+    .{ "calc(1)", null },
+    .{ "var(--x)", null },
+    .{ "var(--x), serif", null },
+    .{ "a, var(--x)", null },
+    .{ "'a\\\u{a}b'", "ab" },
+    .{ "'a\\27 b'", "a'b" },
+    .{ "'a\\' b'", "a' b" },
+    .{ "a\\\u{a}b", null },
+    .{ "revert-layer", "revert-layer" },
+    .{ "\"default\"", "default" },
+    .{ "\"inherit\"", "inherit" },
+    .{ "'inherit', a", "inherit|a" },
+    .{ "a, default", null },
+    .{ "a\\\u{a}", null },
+    .{ "/**/", null },
+    .{ "a/**/", "a" },
+    .{ "a\\0", "a\u{fffd}" },
+    .{ "a/b/*c*/", null },
+    .{ "a,\u{a}\u{9}b", "a|b" },
+    .{ "  a  ,  b  ", "a|b" },
+    .{ "a ,b", "a|b" },
+    .{ "AB cd", "ab cd" },
+    .{ "a  \"", null },
+    .{ "\"\"", "" },
+    .{ "''", "" },
+    .{ "a,\"\"", "a|" },
+    .{ "\"a\"\"b\"", null },
+};
 
-    const q = resolver.parseFamilies("Segoe  UI   Symbol , 'Noto Sans' ,-apple-system").?;
-    try std.testing.expectEqual(@as(usize, 3), q.n);
-    try std.testing.expectEqualStrings("segoe ui symbol", q.name(0));
-    try std.testing.expectEqualStrings("noto sans", q.name(1));
-    try std.testing.expectEqualStrings("-apple-system", q.name(2));
-
-    const esc = resolver.parseFamilies("\"A\\\"B\", Foo\\20 Bar").?;
-    try std.testing.expectEqualStrings("a\"b", esc.name(0));
-    try std.testing.expectEqualStrings("foo bar", esc.name(1));
-
-    try std.testing.expect(resolver.parseFamilies("inherit") != null);
-    try std.testing.expect(resolver.parseFamilies("'unterminated") != null);
-
-    const invalid = [_][]const u8{
-        "\"trebuchet ms\", verdana, arial, sans-serif;",
-        "",
-        "   ",
-        "a,,b",
-        "a,",
-        ",a",
-        "1abc",
-        "Foo \"bar\"",
-        "Foo!important",
-        "a b;",
-        "'broken\nstring'",
-        "inherit, serif",
-        "Foo(bar)",
-        "a.b",
-        "-1x",
-    };
-    for (invalid) |s| try std.testing.expect(resolver.parseFamilies(s) == null);
+test "family lists validate exactly as Chromium validates font-family" {
+    for (family_cases) |c| {
+        const parsed = resolver.parseFamilies(c[0]);
+        const want = c[1] orelse {
+            if (parsed != null) std.debug.print("accepted but Chromium drops it: {s}\n", .{c[0]});
+            try std.testing.expect(parsed == null);
+            continue;
+        };
+        const p = parsed orelse {
+            std.debug.print("dropped but Chromium keeps it: {s}\n", .{c[0]});
+            return error.TestUnexpectedResult;
+        };
+        var buf: [512]u8 = undefined;
+        var len: usize = 0;
+        for (0..p.n) |i| {
+            if (i > 0) {
+                buf[len] = '|';
+                len += 1;
+            }
+            @memcpy(buf[len..][0..p.name(i).len], p.name(i));
+            len += p.name(i).len;
+        }
+        try std.testing.expectEqualStrings(want, buf[0..len]);
+    }
 }
 
 test "an invalid family list measures in the default serif" {

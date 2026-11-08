@@ -16,7 +16,7 @@ zig build subset-font -- LiberationSans-Regular.ttf src/font/sans_regular.ttf "m
 zig build subset-font -- LiberationSans-Bold.ttf src/font/sans_bold.ttf "mdview Sans" Bold
 ```
 
-Regenerate the math subset from STIX Two Math (`STIXTwoMath-Regular.otf` from CTAN `fonts/stix2-otf`, sha256 `95bc2729e41faf93b0bcae9e96c4dc4da45855067fd0581e621e30734fe8d90b`, https://mirrors.ctan.org/fonts/stix2-otf/STIXTwoMath-Regular.otf):
+Regenerate the math subset from STIX Two Math (`STIXTwoMath-Regular.otf` from CTAN `fonts/stix2-otf`, sha256 `95bc2729e41faf93b0bcae9e96c4dc4da45855067fd0581e621e30734fe8d90b`, https://tug.ctan.org/fonts/stix2-otf/STIXTwoMath-Regular.otf):
 
 ```
 zig build subset-math-font -- STIXTwoMath-Regular.otf src/font/stix_math.z

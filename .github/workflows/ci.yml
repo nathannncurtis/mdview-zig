@@ -111,10 +111,10 @@ jobs:
       - name: Regenerate
         run: |
           mkdir out
-          curl -sSfL -o lib.tgz https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz
+          curl -sSfL --retry 3 --retry-all-errors -o lib.tgz https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz
           echo "7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0  lib.tgz" | sha256sum -c -
           tar -xzf lib.tgz
-          curl -sSfL -o stix.otf https://mirrors.ctan.org/fonts/stix2-otf/STIXTwoMath-Regular.otf
+          curl -sSfL --retry 3 --retry-all-errors -o stix.otf https://tug.ctan.org/fonts/stix2-otf/STIXTwoMath-Regular.otf
           echo "95bc2729e41faf93b0bcae9e96c4dc4da45855067fd0581e621e30734fe8d90b  stix.otf" | sha256sum -c -
           zig build subset-font -- liberation-fonts-ttf-2.1.5/LiberationSans-Regular.ttf out/sans_regular.ttf "mdview Sans" Regular
           zig build subset-font -- liberation-fonts-ttf-2.1.5/LiberationSans-Bold.ttf out/sans_bold.ttf "mdview Sans" Bold

@@ -462,7 +462,14 @@ fn readEscape(raw: []const u8, i: *usize) ?u21 {
 }
 
 fn skipWs(raw: []const u8, i: *usize) void {
-    while (i.* < raw.len and isWs(raw[i.*])) i.* += 1;
+    while (i.* < raw.len) {
+        if (isWs(raw[i.*])) {
+            i.* += 1;
+        } else if (raw[i.*] == '/' and i.* + 1 < raw.len and raw[i.* + 1] == '*') {
+            const end = std.mem.indexOfPos(u8, raw, i.* + 2, "*/");
+            i.* = if (end) |at| at + 2 else raw.len;
+        } else break;
+    }
 }
 
 fn readString(f: *Families, raw: []const u8, i: *usize) bool {
@@ -498,7 +505,7 @@ fn readIdent(f: *Families, raw: []const u8, i: *usize) bool {
         const c = raw[i.*];
         i.* += 1;
         if (c == '\\') {
-            const cp = readEscape(raw, i) orelse return false;
+            const cp = if (i.* >= raw.len) 0xFFFD else readEscape(raw, i) orelse return false;
             if (!f.putCp(cp)) return false;
         } else if (!f.put(c)) return false;
     }
@@ -533,6 +540,7 @@ pub fn parseFamilies(raw: []const u8) ?Families {
         if (raw[i] != ',') return null;
         i += 1;
     }
+    if (f.n == 1 and !f.quoted[0] and std.mem.eql(u8, f.name(0), "default")) return null;
     if (f.n > 1) {
         for (0..f.n) |k| {
             if (f.quoted[k]) continue;
