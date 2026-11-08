@@ -1,7 +1,7 @@
 const std = @import("std");
 const markdown = @import("markdown.zig");
 const image = @import("image/image.zig");
-const fuzz_images = @import("fuzz_images.zig");
+const fuzz_images = @import("image/fuzz_seeds.zig");
 
 const max_input = 8192;
 

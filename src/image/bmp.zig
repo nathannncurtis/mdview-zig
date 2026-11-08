@@ -163,8 +163,8 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         const off: u64 = std.mem.readInt(u32, bytes[14 + 112 ..][0..4], .little);
         const size: u64 = std.mem.readInt(u32, bytes[14 + 116 ..][0..4], .little);
         if (14 + off + size <= bytes.len) {
-            var tr = std.mem.zeroes(icc.Transform);
-            if (icc.fromProfile(&tr, bytes[@intCast(14 + off)..][0..@intCast(size)], false)) |t| t.apply(out);
+            var tr: icc.Transform = .{};
+            if (icc.fromProfile(&tr, bytes[@intCast(14 + off)..][0..@intCast(size)], .rgb)) |t| t.apply(out);
         }
     }
     return image.single(alloc, @intCast(w), @intCast(h), out);

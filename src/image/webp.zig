@@ -29,7 +29,8 @@ const Decoded = struct { width: u32, height: u32, has_alpha: bool, rgba: []u8 };
 
 pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     const riff_size = std.mem.readInt(u32, bytes[4..8], .little);
-    if (riff_size < 4 or @as(u64, riff_size) + 8 > bytes.len) return error.Corrupt;
+    if (riff_size < 4) return error.Corrupt;
+    if (@as(u64, riff_size) + 8 > bytes.len) return blankFromHeader(alloc, bytes);
     var it: ChunkIter = .{ .c = .{ .b = bytes[12 .. 8 + riff_size] } };
     const first = (try it.next()) orelse return error.Corrupt;
     if (std.mem.eql(u8, &first.tag, "VP8 ") or std.mem.eql(u8, &first.tag, "VP8L")) {
@@ -68,10 +69,38 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     return error.Corrupt;
 }
 
+fn blankFromHeader(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
+    var c: image.Cursor = .{ .b = bytes, .pos = 12 };
+    const tag = (try c.take(4))[0..4].*;
+    _ = try c.le32();
+    var w: u32 = 0;
+    var h: u32 = 0;
+    if (std.mem.eql(u8, &tag, "VP8X")) {
+        const d = try c.take(10);
+        w = u24le(d[4..7]) + 1;
+        h = u24le(d[7..10]) + 1;
+    } else if (std.mem.eql(u8, &tag, "VP8 ")) {
+        const d = try c.take(10);
+        if (d[3] != 0x9d or d[4] != 0x01 or d[5] != 0x2a) return error.Corrupt;
+        w = (@as(u32, d[6]) | (@as(u32, d[7]) << 8)) & 0x3fff;
+        h = (@as(u32, d[8]) | (@as(u32, d[9]) << 8)) & 0x3fff;
+    } else if (std.mem.eql(u8, &tag, "VP8L")) {
+        const d = try c.take(5);
+        if (d[0] != 0x2f) return error.Corrupt;
+        const bits = std.mem.readInt(u32, d[1..5], .little);
+        w = (bits & 0x3fff) + 1;
+        h = ((bits >> 14) & 0x3fff) + 1;
+    } else return error.Corrupt;
+    try image.checkDims(w, h);
+    const out = try image.allocRgba(alloc, w, h);
+    @memset(out, 0);
+    return image.single(alloc, w, h, out);
+}
+
 fn colorize(img: *Image, profile: ?[]const u8) void {
     const p = profile orelse return;
-    var tr = std.mem.zeroes(icc.Transform);
-    if (icc.fromProfile(&tr, p, false)) |t| for (img.frames) |f| t.apply(f.rgba);
+    var tr: icc.Transform = .{};
+    if (icc.fromProfile(&tr, p, .rgb)) |t| for (img.frames) |f| t.apply(f.rgba);
 }
 
 fn decodeAnim(alloc: std.mem.Allocator, it: *ChunkIter, cw: u32, ch: u32) Error!Image {

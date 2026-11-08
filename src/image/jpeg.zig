@@ -200,6 +200,14 @@ const Decoder = struct {
     truncated: bool = false,
     any_data: bool = false,
     rows_ok: ?usize = null,
+    cbits: [4][10]i8 = @splat(@splat(-1)),
+    cprev: [4][10]i8 = @splat(@splat(0)),
+    scans_started: usize = 0,
+    first_display: usize = 0,
+    last_ss0: bool = false,
+    stop_row: usize = 0,
+    last_good: usize = 0,
+    saw_eoi: bool = false,
     icc_parts: [256][]const u8 = @splat(&.{}),
     icc_count: u8 = 0,
 
@@ -384,6 +392,25 @@ const Decoder = struct {
             if (need_ac and !self.ac[cp.ta].present) return error.Corrupt;
         }
         if (self.scans == 0) self.multi_scan = self.progressive or ns < self.ncomp;
+        self.scans_started += 1;
+        self.last_ss0 = ss == 0;
+        if (self.progressive) {
+            for (idx[0..ns]) |j| {
+                var ci: u32 = @min(ss, 1);
+                while (ci <= @min(@max(se, 9), 9)) : (ci += 1) {
+                    self.cprev[j][ci] = if (self.scans_started > 1) self.cbits[j][ci] else 0;
+                }
+                ci = ss;
+                while (ci <= @min(se, 9)) : (ci += 1) self.cbits[j][ci] = @intCast(al);
+            }
+            if (self.first_display == 0) {
+                var seen = true;
+                for (0..self.ncomp) |j| {
+                    if (self.cbits[j][0] == -1) seen = false;
+                }
+                if (seen) self.first_display = self.scans_started;
+            }
+        }
 
         var br: Bits = .{ .data = self.data, .pos = entropy_start };
         var ar = arith.Arith.init(self.data, entropy_start);
@@ -445,11 +472,9 @@ const Decoder = struct {
                     };
                 }
             }
-            var snap: [640]i16 = undefined;
-            if (self.multi_scan) {
-                for (0..nb) |i| @memcpy(snap[i * 64 ..][0..64], blk[i]);
-            }
+            self.last_good = self.imcuRow(m, ns, per_row, first);
             for (0..nb) |i| {
+                if (if (self.arith) ar.bad else br.bad) break;
                 const cp = &self.comps[owner[i]];
                 if (self.arith) {
                     self.arithBlock(&ar, cp, blk[i], ss, se, ah, al);
@@ -458,9 +483,6 @@ const Decoder = struct {
                 }
             }
             if (if (self.arith) ar.bad else br.bad) {
-                if (self.multi_scan) {
-                    for (0..nb) |i| @memcpy(blk[i], snap[i * 64 ..][0..64]);
-                }
                 self.truncated = true;
                 break;
             }
@@ -468,6 +490,7 @@ const Decoder = struct {
             self.any_data = true;
         }
         self.scans += 1;
+        self.stop_row = if (self.truncated) self.imcuRow(done, ns, per_row, first) else self.mcus_y;
         if (self.truncated) {
             if (!self.multi_scan) {
                 const rows_done = done / per_row;
@@ -484,6 +507,11 @@ const Decoder = struct {
             if (self.data[p] == 0xFF and self.data[p + 1] != 0 and self.data[p + 1] != 0xFF and !(self.data[p + 1] >= 0xD0 and self.data[p + 1] <= 0xD7)) break;
         }
         return @min(p, self.data.len);
+    }
+
+    fn imcuRow(self: *const Decoder, m: usize, ns: usize, per_row: usize, first: *const Component) usize {
+        if (ns > 1) return m / self.mcus_x;
+        return (m / per_row) / first.v;
     }
 
     fn needContext(self: *const Decoder) bool {
@@ -521,11 +549,13 @@ const Decoder = struct {
             const t = try br.decode(dc);
             if (t > 16) return error.Corrupt;
             const diff: i32 = if (t == 0) 0 else extend(br.get(@intCast(t)), @intCast(t));
+            if (br.bad) return;
             cp.pred +%= diff;
             co[0] = @truncate(cp.pred);
             var k: usize = 1;
             while (k < 64) {
                 const rs = try br.decode(ac);
+                if (br.bad) return;
                 const r = rs >> 4;
                 const s: u7 = @intCast(rs & 15);
                 if (s == 0) {
@@ -537,7 +567,9 @@ const Decoder = struct {
                 }
                 k += r;
                 if (k > 63) return error.Corrupt;
-                co[zigzag[k]] = @truncate(extend(br.get(s), s));
+                const v = extend(br.get(s), s);
+                if (br.bad) return;
+                co[zigzag[k]] = @truncate(v);
                 k += 1;
             }
             return;
@@ -547,9 +579,14 @@ const Decoder = struct {
                 const t = try br.decode(dc);
                 if (t > 16) return error.Corrupt;
                 const diff: i32 = if (t == 0) 0 else extend(br.get(@intCast(t)), @intCast(t));
+                if (br.bad) return;
                 cp.pred +%= diff;
                 co[0] = @truncate(cp.pred << @intCast(al));
-            } else if (br.bit() != 0) co[0] |= @as(i16, 1) << @intCast(al);
+            } else {
+                const b = br.bit();
+                if (br.bad) return;
+                if (b != 0) co[0] |= @as(i16, 1) << @intCast(al);
+            }
             return;
         }
         if (ah == 0) {
@@ -560,18 +597,26 @@ const Decoder = struct {
             var k: usize = ss;
             while (k <= se) {
                 const rs = try br.decode(ac);
+                if (br.bad) return;
                 const r = rs >> 4;
                 const s: u7 = @intCast(rs & 15);
                 if (s != 0) {
                     k += r;
                     if (k > 63) return error.Corrupt;
-                    co[zigzag[k]] = @truncate(extend(br.get(s), s) * (@as(i32, 1) << @intCast(al)));
+                    const v = extend(br.get(s), s);
+                    if (br.bad) return;
+                    co[zigzag[k]] = @truncate(v * (@as(i32, 1) << @intCast(al)));
                     k += 1;
                 } else if (r == 15) {
                     k += 16;
                 } else {
-                    self.eobrun = (@as(u32, 1) << @intCast(r)) - 1;
-                    if (r != 0) self.eobrun += br.get(@intCast(r));
+                    var run = (@as(u32, 1) << @intCast(r)) - 1;
+                    if (r != 0) {
+                        const e = br.get(@intCast(r));
+                        if (br.bad) return;
+                        run += e;
+                    }
+                    self.eobrun = run;
                     break;
                 }
             }
@@ -580,23 +625,35 @@ const Decoder = struct {
         const p1: i16 = @as(i16, 1) << @intCast(al);
         const m1: i16 = -p1;
         var k: usize = ss;
+        var newnz: [64]u8 = undefined;
+        var nn: usize = 0;
         if (self.eobrun == 0) {
             while (k <= se) : (k += 1) {
                 const rs = try br.decode(ac);
+                if (br.bad) return undoNew(co, newnz[0..nn]);
                 var r: i32 = rs >> 4;
                 const s0 = rs & 15;
                 var s: i16 = 0;
                 if (s0 != 0) {
-                    s = if (br.bit() != 0) p1 else m1;
+                    const b = br.bit();
+                    if (br.bad) return undoNew(co, newnz[0..nn]);
+                    s = if (b != 0) p1 else m1;
                 } else if (r != 15) {
-                    self.eobrun = @as(u32, 1) << @intCast(r);
-                    if (r != 0) self.eobrun += br.get(@intCast(r));
+                    var run = @as(u32, 1) << @intCast(r);
+                    if (r != 0) {
+                        const e = br.get(@intCast(r));
+                        if (br.bad) return undoNew(co, newnz[0..nn]);
+                        run += e;
+                    }
+                    self.eobrun = run;
                     break;
                 }
                 while (k <= se) : (k += 1) {
                     const t = &co[zigzag[k]];
                     if (t.* != 0) {
-                        if (br.bit() != 0 and (t.* & p1) == 0) t.* += if (t.* >= 0) p1 else m1;
+                        const b = br.bit();
+                        if (br.bad) return undoNew(co, newnz[0..nn]);
+                        if (b != 0 and (t.* & p1) == 0) t.* += if (t.* >= 0) p1 else m1;
                     } else {
                         r -= 1;
                         if (r < 0) break;
@@ -605,18 +662,167 @@ const Decoder = struct {
                 if (s != 0) {
                     if (k > 63) return error.Corrupt;
                     co[zigzag[k]] = s;
+                    newnz[nn] = zigzag[k];
+                    nn += 1;
                 }
             }
         }
         if (self.eobrun > 0) {
             while (k <= se) : (k += 1) {
                 const t = &co[zigzag[k]];
-                if (t.* != 0 and br.bit() != 0 and (t.* & p1) == 0) t.* += if (t.* >= 0) p1 else m1;
+                if (t.* != 0) {
+                    const b = br.bit();
+                    if (br.bad) return undoNew(co, newnz[0..nn]);
+                    if (b != 0 and (t.* & p1) == 0) t.* += if (t.* >= 0) p1 else m1;
+                }
             }
             self.eobrun -= 1;
         }
     }
+
+    fn smoothingOk(self: *const Decoder) bool {
+        if (!self.progressive) return false;
+        var useful = false;
+        for (self.comps[0..self.ncomp], 0..) |cp, ci| {
+            if (!cp.q_set) return false;
+            const q = &cp.q;
+            for ([_]usize{ 0, 1, 8, 16, 9, 2, 3, 10, 17, 24 }) |pos| {
+                if (q[pos] == 0) return false;
+            }
+            if (self.cbits[ci][0] < 0) return false;
+            for (1..10) |k| {
+                if (self.cbits[ci][k] != 0) useful = true;
+            }
+        }
+        return useful;
+    }
+
+    fn smoothBlock(self: *const Decoder, ci: usize, bx: usize, by: usize, ws: *[64]i16) void {
+        const cp = &self.comps[ci];
+        const use_prev = (by / cp.v) > self.last_good;
+        var bits: [10]i32 = undefined;
+        for (0..10) |k| {
+            bits[k] = if (use_prev) (if (self.scans_started > 1) self.cprev[ci][k] else -1) else self.cbits[ci][k];
+        }
+        const wib = (cp.cw + 7) / 8;
+        const last_col = wib - 1;
+        const rows = cp.bh;
+        const r_c = by;
+        const r_p = if (by > 0) by - 1 else by;
+        const r_pp = if (by > 1) by - 2 else r_p;
+        const r_n = if (by + 1 < rows) by + 1 else by;
+        const r_nn = if (by + 2 < rows) by + 2 else r_n;
+        const rs = [5]usize{ r_pp, r_p, r_c, r_n, r_nn };
+        var dcv: [25]i64 = undefined;
+        for (0..5) |ri| {
+            for (0..5) |ci5| {
+                const col = std.math.clamp(@as(isize, @intCast(bx)) + @as(isize, @intCast(ci5)) - 2, 0, @as(isize, @intCast(last_col)));
+                dcv[ri * 5 + ci5] = cp.coef[(rs[ri] * cp.bw + @as(usize, @intCast(col))) * 64];
+            }
+        }
+        const DC01 = dcv[0];
+        const DC02 = dcv[1];
+        const DC03 = dcv[2];
+        const DC04 = dcv[3];
+        const DC05 = dcv[4];
+        const DC06 = dcv[5];
+        const DC07 = dcv[6];
+        const DC08 = dcv[7];
+        const DC09 = dcv[8];
+        const DC10 = dcv[9];
+        const DC11 = dcv[10];
+        const DC12 = dcv[11];
+        const DC13 = dcv[12];
+        const DC14 = dcv[13];
+        const DC15 = dcv[14];
+        const DC16 = dcv[15];
+        const DC17 = dcv[16];
+        const DC18 = dcv[17];
+        const DC19 = dcv[18];
+        const DC20 = dcv[19];
+        const DC21 = dcv[20];
+        const DC22 = dcv[21];
+        const DC23 = dcv[22];
+        const DC24 = dcv[23];
+        const DC25 = dcv[24];
+        const q = &cp.q;
+        const Q00: i64 = q[0];
+        const change_dc = bits[1] == -1 and bits[2] == -1 and bits[3] == -1 and bits[4] == -1 and bits[5] == -1 and bits[6] == -1 and bits[7] == -1 and bits[8] == -1 and bits[9] == -1;
+        if (bits[1] != 0 and ws[1] == 0) {
+            const num = Q00 * (if (change_dc)
+                (-DC01 - DC02 + DC04 + DC05 - 3 * DC06 + 13 * DC07 - 13 * DC09 + 3 * DC10 - 3 * DC11 + 38 * DC12 - 38 * DC14 + 3 * DC15 - 3 * DC16 + 13 * DC17 - 13 * DC19 + 3 * DC20 - DC21 - DC22 + DC24 + DC25)
+            else
+                (-7 * DC11 + 50 * DC12 - 50 * DC14 + 7 * DC15));
+            ws[1] = smoothPred(num, q[1], bits[1]);
+        }
+        if (bits[2] != 0 and ws[8] == 0) {
+            const num = Q00 * (if (change_dc)
+                (-DC01 - 3 * DC02 - 3 * DC03 - 3 * DC04 - DC05 - DC06 + 13 * DC07 + 38 * DC08 + 13 * DC09 - DC10 + DC16 - 13 * DC17 - 38 * DC18 - 13 * DC19 + DC20 + DC21 + 3 * DC22 + 3 * DC23 + 3 * DC24 + DC25)
+            else
+                (-7 * DC03 + 50 * DC08 - 50 * DC18 + 7 * DC23));
+            ws[8] = smoothPred(num, q[8], bits[2]);
+        }
+        if (bits[3] != 0 and ws[16] == 0) {
+            const num = Q00 * (if (change_dc)
+                (DC03 + 2 * DC07 + 7 * DC08 + 2 * DC09 - 5 * DC12 - 14 * DC13 - 5 * DC14 + 2 * DC17 + 7 * DC18 + 2 * DC19 + DC23)
+            else
+                (-DC03 + 13 * DC08 - 24 * DC13 + 13 * DC18 - DC23));
+            ws[16] = smoothPred(num, q[16], bits[3]);
+        }
+        if (bits[4] != 0 and ws[9] == 0) {
+            const num = Q00 * (if (change_dc)
+                (-DC01 + DC05 + 9 * DC07 - 9 * DC09 - 9 * DC17 + 9 * DC19 + DC21 - DC25)
+            else
+                (DC10 + DC16 - 10 * DC17 + 10 * DC19 - DC02 - DC20 + DC22 - DC24 + DC04 - DC06 + 10 * DC07 - 10 * DC09));
+            ws[9] = smoothPred(num, q[9], bits[4]);
+        }
+        if (bits[5] != 0 and ws[2] == 0) {
+            const num = Q00 * (if (change_dc)
+                (2 * DC07 - 5 * DC08 + 2 * DC09 + DC11 + 7 * DC12 - 14 * DC13 + 7 * DC14 + DC15 + 2 * DC17 - 5 * DC18 + 2 * DC19)
+            else
+                (-DC11 + 13 * DC12 - 24 * DC13 + 13 * DC14 - DC15));
+            ws[2] = smoothPred(num, q[2], bits[5]);
+        }
+        if (change_dc) {
+            if (bits[6] != 0 and ws[3] == 0) {
+                const num = Q00 * (DC07 - DC09 + 2 * DC12 - 2 * DC14 + DC17 - DC19);
+                ws[3] = smoothPred(num, q[3], bits[6]);
+            }
+            if (bits[7] != 0 and ws[10] == 0) {
+                const num = Q00 * (DC07 - 3 * DC08 + DC09 - DC17 + 3 * DC18 - DC19);
+                ws[10] = smoothPred(num, q[10], bits[7]);
+            }
+            if (bits[8] != 0 and ws[17] == 0) {
+                const num = Q00 * (DC07 - DC09 - 3 * DC12 + 3 * DC14 + DC17 - DC19);
+                ws[17] = smoothPred(num, q[17], bits[8]);
+            }
+            if (bits[9] != 0 and ws[24] == 0) {
+                const num = Q00 * (DC07 + 2 * DC08 + DC09 - DC17 - 2 * DC18 - DC19);
+                ws[24] = smoothPred(num, q[24], bits[9]);
+            }
+            const num = Q00 * (-2 * DC01 - 6 * DC02 - 8 * DC03 - 6 * DC04 - 2 * DC05 - 6 * DC06 + 6 * DC07 + 42 * DC08 + 6 * DC09 - 6 * DC10 - 8 * DC11 + 42 * DC12 + 152 * DC13 + 42 * DC14 - 8 * DC15 - 6 * DC16 + 6 * DC17 + 42 * DC18 + 6 * DC19 - 6 * DC20 - 2 * DC21 - 6 * DC22 - 8 * DC23 - 6 * DC24 - 2 * DC25);
+            ws[0] = smoothPred(num, q[0], 0);
+        }
+    }
 };
+
+fn undoNew(co: []i16, pos: []const u8) void {
+    for (pos) |i| co[i] = 0;
+}
+
+fn smoothPred(num: i64, q: u16, al: i32) i16 {
+    const qq: i64 = q;
+    var pred: i64 = 0;
+    if (num >= 0) {
+        pred = @divTrunc((qq << 7) + num, qq << 8);
+        if (al > 0 and pred >= (@as(i64, 1) << @intCast(al))) pred = (@as(i64, 1) << @intCast(al)) - 1;
+    } else {
+        pred = @divTrunc((qq << 7) - num, qq << 8);
+        if (al > 0 and pred >= (@as(i64, 1) << @intCast(al))) pred = (@as(i64, 1) << @intCast(al)) - 1;
+        pred = -pred;
+    }
+    return @truncate(pred);
+}
 
 const c_bits = 13;
 const p1_bits = 2;
@@ -796,7 +1002,10 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         if (pos >= bytes.len) break;
         const m = bytes[pos];
         pos += 1;
-        if (m == 0xD9) break;
+        if (m == 0xD9) {
+            d.saw_eoi = true;
+            break;
+        }
         if (m == 0 or m == 0x01 or (m >= 0xD0 and m <= 0xD8)) continue;
         if (pos + 2 > bytes.len) break;
         const len = std.mem.readInt(u16, bytes[pos..][0..2], .big);
@@ -826,6 +1035,19 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
         }
     }
     if (d.ncomp == 0 or !d.any_data) return error.Corrupt;
+    if (d.progressive and !d.saw_eoi) {
+        if (d.first_display == 0) return error.Corrupt;
+        if (d.scans_started == d.first_display and d.stop_row < d.mcus_y + 1) {
+            const delta: usize = if (d.last_ss0) 2 else 0;
+            const k = d.stop_row -| delta;
+            if (k < d.mcus_y) {
+                const lag: usize = if (d.needContext()) d.vmax else 0;
+                const rows = (k * 8 * d.vmax) -| lag;
+                if (rows == 0) return error.Corrupt;
+                d.rows_ok = rows;
+            } else d.rows_ok = null;
+        } else d.rows_ok = null;
+    }
     return render(&d);
 }
 
@@ -833,6 +1055,7 @@ fn render(d: *Decoder) Error!Image {
     const alloc = d.alloc;
     var planes: [4]Plane = undefined;
     var made: usize = 0;
+    const smooth = d.smoothingOk();
     defer for (planes[0..made]) |p| alloc.free(p.data);
     for (d.comps[0..d.ncomp], 0..) |*cp, i| {
         const stride = cp.bw * 8;
@@ -843,8 +1066,18 @@ fn render(d: *Decoder) Error!Image {
             @memset(data, 128);
             continue;
         }
+        const wib = (cp.cw + 7) / 8;
+        const hib = (cp.ch + 7) / 8;
         for (0..cp.bh) |by| for (0..cp.bw) |bx| {
-            idct(cp.coef[(by * cp.bw + bx) * 64 ..][0..64], &cp.q, data[by * 8 * stride + bx * 8 ..], stride);
+            const blk = cp.coef[(by * cp.bw + bx) * 64 ..][0..64];
+            if (smooth and bx < wib and by < hib) {
+                var ws: [64]i16 = undefined;
+                @memcpy(&ws, blk);
+                d.smoothBlock(i, bx, by, &ws);
+                idct(&ws, &cp.q, data[by * 8 * stride + bx * 8 ..], stride);
+            } else {
+                idct(blk, &cp.q, data[by * 8 * stride + bx * 8 ..], stride);
+            }
         };
     }
 
@@ -871,7 +1104,15 @@ fn render(d: *Decoder) Error!Image {
         4 => if (d.adobe_transform) |t| t == 2 else false,
         else => false,
     };
-    const inverted = d.ncomp == 4 and d.adobe_transform != null;
+    const prof = try assembleProfile(d);
+    defer if (prof) |b| alloc.free(b);
+    var tr: icc.Transform = .{};
+    const kind: icc.Kind = switch (d.ncomp) {
+        1 => .gray,
+        3 => .rgb,
+        else => .cmyk,
+    };
+    const tfm: ?*const icc.Transform = if (prof) |b| icc.fromProfile(&tr, b, kind) else null;
 
     for (0..valid_rows) |y| {
         for (d.comps[0..d.ncomp], 0..) |*cp, i| {
@@ -901,11 +1142,12 @@ fn render(d: *Decoder) Error!Image {
                     c = .{ 255 - clamp8(yy + crr[cr]), 255 - clamp8(yy + ((cbg[cb] + crg[cr]) >> 16)), 255 - clamp8(yy + cbb[cb]) };
                 } else c = .{ lines[0][x], lines[1][x], lines[2][x] };
                 const k: i32 = lines[3][x];
-                var px: [4]u8 = undefined;
-                for (0..3) |j| {
-                    px[j] = if (inverted) @intCast(@divTrunc(c[j] * k + 127, 255)) else @intCast(@divTrunc((255 - c[j]) * (255 - k) + 127, 255));
+                var px: [4]u8 = .{ 0, 0, 0, 255 };
+                if (tfm) |t| {
+                    px[0..3].* = t.cmyk(@intCast(c[0]), @intCast(c[1]), @intCast(c[2]), @intCast(k));
+                } else for (0..3) |j| {
+                    px[j] = @intCast(@divTrunc(c[j] * k + 127, 255));
                 }
-                px[3] = 255;
                 rgba_row[x * 4 ..][0..4].* = px;
             },
         }
@@ -926,25 +1168,23 @@ fn render(d: *Decoder) Error!Image {
             out[(dy * ow + dx) * 4 ..][0..4].* = rgba_row[x * 4 ..][0..4].*;
         }
     }
-    try applyProfile(d, out);
+    if (tfm != null and d.ncomp != 4) tfm.?.apply(out);
     return image.single(alloc, ow, oh, out);
 }
 
-fn applyProfile(d: *const Decoder, out: []u8) Error!void {
-    if (d.icc_count == 0 or (d.ncomp != 1 and d.ncomp != 3)) return;
+fn assembleProfile(d: *const Decoder) Error!?[]u8 {
+    if (d.icc_count == 0) return null;
     var total: usize = 0;
     for (1..@as(usize, d.icc_count) + 1) |i| {
-        if (d.icc_parts[i].len == 0) return;
+        if (d.icc_parts[i].len == 0) return null;
         total += d.icc_parts[i].len;
     }
-    if (total > 4 << 20) return;
+    if (total > 4 << 20) return null;
     const prof = try d.alloc.alloc(u8, total);
-    defer d.alloc.free(prof);
     var at: usize = 0;
     for (1..@as(usize, d.icc_count) + 1) |i| {
         @memcpy(prof[at..][0..d.icc_parts[i].len], d.icc_parts[i]);
         at += d.icc_parts[i].len;
     }
-    var tr = std.mem.zeroes(icc.Transform);
-    if (icc.fromProfile(&tr, prof, d.ncomp == 1)) |t| t.apply(out);
+    return prof;
 }

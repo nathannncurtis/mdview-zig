@@ -281,3 +281,52 @@ test "a file cut before any pixel data is an error" {
         try expectDecodeError(error.Corrupt, bytes[0..c.keep]);
     }
 }
+
+test "decoded pixels match Chromium read-back references" {
+    const alloc = std.testing.allocator;
+    const text = try readFile(alloc, "refs.txt");
+    defer alloc.free(text);
+    var failed = false;
+    var lines = std.mem.tokenizeScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        var it = std.mem.tokenizeScalar(u8, line, ' ');
+        const name = it.next().?;
+        const w = try std.fmt.parseInt(u32, it.next().?, 10);
+        const h = try std.fmt.parseInt(u32, it.next().?, 10);
+        const tol = try std.fmt.parseInt(u8, it.next().?, 10);
+        const bytes = try readFile(alloc, name);
+        defer alloc.free(bytes);
+        const ref_name = try std.fmt.allocPrint(alloc, "ref/{s}.rgba", .{std.fs.path.stem(name)});
+        defer alloc.free(ref_name);
+        const ref = try readFile(alloc, ref_name);
+        defer alloc.free(ref);
+        var img = image.decode(alloc, bytes) catch |err| {
+            std.debug.print("{s}: {t}\n", .{ name, err });
+            failed = true;
+            continue;
+        };
+        defer img.deinit(alloc);
+        if (img.width != w or img.height != h) {
+            std.debug.print("{s}: size {d}x{d}, want {d}x{d}\n", .{ name, img.width, img.height, w, h });
+            failed = true;
+            continue;
+        }
+        const got = img.frames[0].rgba;
+        var worst: u8 = 0;
+        var count: usize = 0;
+        var first: usize = got.len;
+        for (got, ref, 0..) |a, b, i| {
+            const d = if (a > b) a - b else b - a;
+            if (d > tol) {
+                count += 1;
+                if (first == got.len) first = i;
+            }
+            worst = @max(worst, d);
+        }
+        if (count != 0) {
+            std.debug.print("{s}: {d} bytes differ by more than {d} (worst {d}), first at pixel {d} channel {d}\n", .{ name, count, tol, worst, first / 4, first % 4 });
+            failed = true;
+        }
+    }
+    try std.testing.expect(!failed);
+}

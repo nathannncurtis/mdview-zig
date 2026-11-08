@@ -58,9 +58,9 @@ pub fn decode(alloc: std.mem.Allocator, bytes: []const u8) Error!Image {
     defer if (meta.icc) |p| alloc.free(p);
     var img = try decodeFrames(alloc, bytes, &meta);
     errdefer img.deinit(alloc);
-    var tr = std.mem.zeroes(icc.Transform);
+    var tr: icc.Transform = .{};
     const t: ?*const icc.Transform = if (meta.icc) |prof|
-        icc.fromProfile(&tr, prof, meta.gray)
+        icc.fromProfile(&tr, prof, if (meta.gray) .gray else .rgb)
     else if (meta.srgb)
         null
     else if (meta.gamma) |g| blk: {
