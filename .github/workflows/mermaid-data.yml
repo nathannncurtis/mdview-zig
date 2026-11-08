@@ -3,8 +3,8 @@ name: mermaid-data
 on:
   pull_request:
     paths:
-      - tools/gen_segment.zig
-      - tools/gen_mermaid_config.zig
+      - tools/gen/gen_segment.zig
+      - tools/gen/gen_mermaid_config.zig
       - src/mermaid/segment_data.zig
       - src/mermaid/config_defaults.zig
       - .github/workflows/mermaid-data.yml
