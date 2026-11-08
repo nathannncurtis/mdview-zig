@@ -570,7 +570,6 @@ const sup_scale: f32 = 0.7;
 const sup_raise: f32 = 0.5;
 const sub_scale: f32 = 0.75;
 const sub_drop: f32 = 0.25;
-const small_scale: f32 = 0.8125;
 const kbd_pad: f32 = 4;
 const kbd_box_h: f32 = 20;
 const kbd_radius: f32 = 6;
@@ -651,25 +650,9 @@ fn drawKbdBox(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, r: D2D1_RECT_F) void
     vt_rt.FillRectangle(rt, &.{ .left = r.left + 3, .top = bottom - 2, .right = r.right - 3, .bottom = bottom - 1 }, border);
 }
 
-/// `abbr[title]` is underlined with dots, drawn as 1px squares because plain DirectWrite underlines cannot be dotted.
-fn drawAbbrDots(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, content: md.Inline, brush: *anyopaque) void {
-    var rects: std.ArrayList(D2D1_RECT_F) = .empty;
-    defer rects.deinit(app.gpa);
-    for (content.styles) |s| {
-        if (s.kind != .abbr) continue;
-        rangeRects(lay, wideRange(content.text, s.span), &rects) catch return;
-    }
-    for (rects.items) |r| {
-        const dot_y = y + r.bottom - 4;
-        var px = x + r.left;
-        while (px < x + r.right) : (px += 3) vt_rt.FillRectangle(rt, &.{ .left = px, .top = dot_y, .right = @min(px + 1, x + r.right), .bottom = dot_y + 1 }, brush);
-    }
-}
-
 fn drawLayout(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, brush: *anyopaque, content: md.Inline) void {
     if (content.code.len > 0) drawCodeBackgrounds(vt_rt, rt, lay, x, y, content);
     if (content.styles.len > 0) drawStyleBackgrounds(vt_rt, rt, lay, x, y, content);
-    defer if (content.styles.len > 0) drawAbbrDots(vt_rt, rt, lay, x, y, content, brush);
     if (content.sup.len == 0 and content.images.len == 0 and !hasStyle(content, .sub)) {
         vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
         return;
@@ -1566,8 +1549,7 @@ fn applyStyle(lay: *anyopaque, content: md.Inline, s: md.Styled, base: f32) void
         .mark => if (g_brush_bright) |b| {
             _ = vt.SetDrawingEffect(lay, b, range);
         },
-        .small => _ = vt.SetFontSize(lay, base * small_scale, range),
-        .abbr, .sub => {},
+        .small, .abbr, .sub => {},
     }
 }
 
@@ -1634,7 +1616,6 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
     const rows = t.rows();
     if (rows == 0) return 0;
     const cols = t.columns;
-    const gfx: Gfx = .{ .vt_rt = vt_rt, .vt_dw = vt_dw, .rt = rt, .dwf = dwf };
     const widths = app.gpa.alloc(f32, cols) catch return 0;
     defer app.gpa.free(widths);
     const heights = app.gpa.alloc(f32, rows) catch return 0;
@@ -1690,10 +1671,7 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
     }
     table_layout.solve(heights, sizes, t, .row);
 
-    var top = y;
-    const cap = app.images.flow(t.caption);
-    if (cap.text.len > 0) top += textBlock(gfx, draw, cap, g_text_format.?, x, y, table_w, g_brush_text.?, .{ .alignment = .center });
-
+    const top = y;
     var row_y = top;
     for (0..rows) |row| {
         if (draw and md.Table.striped(t, row)) {
@@ -2291,23 +2269,21 @@ test "a kbd span is padded and set in the small mono font" {
     try testing.expectApproxEqAbs(4 * 0.55 * md.kbd_font_px + 2 * kbd_pad, width, 2);
 }
 
-test "sub and small shrink their text and sub drops below the baseline" {
+test "sub shrinks their text and sub drops below the baseline" {
     initText();
     const plain = layoutSize(.{ .text = "mmmmmmmm" }, 2000).width;
     const sub = layoutSize(.{ .text = "mmmmmmmm", .styles = &.{.{ .span = .{ 0, 8 }, .kind = .sub }} }, 2000).width;
-    const small = layoutSize(.{ .text = "mmmmmmmm", .styles = &.{.{ .span = .{ 0, 8 }, .kind = .small }} }, 2000).width;
     try testing.expectApproxEqAbs(plain * sub_scale, sub, 2);
-    try testing.expectApproxEqAbs(plain * small_scale, small, 2);
     try testing.expect(baselineRaise(g_brush_text_sub, 12) == -3);
     try testing.expect(baselineRaise(g_brush_link_sub, 12) == -3);
     try testing.expect(baselineRaise(g_brush_text_sup, 12) == 6);
     try testing.expect(baselineRaise(null, 12) == 0);
 }
 
-test "mark and abbr rectangles exist and a paragraph with every style draws" {
+test "mark and tt rectangles exist and a paragraph with every style draws" {
     const styles = [_]md.Styled{
         .{ .span = .{ 0, 4 }, .kind = .mark },
-        .{ .span = .{ 5, 4 }, .kind = .abbr },
+        .{ .span = .{ 5, 4 }, .kind = .tt },
         .{ .span = .{ 10, 3 }, .kind = .underline },
         .{ .span = .{ 14, 2 }, .kind = .tt },
         .{ .span = .{ 17, 3 }, .kind = .kbd },
@@ -2324,10 +2300,10 @@ test "mark and abbr rectangles exist and a paragraph with every style draws" {
     defer rects.deinit(app.gpa);
     try rangeRects(lay, wideRange(b.content.text, styles[1].span), &rects);
     try testing.expectEqual(@as(usize, 1), rects.items.len);
-    try testing.expect(hasStyle(b.content, .abbr) and !hasStyle(b.content, .sub));
+    try testing.expect(hasStyle(b.content, .tt) and !hasStyle(b.content, .sub));
 }
 
-test "dt has no gap below it and dd and figure are inset" {
+test "dt has no gap below it and dd is inset" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -2335,17 +2311,14 @@ test "dt has no gap below it and dd and figure are inset" {
     term.role = .dt;
     var def = try paragraph(a, "[def](http://x.org)");
     def.frames = &.{.{ .kind = .dd }};
-    var fig = try paragraph(a, "[fig](http://x.org)");
-    fig.frames = &.{.{ .kind = .figure }};
     const plain = try paragraph(a, "[plain](http://x.org)");
-    var fx = try Fixture.init(&.{ term, def, fig, plain, plain });
+    var fx = try Fixture.init(&.{ term, def, plain, plain });
     defer fx.deinit();
     render();
-    try testing.expectEqual(@as(usize, 5), app.hits.items.len);
+    try testing.expectEqual(@as(usize, 4), app.hits.items.len);
     try testing.expectEqual(@as(f32, 40 + md.dd_inset), app.hits.items[1].x);
-    try testing.expectEqual(@as(f32, 40 + md.figure_inset), app.hits.items[2].x);
     const term_step = app.block_y.items[1] - app.block_y.items[0];
-    const plain_step = app.block_y.items[4] - app.block_y.items[3];
+    const plain_step = app.block_y.items[3] - app.block_y.items[2];
     try testing.expectApproxEqAbs(plain_step - 16, term_step, 0.5);
 }
 
@@ -2371,18 +2344,6 @@ test "an img width scales a loaded picture and both attributes force its box" {
     images[0].width = 900;
     images[0].height = 0;
     try testing.expectApproxEqAbs(@as(f32, 300), layoutSize(content, 300).width, 1);
-}
-
-test "a table caption sits above the table and adds its height" {
-    var fx = try Fixture.init(&.{});
-    defer fx.deinit();
-    var cells = [_]md.Inline{ .{ .text = "a" }, .{ .text = "b" } };
-    var t: md.Table = .{ .columns = 2, .cells = &cells };
-    const g = gfxOf();
-    const bare = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, t, 0, 0, 500, false, null);
-    t.caption = .{ .text = "Caption" };
-    const captioned = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, t, 0, 0, 500, false, null);
-    try testing.expectApproxEqAbs(layoutSize(t.caption, 500).height, captioned - bare, 0.5);
 }
 
 test "colspan and rowspan share track sizes and valign offsets the content" {

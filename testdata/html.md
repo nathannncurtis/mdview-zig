@@ -16,9 +16,9 @@ A centred line of text inside a div.
 
 ## Inline styles
 
-Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> to open the palette. Water is H<sub>2</sub>O and E = mc<sup>2</sup>. This is <ins>inserted</ins>, <mark>highlighted</mark>, <small>small print</small>, <abbr title="HyperText Markup Language">HTML</abbr> with a dotted line, <tt>teletype</tt>, <del>deleted</del> and a [link with <sub>sub</sub>](https://example.org).
+Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> to open the palette. Water is H<sub>2</sub>O and E = mc<sup>2</sup>. This is <ins>inserted</ins>, <mark>highlighted</mark>, <tt>teletype</tt>, <del>deleted</del> and a [link with <sub>sub</sub>](https://example.org).
 
-## Definitions and figures
+## Definitions
 
 <dl>
 <dt>First term</dt>
@@ -26,11 +26,6 @@ Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> to open the palette. Wat
 <dt>Second term</dt>
 <dd>The second definition.</dd>
 </dl>
-
-<figure>
-<img src="images/render_badge.svg" alt="badge in a figure">
-<figcaption>Figure caption below the picture.</figcaption>
-</figure>
 
 ## Details
 
@@ -61,7 +56,6 @@ Deep content.
 ## Tables
 
 <table>
-<caption>A table with spans</caption>
 <tr><th colspan="2">Wide header</th><th>Plain</th></tr>
 <tr><td rowspan="2" valign="middle">Tall cell</td><td>a</td><td align="right">right</td></tr>
 <tr><td>b</td><td align="center">centre</td></tr>
