@@ -126,6 +126,8 @@ const Floats = struct {
     }
 };
 
+const breakLineHeight: f32 = 24;
+
 pub const Measure = struct { width: f32 = 0, trailing: f32 = 0 };
 
 fn blockStyleOf(block: *const md.Block) win.BlockStyle {
@@ -334,7 +336,12 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
                 natural = win.g_last_text_w;
                 gap = 16;
             },
-            .paragraph => if (block.role == .summary) {
+            .paragraph => if (block.role == .empty) {
+                gap = block.paragraphGap();
+            } else if (block.role == .break_lines) {
+                y += breakLineHeight * (f32, (std.mem.count(u8, content.text, "
+")));
+            } else if (block.role == .summary) {
                 gap = summaryBlock(g, draw, block, x, &y, w, text_brush);
                 natural = win.g_last_text_w + md.details_marker_inset;
             } else {
@@ -938,4 +945,19 @@ test "a cell with blocks draws them inside the cell and sizes the row to them" {
     const g = gfxOf();
     const h = tables.renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, t, 0, 0, 800, false, null);
     try testing.expect(h > 2 * 21 + 16 + 2 * tables.cell_pad_y);
+}
+
+test "an empty paragraph takes no height and break lines take one 24px line each without a gap" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const after = try paragraph(a, "[after](http://x.org)");
+    const empty: md.Block = .{ .kind = .paragraph, .role = .empty };
+    const breaks: md.Block = .{ .kind = .paragraph, .role = .break_lines, .content = .{ .text = "\n\n" } };
+    var fx = try Fixture.init(&.{ empty, breaks, after });
+    defer fx.deinit();
+    win.render();
+    try testing.expectEqual(@as(f32, 40 + 16), app.block_y.items[1]);
+    try testing.expectEqual(@as(f32, 40 + 16 + 48), app.block_y.items[2]);
+    try testing.expectEqual(@as(usize, 1), app.hits.items.len);
 }
