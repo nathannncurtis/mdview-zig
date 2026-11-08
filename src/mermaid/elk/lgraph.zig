@@ -553,6 +553,7 @@ pub fn removeItem(comptime T: type, list: *std.ArrayList(*T), item: *T) void {
 // java.util.Random, bit for bit
 pub const JavaRandom = struct {
     seed: u64,
+    count: u64 = 0,
 
     const mult: u64 = 0x5DEECE66D;
     const mask: u64 = (1 << 48) - 1;
@@ -561,6 +562,7 @@ pub const JavaRandom = struct {
         return .{ .seed = (@as(u64, @bitCast(seed)) ^ mult) & mask };
     }
     fn next(self: *JavaRandom, bits: u6) i32 {
+        self.count += 1;
         self.seed = (self.seed *% mult +% 0xB) & mask;
         const v: u64 = self.seed >> @intCast(48 - @as(u7, bits));
         return @bitCast(@as(u32, @truncate(v)));

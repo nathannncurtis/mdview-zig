@@ -458,6 +458,7 @@ fn tname(n: *const lg.LNode, buf: *[96]u8) []const u8 {
 fn traceDump(g: *lg.LGraph, label: []const u8) void {
     if (g.parent_node != null) return;
     std.debug.print("== {s}\n", .{label});
+    std.debug.print("RC {d}\n", .{if (g.p.random) |r| r.count else 0});
     var all: std.ArrayList(*lg.LNode) = .empty;
     defer all.deinit(g.a);
     all.appendSlice(g.a, g.layerless_nodes.items) catch return;
