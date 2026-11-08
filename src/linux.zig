@@ -1666,7 +1666,7 @@ fn lineXRanges(layout: *c.PangoLayout, lines: []const LineInfo, text_len: usize,
 
 fn needsRects(content: md.Inline) bool {
     for (content.styles) |s| {
-        if s.kind == .kbd) return true;
+        if (s.kind == .kbd) return true;
     }
     return false;
 }
