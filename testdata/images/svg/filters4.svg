@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60">
+  <defs>
+    <filter id="tile" x="0" y="0" width="1" height="1"><feImage x="0" y="0" width="10" height="10" href="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Crect width='5' height='5' fill='%23e53935'/%3E%3Crect x='5' y='5' width='5' height='5' fill='%2300897b'/%3E%3C/svg%3E"/><feTile/></filter>
+    <filter id="dl" x="0" y="0" width="1" height="1"><feGaussianBlur in="SourceAlpha" stdDeviation="2" result="b"/><feDiffuseLighting in="b" surfaceScale="4" diffuseConstant="1" lighting-color="#ffd54f"><feDistantLight azimuth="45" elevation="50"/></feDiffuseLighting></filter>
+    <filter id="sl" x="0" y="0" width="1" height="1"><feGaussianBlur in="SourceAlpha" stdDeviation="2" result="b"/><feSpecularLighting in="b" surfaceScale="5" specularConstant="1.2" specularExponent="20" lighting-color="#fff" result="s"><fePointLight x="90" y="10" z="25"/></feSpecularLighting><feComposite in="s" in2="SourceAlpha" operator="in" result="c"/><feComposite in="SourceGraphic" in2="c" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/></filter>
+    <rect id="ref" width="12" height="12" fill="#3949ab"/>
+    <filter id="img" x="0" y="0" width="1" height="1"><feImage x="50" y="46" href="#ref"/></filter>
+  </defs>
+  <rect x="4" y="4" width="40" height="40" filter="url(#tile)"/>
+  <circle cx="64" cy="24" r="14" fill="#c62828" filter="url(#dl)"/>
+  <rect x="82" y="8" width="30" height="30" rx="10" fill="#2e7d32" filter="url(#sl)"/>
+  <rect x="50" y="46" width="30" height="10" filter="url(#img)"/>
+</svg>

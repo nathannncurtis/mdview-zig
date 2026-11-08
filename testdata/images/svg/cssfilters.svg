@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60">
+  <circle cx="16" cy="16" r="9" fill="#e53935" style="filter:blur(2px)"/>
+  <circle cx="46" cy="16" r="9" fill="#43a047" style="filter:drop-shadow(3px 3px 2px #000a)"/>
+  <circle cx="76" cy="16" r="9" fill="#1e88e5" style="filter:grayscale(1) contrast(1.4)"/>
+  <circle cx="106" cy="16" r="9" fill="#fdd835" style="filter:hue-rotate(90deg) saturate(2)"/>
+  <circle cx="16" cy="44" r="9" fill="#8e24aa" style="filter:sepia(.8) brightness(1.2)"/>
+  <circle cx="46" cy="44" r="9" fill="#00897b" style="filter:invert(1) opacity(.6)"/>
+  <rect x="64" y="35" width="44" height="18" fill="#ef6c00" style="filter:blur(1px) drop-shadow(2px 2px 0 #333)"/>
+</svg>

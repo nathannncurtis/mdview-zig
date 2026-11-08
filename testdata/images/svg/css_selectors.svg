@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="60" viewBox="0 0 120 60"><style>
+svg { fill: #0277bd } g:first-child rect { opacity: .5 } rect[data-x="1"] { fill: #bf360c } text { font: italic 12px 'mdview Sans' } .t * { stroke: #000 } #q ~ circle { fill: green }
+rect + rect { stroke: red; stroke-width: 2 }</style>
+<g><rect x="5" y="5" width="20" height="20"/></g><rect id="q" data-x="1" x="30" y="5" width="20" height="20"/><circle cx="70" cy="15" r="10"/><rect x="85" y="5" width="20" height="20"/>
+<g class="t"><rect x="5" y="30" width="20" height="20" fill="#eee"/></g><text x="40" y="45">Serif it</text></svg>

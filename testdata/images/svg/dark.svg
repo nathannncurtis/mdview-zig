@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60">
+  <style>
+    :root { --bg: #fff; --fg: #222; --accent: #d33; --w: calc(2px * 3) }
+    @media (prefers-color-scheme: dark) { :root { --bg: #161b22; --fg: #c9d1d9; --accent: #58a6ff } }
+    @media (prefers-color-scheme: light) { .bg { fill: #f0f } }
+    @supports (-moz-appearance: auto) { rect.x { fill: #0f0 } }
+    @supports not (-moz-appearance: auto) { rect.y { fill: var(--accent) } }
+    .bg { fill: var(--bg) }
+  </style>
+  <rect class="bg" width="120" height="60"/>
+  <rect class="y" x="8" y="8" width="104" height="12"/>
+  <rect x="8" y="28" width="40" height="24" fill="none" stroke="var(--accent)" stroke-width="var(--w)"/>
+  <rect class="x" x="60" y="28" width="52" height="24" fill="#999"/>
+  <circle cx="86" cy="40" r="8" fill="var(--fg)" opacity="calc(1 / 2)"/>
+</svg>

@@ -76,6 +76,24 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
 
+    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
+    const svg_mod = b.createModule(.{
+        .root_source_file = b.path("src/image/svg.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    svg_mod.addImport("font", font_mod);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = svg_mod })).step);
+    const svg_render_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("testdata/images/svg/render_test.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+            .imports = &.{.{ .name = "svg", .module = svg_mod }},
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(svg_render_tests).step);
+
     const font_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/font/font.zig"),
@@ -161,6 +179,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/fuzz.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{.{ .name = "font", .module = font_mod }},
         }),
     });
     fuzz_tests.root_module.addImport("testdata", testdata);
