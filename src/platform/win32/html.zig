@@ -55,7 +55,7 @@ const max_floats = 16;
 const Region = struct { x: f32, w: f32 };
 
 const Floats = struct {
-    items: [max_floats]FloatBox = undefined,
+    items: [max_floats]FloatBox = @splat(.{ .side = .left, .edge = 0, .top = 0, .bottom = 0 }),
     len: usize = 0,
 
     fn active(f: FloatBox, y: f32) bool {
