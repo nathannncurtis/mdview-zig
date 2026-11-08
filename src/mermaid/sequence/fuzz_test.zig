@@ -158,3 +158,8 @@ test "details reads a page element when one exists" {
     try std.testing.expect(std.mem.indexOf(u8, svg, "class=\"extra actor-top\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, "xlink:href=\"https://x.test\"") != null);
 }
+
+/// One fuzz input through the whole sequence pipeline; the `fuzz sequence` target in src/fuzz.zig calls this.
+pub fn renderInput(gpa: std.mem.Allocator, input: []const u8) !void {
+    _ = try renderOnce(gpa, input, null);
+}
