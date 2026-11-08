@@ -112,6 +112,20 @@ pub fn build(b: *std.Build) void {
     });
     mermaid_mod.addImport("yaml", yaml_mod);
     mermaid_mod.addImport("testdata", testdata);
+    mermaid_mod.addImport("html", b.createModule(.{
+        .root_source_file = b.path("src/markdown/html.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    const seq_jison_runtime = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/jison/runtime.zig"),
+        .target = b.graph.host,
+    });
+    const seq_jison = toolExe(b, "gen-jison-sequence", "tools/gen/gen_jison.zig");
+    seq_jison.root_module.addImport("jison_runtime", seq_jison_runtime);
+    const seq_gen = b.addRunArtifact(seq_jison);
+    seq_gen.addFileArg(b.path("src/mermaid/sequence/sequenceDiagram.jison"));
+    mermaid_mod.addAnonymousImport("seq_grammar", .{ .root_source_file = seq_gen.addOutputFileArg("seq_grammar.zig") });
     const mermaid_tests = b.addTest(.{ .root_module = mermaid_mod });
     test_step.dependOn(&b.addRunArtifact(mermaid_tests).step);
 

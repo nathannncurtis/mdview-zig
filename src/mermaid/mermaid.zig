@@ -15,6 +15,7 @@ pub const css = @import("css.zig");
 pub const info = @import("info.zig");
 pub const layout = @import("layout.zig");
 pub const fuzz = @import("fuzz.zig");
+pub const sequence = @import("sequence/sequence.zig");
 
 /// The Mermaid release everything here is ported from.
 pub const version = diagram.version;
@@ -357,6 +358,7 @@ test {
     _ = layout;
     _ = diagram;
     _ = fuzz;
+    _ = sequence;
 }
 
 test "info renders with the version and theme styles" {
