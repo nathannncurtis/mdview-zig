@@ -7,6 +7,7 @@ const Value = std.json.Value;
 test {
     std.testing.refAllDecls(@import("mermaid.zig"));
     std.testing.refAllDecls(@import("fuzz.zig"));
+    _ = @import("e2e_test.zig");
     _ = @import("p1cycles/test.zig");
     _ = @import("p3order/test.zig");
     _ = @import("p4nodes/test.zig");

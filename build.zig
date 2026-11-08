@@ -102,6 +102,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    elk_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(elk_tests).step);
     addTools(b, test_step, testdata);
 

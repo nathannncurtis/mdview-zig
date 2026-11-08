@@ -28,6 +28,7 @@ pub const Node = struct {
     paints_title: bool = true,
     skip_center_points: bool = false,
     intersect: ?geo.Intersect = null,
+    rect_intersect: bool = false,
 };
 
 pub const Edge = struct {
@@ -116,6 +117,14 @@ const State = struct {
 
     fn lookup(self: *const State, name: []const u8) ?usize {
         return self.index.get(name);
+    }
+
+    fn isect(self: *const State, i: usize, tmp: *Rect) ?geo.Intersect {
+        const n = self.nodes[i];
+        if (n.intersect) |f| return f;
+        if (!n.rect_intersect) return null;
+        tmp.* = .{ .x = self.x[i], .y = self.y[i], .width = self.w[i], .height = self.h[i] };
+        return .{ .ctx = tmp, .f = rectIntersect };
     }
 
     fn groupTitleWidth(self: *const State, i: usize) f64 {
@@ -612,6 +621,8 @@ fn approxEq(x: f64, y: f64) bool {
 }
 
 fn sanitize(st: *State, input: std.ArrayList(P), start_i: usize, end_i: usize) Error!std.ArrayList(P) {
+    var ts: Rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    var te = ts;
     const a = st.a;
     var prev: std.ArrayList(P) = .empty;
     try prev.appendSlice(a, input.items);
@@ -638,8 +649,8 @@ fn sanitize(st: *State, input: std.ArrayList(P), start_i: usize, end_i: usize) E
     if (end_group and !skip_end) skip_end = try clipGroup(a, &prev, eb, false);
 
     if (skip_start or skip_end) {
-        if (!skip_start) applyIntersection(&prev, st.nodes[start_i].intersect, sb, true);
-        if (!skip_end) applyIntersection(&prev, st.nodes[end_i].intersect, eb, false);
+        if (!skip_start) applyIntersection(&prev, st.isect(start_i, &ts), sb, true);
+        if (!skip_end) applyIntersection(&prev, st.isect(end_i, &te), eb, false);
     }
     var clipped = if (skip_start or skip_end) prev else try cutter2(a, st, start_i, end_i, prev);
     var finite = true;
@@ -710,6 +721,8 @@ fn applyIntersection(points: *std.ArrayList(P), node: ?geo.Intersect, b: Rect, s
 }
 
 fn cutter2(a: Allocator, st: *State, start_i: usize, end_i: usize, original: std.ArrayList(P)) Error!std.ArrayList(P) {
+    var ts: Rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    var te = ts;
     var points: std.ArrayList(P) = .empty;
     try points.appendSlice(a, original.items);
     if (points.items.len == 0) return points;
@@ -724,7 +737,7 @@ fn cutter2(a: Allocator, st: *State, start_i: usize, end_i: usize, original: std
     };
     if (first_out) |fo| {
         const inter = attachAlongDeparture(st, start_i, sb, points.items, fo, 1) orelse
-            geo.computeNodeIntersection(st.nodes[start_i].intersect, sb, points.items[fo], start_center);
+            geo.computeNodeIntersection(st.isect(start_i, &ts), sb, points.items[fo], start_center);
         geo.replaceEndpoint(&points, .start, inter);
     }
 
@@ -745,7 +758,7 @@ fn cutter2(a: Allocator, st: *State, start_i: usize, end_i: usize, original: std
     }
     if (out_pt) |op| {
         const inter = attachAlongDeparture(st, end_i, eb, points.items, out_idx, -1) orelse
-            geo.computeNodeIntersection(st.nodes[end_i].intersect, eb, op, end_center);
+            geo.computeNodeIntersection(st.isect(end_i, &te), eb, op, end_center);
         geo.replaceEndpoint(&points, .end, inter);
     }
     if (points.items.len > 1) {
@@ -757,10 +770,11 @@ fn cutter2(a: Allocator, st: *State, start_i: usize, end_i: usize, original: std
 }
 
 fn attachAlongDeparture(st: *State, node_i: usize, b: Rect, points: []const P, port_index: usize, step: i2) ?P {
+    var tn: Rect = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     if (st.nodes[node_i].is_group) return null;
     const next_idx: isize = @as(isize, @intCast(port_index)) + step;
     if (next_idx < 0 or next_idx >= @as(isize, @intCast(points.len))) return null;
-    return geo.outlineAttachPoint(st.nodes[node_i].intersect, b, points[port_index], points[@intCast(next_idx)]);
+    return geo.outlineAttachPoint(st.isect(node_i, &tn), b, points[port_index], points[@intCast(next_idx)]);
 }
 
 fn ensureEndMarker(points: std.ArrayList(P), b: Rect, marker_offset: f64) std.ArrayList(P) {
@@ -972,7 +986,7 @@ fn separateOppositeLabels(st: *State, label_c: []?P) void {
         if (done[i]) continue;
         const ei = st.edges[i];
         if (label_c[i] == null or ei.label_text.len == 0 or ei.label_w == 0) continue;
-        var bucket: [2]usize = undefined;
+        var bucket = [2]usize{ 0, 0 };
         var cnt: usize = 0;
         for (0..n) |j| {
             const ej = st.edges[j];
@@ -1007,4 +1021,25 @@ fn sameKey(x: Edge, y: Edge) bool {
     const same = std.mem.eql(u8, x.start, y.start) and std.mem.eql(u8, x.end, y.end);
     const swapped = std.mem.eql(u8, x.start, y.end) and std.mem.eql(u8, x.end, y.start);
     return same or swapped;
+}
+
+// intersect.rect: where the line from the centre to `p` leaves the box
+fn rectIntersect(ctx: *anyopaque, p: P) ?P {
+    const r: *Rect = @ptrCast(@alignCast(ctx));
+    const dx = p.x - r.x;
+    const dy = p.y - r.y;
+    var w = r.width / 2;
+    var h = r.height / 2;
+    var sx: f64 = 0;
+    var sy: f64 = 0;
+    if (@abs(dy) * w > @abs(dx) * h) {
+        if (dy < 0) h = -h;
+        sx = if (dy == 0) 0 else (h * dx) / dy;
+        sy = h;
+    } else {
+        if (dx < 0) w = -w;
+        sx = w;
+        sy = if (dx == 0) 0 else (w * dy) / dx;
+    }
+    return .{ .x = r.x + sx, .y = r.y + sy };
 }
