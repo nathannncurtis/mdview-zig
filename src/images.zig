@@ -13,6 +13,8 @@ pub const timeout_ms: i64 = 10_000;
 pub const max_texture: u32 = 8192;
 const max_threads = 4;
 const max_redirects = 3;
+/// Animated SVGs are re-rendered about this often while they are on screen, one render at a time.
+const svg_frame_ms: u32 = 16;
 
 // SAFETY: set by init before the first image is requested
 pub var gpa: std.mem.Allocator = undefined;
@@ -68,6 +70,8 @@ const Entry = struct {
     rendering: std.atomic.Value(bool) = .init(false),
     failed_size: std.atomic.Value(u64) = .init(0),
     t0: i64 = 0,
+    animated: bool = false,
+    last_render: i64 = 0,
 
     fn retain(e: *Entry) void {
         _ = e.refs.fetchAdd(1, .monotonic);
@@ -297,6 +301,7 @@ fn loadInto(e: *Entry) !void {
         };
     if (svg.isSvg(bytes)) {
         errdefer gpa.free(bytes);
+        e.animated = svg.isAnimated(bytes);
         const s = try svg.intrinsicSize(bytes);
         e.size = .{ .w = s.w, .h = s.h };
         e.svg_bytes = bytes;
@@ -438,9 +443,10 @@ pub const Bitmap = struct { native: *anyopaque, w: u32, h: u32 };
 pub fn bitmap(target: []const u8, box: Size) ?Bitmap {
     const e = get(target) orelse return null;
     if (e.state.load(.acquire) != .ready) return null;
-    wantSized(e, box);
-    const p = e.pic orelse e.base orelse return null;
     if (e.t0 == 0) e.t0 = now();
+    wantSized(e, box);
+    if (e.animated) wake = if (wake) |w| @min(w, svg_frame_ms) else svg_frame_ms;
+    const p = e.pic orelse e.base orelse return null;
     const play = playback(&p.img, @intCast(@max(now() - e.t0, 0)));
     if (play.remaining > 0) wake = if (wake) |w| @min(w, play.remaining) else play.remaining;
     if (p.natives[play.index] == null) {
@@ -458,6 +464,8 @@ fn wantSized(e: *Entry, box: Size) void {
     if (box.w <= 0 or box.h <= 0) return;
     var w = pixels(box.w);
     var h = pixels(box.h);
+    const animated = e.animated and e.base == null;
+    if (animated and now() - e.last_render < svg_frame_ms) return;
     if (e.base) |b| {
         w = @min(w, b.img.width);
         h = @min(h, b.img.height);
@@ -470,13 +478,15 @@ fn wantSized(e: *Entry, box: Size) void {
             return;
         }
     }
-    if (e.pic) |p| if (p.img.width == w and p.img.height == h) return;
+    if (!animated) if (e.pic) |p| if (p.img.width == w and p.img.height == h) return;
     const wanted = @as(u64, w) << 32 | h;
     if (e.failed_size.load(.monotonic) == wanted) return;
     if (e.rendering.cmpxchgStrong(false, true, .acquire, .monotonic) != null) return;
     e.retain();
     _ = active.fetchAdd(1, .monotonic);
-    const t = std.Thread.spawn(.{ .stack_size = 4 * 1024 * 1024 }, sizedWork, .{ e, w, h }) catch {
+    e.last_render = now();
+    const clock: u32 = @intCast(@max(e.last_render - e.t0, 0));
+    const t = std.Thread.spawn(.{ .stack_size = 4 * 1024 * 1024 }, sizedWork, .{ e, w, h, clock }) catch {
         _ = active.fetchSub(1, .monotonic);
         e.rendering.store(false, .release);
         e.release();
@@ -485,11 +495,11 @@ fn wantSized(e: *Entry, box: Size) void {
     t.detach();
 }
 
-fn sizedWork(e: *Entry, w: u32, h: u32) void {
+fn sizedWork(e: *Entry, w: u32, h: u32, clock: u32) void {
     defer finish();
     defer e.release();
     defer e.rendering.store(false, .release);
-    var img = (if (e.base) |b| shrinkTo(&b.img, w, h) else if (e.svg_bytes) |bytes| svg.render(gpa, bytes, w, h) else return) catch {
+    var img = (if (e.base) |b| shrinkTo(&b.img, w, h) else if (e.svg_bytes) |bytes| (if (e.animated) svg.renderAt(gpa, bytes, w, h, clock) else svg.render(gpa, bytes, w, h)) else return) catch {
         e.failed_size.store(@as(u64, w) << 32 | h, .monotonic);
         return;
     };
