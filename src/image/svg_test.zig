@@ -83,12 +83,12 @@ fn checkFixture(comptime f: Fixture) !void {
                 var gr: usize = 0;
                 var rr: usize = 0;
                 for (band..band + 12) |yy| for (0..f.w) |xx| {
-                    const o = (yy * f.w + xx) * 4 + 3;
-                    if (got[o] > 60) {
+                    const o = (yy * f.w + xx) * 4;
+                    if (got[o] < 140) {
                         gl = @min(gl, xx);
                         gr = @max(gr, xx);
                     }
-                    if (ref[o] > 60) {
+                    if (ref[o] < 140) {
                         rl = @min(rl, xx);
                         rr = @max(rr, xx);
                     }
