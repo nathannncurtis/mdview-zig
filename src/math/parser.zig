@@ -758,6 +758,27 @@ pub const Parser = struct {
         const cmd = t.text;
         switch (c) {
             .sqrt => try p.sqrt(st, cmd),
+            .left => try p.fenced(st),
+            .right => return .right,
+            .middle => return .middle,
+            .begin => try p.begin(st),
+            .textcolor => try p.textColor(st, cmd),
+            else => return @call(.never_inline, commandRest, .{ p, st, t, c }),
+        }
+        return null;
+    }
+
+    noinline fn textColor(p: *Parser, st: *State, cmd: []const u8) Error!void {
+        const model = try p.optRaw(cmd);
+        const spec_text = try p.rawText(cmd);
+        const color = try p.colorFrom(model, spec_text);
+        try p.add(st, .{ .color = .{ .color = color, .body = try p.arg(cmd) } });
+    }
+
+    noinline fn commandRest(p: *Parser, st: *State, t: Token, c: tables.Cmd) Error!?Stop {
+        const cmd = t.text;
+        switch (c) {
+            .sqrt => try p.sqrt(st, cmd),
             .root => {
                 const toks = try p.upTo(cmd, "of");
                 p.sh.root_up = null;
