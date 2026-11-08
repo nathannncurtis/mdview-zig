@@ -114,6 +114,8 @@ jobs:
             iterations: 800K
           - target: mermaid.render
             iterations: 300K
+          - target: mermaid.sequence
+            iterations: 300K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
