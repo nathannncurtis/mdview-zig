@@ -510,8 +510,8 @@ fn sizedWork(e: *Entry, w: u32, h: u32, clock: u32) void {
     if (e.incoming.swap(p, .acq_rel)) |old| old.destroy();
 }
 
-// Chromium's IDR_BROKENIMAGE (third_party/blink/public/default_{100,200}_percent/blink/broken_image.png), BSD licence in chromium/LICENSE.
-const icon_files = [2][]const u8{ @embedFile("chromium/broken_image_100.png"), @embedFile("chromium/broken_image_200.png") };
+// Chromium's IDR_BROKENIMAGE (third_party/blink/public/default_{100,200}_percent/blink/broken_image.png), BSD licence in image/chromium/LICENSE.
+const icon_files = [2][]const u8{ @embedFile("image/chromium/broken_image_100.png"), @embedFile("image/chromium/broken_image_200.png") };
 var icon_pics: [2]?*Picture = .{ null, null };
 var icon_failed: [2]bool = .{ false, false };
 
