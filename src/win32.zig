@@ -2454,9 +2454,6 @@ test "text beside a floated image is narrowed and the lines below it run full wi
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    app.images.init(testing.allocator, testing.io);
-    app.images.reset("", false);
-    try app.images.injectReady("wide.png", 400, 200);
     var pic = try paragraph(a, "![r](wide.png)");
     const images = try a.dupe(md.Image, pic.content.images);
     images[0].width = 160;
@@ -2469,7 +2466,9 @@ test "text beside a floated image is narrowed and the lines below it run full wi
     const text = try paragraph(a, long.items);
     var fx = try Fixture.init(&.{ pic, text });
     defer fx.deinit();
+    try app.images.injectReady("wide.png", 400, 200);
     render();
+    std.debug.print("float hits {d} side {any} content_h {d}\n", .{ app.hits.items.len, floatSide(&.{ .kind = .paragraph, .content = pic.content }), app.content_height });
     try testing.expectEqual(@as(usize, 2), app.hits.items.len);
     const head = app.hits.items[0];
     const tail = app.hits.items[1];
