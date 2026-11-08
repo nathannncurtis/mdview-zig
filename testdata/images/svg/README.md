@@ -49,9 +49,15 @@ The comparison is on premultiplied channels. A fixture passes when the mean abso
 | `diffuse.svg`, `specular.svg` | diffuse lighting with a distant light, specular lighting with a point light |
 | `marks.svg` | accented Latin and Vietnamese: precomposed and decomposed text, GPOS mark-to-base and mark-to-mark placement, `ccmp` (font embedded as a data URI through `@font-face`) |
 | `indic.svg` | Devanagari: syllable clustering, reph, pre-base matra, conjuncts and half forms (font embedded the same way) |
+| `use_khmer.svg`, `use_myanmar.svg`, `use_tibetan.svg`, `use_balinese.svg`, `use_javanese.svg`, `use_sundanese.svg`, `use_sinhala.svg` | Universal Shaping Engine scripts: syllable clustering, pre-base vowels, coeng and subjoined consonants, split vowels, reph; the fonts are Noto subsets embedded as WOFF2, WOFF and TrueType `data:` fonts |
+| `use_syriac.svg`, `use_nko.svg` | right-to-left joining with `init`, `medi` and `fina` forms outside the Arabic block |
 | `nested.svg` | `viewBox` with `slice`, nested viewport with `meet`, rotated and scaled groups, group opacity |
 | `card.svg` | a stats-card style SVG with CSS `animation` and `fill-mode: forwards` |
 
 Text is drawn from the shared font layer in `src/font`: installed fonts resolved like a browser does, with the bundled Liberation Sans subset as the last resort.
 
 `marks.svg` and `indic.svg` carry subsets of Noto Sans and Noto Sans Devanagari (SIL Open Font License 1.1, `LICENSE-noto-ofl.txt`) as `data:` fonts, so the reference and the renderer shape the same font on every OS. Both keep the full GSUB, GPOS and GDEF tables.
+
+The `use_*` fixtures carry subsets of Noto Sans Khmer, Myanmar, Balinese, Javanese, Sundanese, Sinhala, Syriac and N'Ko and Noto Serif Tibetan under the same license, each in one row with its own reference.
+
+`woff/` holds the vectors for the Brotli and WOFF tests: `noto.ttf` (the Noto Sans subset from `marks.svg`), its WOFF and WOFF2 conversions (`noto_hmtx.woff2` also transforms `hmtx`), Brotli streams of the font at three qualities and window sizes, a dictionary-heavy text stream and a stored (incompressible) block.

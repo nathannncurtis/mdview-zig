@@ -174,28 +174,28 @@ const Layout = struct {
         const a = l.a;
         for (cps, gids, 0..) |_, gid, i| try out.append(a, .{ .gid = gid, .first = @intCast(i), .last = @intCast(i) });
         const gsub = shape.Gsub.init(face);
-        var arabic = false;
+        var join_tag: ?*const [4]u8 = null;
         var script: ?indic.Script = null;
         for (cps) |cp| {
-            arabic = arabic or shape.isArabic(cp);
+            if (join_tag == null) join_tag = shape.joinScript(cp);
             if (script == null) script = indic.scriptOf(cp);
         }
         var pos_tags: [2]*const [4]u8 = .{ "latn", "DFLT" };
-        if (arabic) pos_tags = .{ "arab", "DFLT" };
+        if (join_tag) |jt| pos_tags = .{ jt, "DFLT" };
         if (script) |sc| {
             pos_tags = sc.tags;
-            try indic.run(a, gsub, sc, cps, out);
+            try indic.run(a, face, gsub, sc, cps, out);
         } else if (gsub) |gs| {
             var reqs: std.ArrayList(shape.Req) = .empty;
-            if (arabic) {
+            if (join_tag) |jt| {
                 const forms = try a.alloc(shape.Form, cps.len);
                 shape.arabicForms(cps, forms);
                 for (out.items, 0..) |*g, i| g.form = @intFromEnum(forms[i]);
                 const feats = [_]shape.Feat{
                     feature("ccmp", 0xFF), feature("locl", 0xFF), feature("isol", 1), feature("init", 2), feature("medi", 4), feature("fina", 8),
-                    feature("rlig", 0xFF), feature("calt", 0xFF), feature("liga", 0xFF), feature("clig", 0xFF),
+                    feature("rlig", 0xFF), feature("rclt", 0xFF), feature("calt", 0xFF), feature("liga", 0xFF), feature("clig", 0xFF),
                 };
-                try gs.collect(&.{ "arab", "DFLT", "latn" }, &feats, &reqs, a);
+                try gs.collect(&.{ jt, "DFLT", "latn" }, &feats, &reqs, a);
             } else {
                 const feats = if (ligatures)
                     [_]shape.Feat{ feature("ccmp", 0xFF), feature("locl", 0xFF), feature("rlig", 0xFF), feature("liga", 0xFF), feature("clig", 0xFF), feature("calt", 0xFF) }

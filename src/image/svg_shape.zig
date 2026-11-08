@@ -63,7 +63,46 @@ fn inSet(cp: u32, comptime set: []const [2]u32) bool {
     return false;
 }
 
+fn joinOther(cp: u32) ?Join {
+    if (cp == 0x200D) return .d;
+    if (cp >= 0x700 and cp <= 0x74F) {
+        if (cp == 0x711 or (cp >= 0x730 and cp <= 0x74A)) return .t;
+        if (inSet(cp, &[_][2]u32{ .{ 0x710, 0x710 }, .{ 0x715, 0x719 }, .{ 0x71E, 0x71E }, .{ 0x728, 0x728 }, .{ 0x72A, 0x72A }, .{ 0x72C, 0x72C }, .{ 0x72F, 0x72F }, .{ 0x74D, 0x74D } })) return .r;
+        if (inSet(cp, &[_][2]u32{ .{ 0x712, 0x714 }, .{ 0x71A, 0x71D }, .{ 0x71F, 0x727 }, .{ 0x729, 0x729 }, .{ 0x72B, 0x72B }, .{ 0x72D, 0x72E }, .{ 0x74E, 0x74F } })) return .d;
+        return .u;
+    }
+    if (cp >= 0x7C0 and cp <= 0x7FF) {
+        if ((cp >= 0x7CA and cp <= 0x7EA) or cp == 0x7FA) return .d;
+        if (cp >= 0x7EB and cp <= 0x7F3) return .t;
+        return .u;
+    }
+    if (cp >= 0x840 and cp <= 0x85F) {
+        if (cp >= 0x859 and cp <= 0x85B) return .t;
+        if (inSet(cp, &[_][2]u32{ .{ 0x840, 0x840 }, .{ 0x846, 0x847 }, .{ 0x849, 0x849 }, .{ 0x854, 0x854 }, .{ 0x856, 0x858 } })) return .r;
+        if (inSet(cp, &[_][2]u32{ .{ 0x841, 0x845 }, .{ 0x848, 0x848 }, .{ 0x84A, 0x853 }, .{ 0x855, 0x855 } })) return .d;
+        return .u;
+    }
+    if (cp >= 0x1800 and cp <= 0x18AF) {
+        if ((cp >= 0x180B and cp <= 0x180D) or cp == 0x180F or cp == 0x1885 or cp == 0x1886 or cp == 0x18A9) return .t;
+        if ((cp >= 0x1820 and cp <= 0x1878) or (cp >= 0x1887 and cp <= 0x18A8) or cp == 0x18AA) return .d;
+        return .u;
+    }
+    if (cp >= 0xA840 and cp <= 0xA877) return if (cp <= 0xA871) .d else .u;
+    return null;
+}
+
+pub fn joinScript(cp: u32) ?*const [4]u8 {
+    if (isArabic(cp)) return "arab";
+    if (cp >= 0x700 and cp <= 0x74F) return "syrc";
+    if (cp >= 0x7C0 and cp <= 0x7FF) return "nko ";
+    if (cp >= 0x840 and cp <= 0x85F) return "mand";
+    if (cp >= 0x1800 and cp <= 0x18AF) return "mong";
+    if (cp >= 0xA840 and cp <= 0xA877) return "phag";
+    return null;
+}
+
 fn joinOf(cp: u32) Join {
+    if (joinOther(cp)) |j| return j;
     const right = [_][2]u32{ .{ 0x622, 0x625 }, .{ 0x627, 0x627 }, .{ 0x629, 0x629 }, .{ 0x62F, 0x632 }, .{ 0x648, 0x648 }, .{ 0x671, 0x673 }, .{ 0x675, 0x677 }, .{ 0x688, 0x699 }, .{ 0x6C0, 0x6C0 }, .{ 0x6C3, 0x6CB }, .{ 0x6CD, 0x6CD }, .{ 0x6CF, 0x6CF }, .{ 0x6D2, 0x6D3 }, .{ 0x6D5, 0x6D5 }, .{ 0x6EE, 0x6EF }, .{ 0x759, 0x75B }, .{ 0x8AA, 0x8AC }, .{ 0x8B1, 0x8B2 } };
     const trans = [_][2]u32{ .{ 0x610, 0x61A }, .{ 0x64B, 0x65F }, .{ 0x670, 0x670 }, .{ 0x6D6, 0x6DC }, .{ 0x6DF, 0x6E4 }, .{ 0x6E7, 0x6E8 }, .{ 0x6EA, 0x6ED }, .{ 0x8D3, 0x8E1 }, .{ 0x8E3, 0x8FF }, .{ 0x200B, 0x200B } };
     if (inSet(cp, &trans)) return .t;
@@ -77,7 +116,7 @@ pub fn isArabic(cp: u32) bool {
 }
 
 pub fn isRtl(cp: u32) bool {
-    return isArabic(cp) or (cp >= 0x590 and cp <= 0x5FF) or (cp >= 0x700 and cp <= 0x7BF) or (cp >= 0xFB1D and cp <= 0xFDFF) or (cp >= 0xFE70 and cp <= 0xFEFF);
+    return isArabic(cp) or (cp >= 0x590 and cp <= 0x5FF) or (cp >= 0x700 and cp <= 0x7BF) or (cp >= 0x7C0 and cp <= 0x7FF) or (cp >= 0x840 and cp <= 0x85F) or (cp >= 0xFB1D and cp <= 0xFDFF) or (cp >= 0xFE70 and cp <= 0xFEFF);
 }
 
 pub fn arabicForms(cps: []const u32, out: []Form) void {
@@ -659,6 +698,21 @@ test "joining forms" {
     try std.testing.expectEqual(Form.init, forms[2]);
     try std.testing.expectEqual(Form.medi, forms[3]);
     try std.testing.expectEqual(Form.fina, forms[4]);
+}
+
+test "joining forms in other scripts" {
+    const nko = [_]u32{ 0x07CA, 0x07CB, 0x07CC };
+    var f: [3]Form = @splat(.none);
+    arabicForms(&nko, &f);
+    try std.testing.expectEqual(Form.init, f[0]);
+    try std.testing.expectEqual(Form.medi, f[1]);
+    try std.testing.expectEqual(Form.fina, f[2]);
+    const mong = [_]u32{ 0x1820, 0x1828 };
+    var m: [2]Form = @splat(.none);
+    arabicForms(&mong, &m);
+    try std.testing.expectEqual(Form.init, m[0]);
+    try std.testing.expectEqual(Form.fina, m[1]);
+    try std.testing.expectEqualStrings("syrc", joinScript(0x0712).?);
 }
 
 test "bundled font has no colour tables" {

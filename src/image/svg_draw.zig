@@ -7,6 +7,7 @@ const sty = @import("svg_style.zig");
 const text = @import("svg_text.zig");
 const font = @import("font");
 const anim = @import("svg_anim.zig");
+const woff = @import("svg_woff.zig");
 
 const Mat = raster.Mat;
 const Pt = raster.Pt;
@@ -547,7 +548,8 @@ pub const Renderer = struct {
         const i = best orelse return null;
         while (r.loaded.items.len <= i) r.loaded.append(r.arena, null) catch return null;
         if (r.loaded.items[i]) |f| return f;
-        const bytes = (decodeDataUri(r.arena, r.faces.items[i].src) catch return null) orelse return null;
+        var bytes = (decodeDataUri(r.arena, r.faces.items[i].src) catch return null) orelse return null;
+        if (woff.isWoff(bytes)) bytes = woff.toSfnt(r.arena, bytes) catch return null;
         const f = r.arena.create(font.Font) catch return null;
         f.* = font.Font.init(bytes, 0) catch return null;
         r.loaded.items[i] = f;

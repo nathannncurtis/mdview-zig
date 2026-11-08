@@ -1,6 +1,9 @@
 const std = @import("std");
 const svg = @import("svg.zig");
 const testdata = @import("testdata");
+const font = @import("font");
+const woff = @import("svg_woff.zig");
+const brotli = @import("svg_brotli.zig");
 
 const Fixture = struct { name: []const u8, w: u32, h: u32, mean: f64, bad: f64, t: u64 = 0 };
 
@@ -36,6 +39,15 @@ const fixtures = [_]Fixture{
     .{ .name = "specular", .w = 60, .h = 60, .mean = 2.0, .bad = 2.0 },
     .{ .name = "marks", .w = 220, .h = 100, .mean = 5.0, .bad = 10.0 },
     .{ .name = "indic", .w = 220, .h = 110, .mean = 5.5, .bad = 10.0 },
+    .{ .name = "use_khmer", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_myanmar", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_tibetan", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_balinese", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_javanese", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_sundanese", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_sinhala", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_syriac", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
+    .{ .name = "use_nko", .w = 280, .h = 44, .mean = 6.0, .bad = 12.0 },
     .{ .name = "nested", .w = 120, .h = 60, .mean = 1.0, .bad = 0.5 },
     .{ .name = "card", .w = 300, .h = 135, .mean = 1.0, .bad = 1.0 },
     .{ .name = "textpath", .w = 280, .h = 180, .mean = 3.5, .bad = 4.5 },
@@ -331,4 +343,68 @@ test "event based begins stay idle in an image" {
     var img = try svg.renderAt(a, "<svg width='4' height='2'><rect width='0' height='2'><animate attributeName='width' to='4' dur='1s' begin='click' fill='freeze'/></rect></svg>", 4, 2, 5000);
     defer img.deinit(a);
     try std.testing.expectEqual(@as(u8, 0), pix(img, 4, 1, 1)[3]);
+}
+
+fn expectBrotli(comptime br: []const u8, comptime raw: []const u8) !void {
+    const a = std.testing.allocator;
+    const got = try brotli.decode(a, testdata.file("images/svg/woff/" ++ br), 1 << 20);
+    defer a.free(got);
+    try std.testing.expectEqualSlices(u8, testdata.file("images/svg/woff/" ++ raw), got);
+}
+
+test "brotli decodes dictionary text, stored blocks and font data" {
+    try expectBrotli("text.br", "text.txt");
+    try expectBrotli("rand.br", "rand.bin");
+    try expectBrotli("noto_q5.br", "noto.ttf");
+    try expectBrotli("noto_q11.br", "noto.ttf");
+    try expectBrotli("noto_q9.br", "noto.ttf");
+}
+
+test "brotli rejects truncated and oversized streams" {
+    const a = std.testing.allocator;
+    const src = testdata.file("images/svg/woff/noto_q11.br");
+    try std.testing.expectError(error.Invalid, brotli.decode(a, src[0 .. src.len / 2], 1 << 20));
+    try std.testing.expectError(error.TooBig, brotli.decode(a, src, 1000));
+}
+
+fn expectSameFont(comptime name: []const u8) !void {
+    const a = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const sfnt = try woff.toSfnt(arena.allocator(), testdata.file("images/svg/woff/" ++ name));
+    const want = try font.Font.init(testdata.file("images/svg/woff/noto.ttf"), 0);
+    const got = try font.Font.init(sfnt, 0);
+    try std.testing.expectEqual(want.num_glyphs, got.num_glyphs);
+    var checked: usize = 0;
+    var gid: u16 = 0;
+    while (gid < want.num_glyphs) : (gid += 1) {
+        try std.testing.expectEqual(want.advance(gid), got.advance(gid));
+        var pw: font.Path = .{};
+        defer pw.deinit(a);
+        var pg: font.Path = .{};
+        defer pg.deinit(a);
+        try want.outline(a, gid, .{}, &pw);
+        try got.outline(a, gid, .{}, &pg);
+        try std.testing.expectEqual(pw.segs.items.len, pg.segs.items.len);
+        for (pw.segs.items, pg.segs.items) |x, y| try std.testing.expect(std.meta.eql(x, y));
+        checked += pw.segs.items.len;
+    }
+    try std.testing.expect(checked > 100);
+    try std.testing.expectEqual(want.glyphIndex('A'), got.glyphIndex('A'));
+}
+
+test "WOFF and WOFF2 fonts convert to the same glyphs as the TrueType original" {
+    try expectSameFont("noto.woff");
+    try expectSameFont("noto.woff2");
+    try expectSameFont("noto_hmtx.woff2");
+}
+
+test "WOFF input is bounded" {
+    const a = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const w2 = testdata.file("images/svg/woff/noto.woff2");
+    try std.testing.expectError(error.Invalid, woff.toSfnt(arena.allocator(), w2[0 .. w2.len / 2]));
+    try std.testing.expectError(error.Invalid, woff.toSfnt(arena.allocator(), "wOF2"));
+    try std.testing.expectError(error.Invalid, woff.toSfnt(arena.allocator(), "wOFF\x00\x01\x00\x00"));
 }
