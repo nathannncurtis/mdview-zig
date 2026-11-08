@@ -130,7 +130,7 @@ pub fn applyStyle(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange, kind: 
     if (r.length <= 0) return;
     switch (kind) {
         .tt => {},
-        .semibold => embolden(attr_str, r),
+        .semibold => semibolden(attr_str, r),
         .sub => lower(attr_str, r),
         .underline => setAttrUnderline(attr_str, r.location, r.length),
         .mark => {
@@ -441,8 +441,31 @@ fn lower(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange) void {
 }
 pub const break_line_height: CGFloat = 24;
 
-/// Adds the bold trait to every font in `r`, keeping size, family and italic.
-fn embolden(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange) void {
+/// A face of the same family at weight 600, keeping the size and italic.
+fn semiboldOf(font: c.CTFontRef) ?c.CTFontRef {
+    const family = c.CTFontCopyFamilyName(font) orelse return null;
+    defer c.CFRelease(family);
+    var weight: CGFloat = semibold_weight;
+    const weight_number = c.CFNumberCreate(null, c.kCFNumberFloat64Type, &weight);
+    defer c.CFRelease(weight_number);
+    var symbolic: u32 = c.CTFontGetSymbolicTraits(font) & @as(u32, @intCast(c.kCTFontItalicTrait));
+    const symbolic_number = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &symbolic);
+    defer c.CFRelease(symbolic_number);
+    const trait_keys = [_]c.CFStringRef{ c.kCTFontWeightTrait, c.kCTFontSymbolicTrait };
+    const trait_values = [_]c.CFTypeRef{ @ptrCast(weight_number), @ptrCast(symbolic_number) };
+    const traits = c.CFDictionaryCreate(null, @ptrCast(@constCast(&trait_keys)), @ptrCast(@constCast(&trait_values)), 2, &c.kCFTypeDictionaryKeyCallBacks, &c.kCFTypeDictionaryValueCallBacks);
+    defer c.CFRelease(traits);
+    const keys = [_]c.CFStringRef{ c.kCTFontFamilyNameAttribute, c.kCTFontTraitsAttribute };
+    const values = [_]c.CFTypeRef{ @ptrCast(family), @ptrCast(traits) };
+    const attrs = c.CFDictionaryCreate(null, @ptrCast(@constCast(&keys)), @ptrCast(@constCast(&values)), 2, &c.kCFTypeDictionaryKeyCallBacks, &c.kCFTypeDictionaryValueCallBacks);
+    defer c.CFRelease(attrs);
+    const descriptor = c.CTFontDescriptorCreateWithAttributes(attrs);
+    defer c.CFRelease(descriptor);
+    return c.CTFontCreateWithFontDescriptor(descriptor, c.CTFontGetSize(font), null);
+}
+
+/// Gives every font in `r` its semibold face.
+fn semibolden(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange) void {
     var at = r.location;
     const end = r.location + r.length;
     while (at < end) {
@@ -450,9 +473,7 @@ fn embolden(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange) void {
         const value = c.CFAttributedStringGetAttributeAndLongestEffectiveRange(attr_str, at, c.kCTFontAttributeName, c.CFRange{ .location = at, .length = end - at }, &effective);
         if (effective.length <= 0) break;
         if (value) |v| {
-            const font: c.CTFontRef = @ptrCast(@constCast(v));
-            const bold: u32 = @intCast(c.kCTFontBoldTrait);
-            if (c.CTFontCreateCopyWithSymbolicTraits(font, 0, null, bold, bold)) |heavier| {
+            if (semiboldOf(@ptrCast(@constCast(v)))) |heavier| {
                 defer c.CFRelease(heavier);
                 setAttrFont(attr_str, at, effective.location + effective.length - at, heavier);
             }
@@ -460,3 +481,5 @@ fn embolden(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange) void {
         at = effective.location + effective.length;
     }
 }
+
+pub const semibold_weight: CGFloat = 0.3;

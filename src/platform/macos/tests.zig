@@ -568,7 +568,15 @@ test "a float inside a nested table cell uses the bands of that cell" {
     try testing.expect(height >= 50 + 4 * 6);
 }
 
-test "a semibold span adds the bold trait and keeps italic" {
+fn weightOf(font: c.CTFontRef) CGFloat {
+    const traits = c.CTFontCopyTraits(font);
+    defer c.CFRelease(traits);
+    var weight: CGFloat = -1;
+    if (c.CFDictionaryGetValue(traits, c.kCTFontWeightTrait)) |v| _ = c.CFNumberGetValue(@ptrCast(v), c.kCFNumberFloat64Type, &weight);
+    return weight;
+}
+
+test "a semibold span picks a weight between regular and bold and keeps italic" {
     const font = createFont("Helvetica Neue", font_size_body, false, false);
     defer c.CFRelease(font);
     const content: md.Inline = .{ .text = "plain term", .italic = &.{.{ 6, 4 }}, .styles = &.{.{ .span = .{ 6, 4 }, .kind = .semibold }} };
@@ -576,7 +584,7 @@ test "a semibold span adds the bold trait and keeps italic" {
     defer c.CFRelease(attr_str);
     const plain: c.CTFontRef = @ptrCast(@constCast(attrValue(attr_str, 0, c.kCTFontAttributeName).?));
     const term: c.CTFontRef = @ptrCast(@constCast(attrValue(attr_str, 7, c.kCTFontAttributeName).?));
-    try testing.expect((c.CTFontGetSymbolicTraits(plain) & c.kCTFontBoldTrait) == 0);
-    try testing.expect((c.CTFontGetSymbolicTraits(term) & c.kCTFontBoldTrait) != 0);
+    try testing.expect(weightOf(plain) < 0.1);
+    try testing.expect(weightOf(term) > 0.1 and weightOf(term) < 0.39);
     try testing.expect((c.CTFontGetSymbolicTraits(term) & c.kCTFontItalicTrait) != 0);
 }
