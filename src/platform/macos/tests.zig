@@ -205,7 +205,7 @@ test "dd blocks are inset and dt blocks are not" {
     try testing.expectEqual(@as(usize, 2), app.hits.items.len);
     try testing.expectEqual(@as(f32, 40 + md.dd_inset), app.hits.items[0].x);
     try testing.expectEqual(@as(f32, 40), app.hits.items[1].x);
-    try testing.expect(app.hits.items[1].italic and !app.hits.items[0].italic);
+
 }
 
 test "img width and height set the box size and are capped to the line" {
@@ -566,4 +566,17 @@ test "a float inside a nested table cell uses the bands of that cell" {
     try testing.expectEqual(@as(usize, 1), app.hits.items.len);
     try testing.expectEqual(@as(f32, 2 * cell_pad_x + 50 + md.float_gap), app.hits.items[0].x);
     try testing.expect(height >= 50 + 4 * 6);
+}
+
+test "a semibold span adds the bold trait and keeps italic" {
+    const font = createFont("Helvetica Neue", font_size_body, false, false);
+    defer c.CFRelease(font);
+    const content: md.Inline = .{ .text = "plain term", .italic = &.{.{ 6, 4 }}, .styles = &.{.{ .span = .{ 6, 4 }, .kind = .semibold }} };
+    const attr_str = createRichAttrStr(content, font, text_color, 400) orelse return error.NoString;
+    defer c.CFRelease(attr_str);
+    const plain: c.CTFontRef = @ptrCast(@constCast(attrValue(attr_str, 0, c.kCTFontAttributeName).?));
+    const term: c.CTFontRef = @ptrCast(@constCast(attrValue(attr_str, 7, c.kCTFontAttributeName).?));
+    try testing.expect((c.CTFontGetSymbolicTraits(plain) & c.kCTFontBoldTrait) == 0);
+    try testing.expect((c.CTFontGetSymbolicTraits(term) & c.kCTFontBoldTrait) != 0);
+    try testing.expect((c.CTFontGetSymbolicTraits(term) & c.kCTFontItalicTrait) != 0);
 }

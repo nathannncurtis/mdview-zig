@@ -130,6 +130,7 @@ pub fn applyStyle(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange, kind: 
     if (r.length <= 0) return;
     switch (kind) {
         .tt => {},
+        .semibold => embolden(attr_str, r),
         .sub => lower(attr_str, r),
         .underline => setAttrUnderline(attr_str, r.location, r.length),
         .mark => {
@@ -439,3 +440,23 @@ fn lower(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange) void {
     c.CFAttributedStringSetAttribute(attr_str, r, c.kCTBaselineOffsetAttributeName, @ptrCast(number));
 }
 pub const break_line_height: CGFloat = 24;
+
+/// Adds the bold trait to every font in `r`, keeping size, family and italic.
+fn embolden(attr_str: c.CFMutableAttributedStringRef, r: c.CFRange) void {
+    var at = r.location;
+    const end = r.location + r.length;
+    while (at < end) {
+        var effective = c.CFRange{ .location = 0, .length = 0 };
+        const value = c.CFAttributedStringGetAttributeAndLongestEffectiveRange(attr_str, at, c.kCTFontAttributeName, c.CFRange{ .location = at, .length = end - at }, &effective);
+        if (effective.length <= 0) break;
+        if (value) |v| {
+            const font: c.CTFontRef = @ptrCast(@constCast(v));
+            const bold: u32 = @intCast(c.kCTFontBoldTrait);
+            if (c.CTFontCreateCopyWithSymbolicTraits(font, 0, null, bold, bold)) |heavier| {
+                defer c.CFRelease(heavier);
+                setAttrFont(attr_str, at, effective.location + effective.length - at, heavier);
+            }
+        }
+        at = effective.location + effective.length;
+    }
+}

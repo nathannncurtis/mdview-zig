@@ -619,8 +619,6 @@ fn drawRichText(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, y_cg: CG
     return height;
 }
 
-// dt lines are bold italic, and their hits must lay out the same way
-pub var g_hit_italic = false;
 
 pub fn noteHit(content: md.Inline, x: CGFloat, y_cg: CGFloat, w: CGFloat, h: CGFloat, font: app.Font, header: bool, alignment: md.Align) void {
     app.noteHit(.{
@@ -632,7 +630,6 @@ pub fn noteHit(content: md.Inline, x: CGFloat, y_cg: CGFloat, w: CGFloat, h: CGF
         .font = font,
         .header = header,
         .alignment = alignment,
-        .italic = g_hit_italic,
     });
 }
 
@@ -650,7 +647,7 @@ fn fontFor(font: app.Font) c.CTFontRef {
 
 pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
     resetBoxes();
-    const font = if (hit.italic) createFont("Helvetica Neue", font_size_body, true, true) else if (hit.header) createFont("Helvetica Neue", font_size_body, true, false) else fontFor(hit.font);
+    const font = if (hit.header) createFont("Helvetica Neue", font_size_body, true, false) else fontFor(hit.font);
     defer c.CFRelease(font);
     const attr_str = createAlignedAttrStr(hit.content, hit.alignment, font, hit.w) orelse return null;
     defer c.CFRelease(attr_str);
@@ -1141,11 +1138,7 @@ pub fn releaseFonts(f: Fonts) void {
 }
 
 fn drawParagraph(ctx: c.CGContextRef, block: *const md.Block, x: CGFloat, cg_y: CGFloat, w: CGFloat, f: Fonts, base_col: Color, bands: *const html.Bands, screen_y: CGFloat, full_x: CGFloat, full_w: CGFloat) CGFloat {
-    const dt = block.role == .dt;
-    const font = if (dt) createFont("Helvetica Neue", font_size_body, true, true) else f.body;
-    defer if (dt) c.CFRelease(font);
-    g_hit_italic = dt;
-    defer g_hit_italic = false;
+    const font = f.body;
     if (bands.n == 0) return drawRichText(ctx, block.content, x, cg_y, w, font, base_col, .body, block.alignment);
     return html.drawFlowing(ctx, block.content, full_x, full_w, screen_y, font, base_col, block.alignment, bands);
 }
