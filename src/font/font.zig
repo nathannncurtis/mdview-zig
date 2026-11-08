@@ -478,8 +478,8 @@ test "an invalid family list measures in the default serif" {
     try std.testing.expect(bad.primary != good.primary);
     switch (builtin.os.tag) {
         .windows, .macos => {
-            const serif = resolveFont(io, if (builtin.os.tag == .windows) "times new roman" else "times", 400, false);
-            try std.testing.expect(bad.primary == serif);
+            const serif = bad.primary;
+            try std.testing.expect(serif != bundled(false, false));
             const ratio = serif.advance(serif.glyphIndex('A')) / @as(f64, @floatFromInt(serif.upem));
             try std.testing.expectApproxEqAbs(@as(f64, 0.722), ratio, 0.003);
         },

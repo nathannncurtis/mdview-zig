@@ -179,7 +179,7 @@ pub fn pickFace(data: []const u8, family: []const u8, bold: bool, italic: bool) 
         const face_bold = std.mem.startsWith(u8, sub, "bold");
         const rest = if (face_bold) std.mem.trimStart(u8, sub["bold".len..], " ") else sub;
         const face_italic = std.mem.eql(u8, rest, "italic") or std.mem.eql(u8, rest, "oblique");
-        if (!face_italic and rest.len != 0 and !std.mem.eql(u8, rest, "regular")) continue;
+        if (!face_italic and rest.len != 0 and !std.mem.eql(u8, rest, "regular") and !std.mem.eql(u8, rest, "roman") and !std.mem.eql(u8, rest, "book") and !std.mem.eql(u8, rest, "normal")) continue;
         if (face_bold == bold and face_italic == italic) return i;
     }
     return null;
