@@ -1,8 +1,8 @@
-const win = @import("../../win32.zig");
+const win = @import("win32.zig");
 const app = @import("../../main.zig");
 const md = app.md;
 const html = @import("html.zig");
-const table_layout = @import("../../table_layout.zig");
+const table_layout = @import("../../markdown/table_layout.zig");
 
 pub const cell_pad_x: f32 = 13;
 pub const nested_margin: f32 = md.nested_table_margin;
