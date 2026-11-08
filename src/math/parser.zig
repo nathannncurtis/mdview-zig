@@ -669,7 +669,7 @@ pub const Parser = struct {
         } else for (nodes) |n| try p.add(st, n);
     }
 
-    fn internalMath(p: *Parser, raw: []const u8, font: Font) Error![]const Node {
+    noinline fn internalMath(p: *Parser, raw: []const u8, font: Font) Error![]const Node {
         var out: std.ArrayList(Node) = .empty;
         const Match = enum { none, dollar, paren };
         var match: Match = .none;
@@ -1121,7 +1121,7 @@ pub const Parser = struct {
         return out;
     }
 
-    fn plainArray(p: *Parser, st: *State, cmd: []const u8, c: tables.Cmd) Error!void {
+    noinline fn plainArray(p: *Parser, st: *State, cmd: []const u8, c: tables.Cmd) Error!void {
         var arr: tree.Array = .{ .kind = .matrix, .rows = &.{}, .cols = &.{} };
         switch (c) {
             .pmatrix_tex => {
@@ -1174,7 +1174,7 @@ pub const Parser = struct {
         try p.add(st, .{ .array = arr });
     }
 
-    fn tableBody(p: *Parser, name: ?[]const u8, rows: *std.ArrayList(tree.Row), trailing: *u8) Error!void {
+    noinline fn tableBody(p: *Parser, name: ?[]const u8, rows: *std.ArrayList(tree.Row), trailing: *u8) Error!void {
         const saved_h = p.hlines;
         defer p.hlines = saved_h;
         var cells: std.ArrayList(tree.Cell) = .empty;
@@ -1265,7 +1265,7 @@ pub const Parser = struct {
         }
     }
 
-    fn cdBody(p: *Parser, rows: *std.ArrayList(tree.Row), trailing: *u8) Error!void {
+    noinline fn cdBody(p: *Parser, rows: *std.ArrayList(tree.Row), trailing: *u8) Error!void {
         var cells: std.ArrayList(tree.Cell) = .empty;
         var cell_total: usize = 0;
         while (true) {
@@ -1360,7 +1360,7 @@ pub const Parser = struct {
         return .{ .group = .{ .body = body.items } };
     }
 
-    fn proofBody(p: *Parser) Error!Node {
+    noinline fn proofBody(p: *Parser) Error!Node {
         var stack: std.ArrayList(Node) = .empty;
         var prefix: std.ArrayList(Node) = .empty;
         var left: ?Node = null;
@@ -1444,7 +1444,7 @@ pub const Parser = struct {
         return .{ .group = .{ .body = prefix.items } };
     }
 
-    fn userEnv(p: *Parser, name: []const u8, ue: macros.UserEnv) Error!Node {
+    noinline fn userEnv(p: *Parser, name: []const u8, ue: macros.UserEnv) Error!Node {
         const begin_cs = "\\begin";
         const args = try p.a.alloc([]const Token, ue.nargs);
         var first: usize = 0;
@@ -1468,7 +1468,7 @@ pub const Parser = struct {
         return .{ .group = .{ .body = r.nodes } };
     }
 
-    fn bboxCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn bboxCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
         const opts = try p.optRaw(cmd);
         const body = try p.arg(cmd);
         var pad: ?f32 = null;
@@ -1503,7 +1503,7 @@ pub const Parser = struct {
     };
 
     /// The part of a CSS declaration list that can be drawn: color, background, border.
-    fn parseCss(p: *Parser, css: []const u8) Error!CssProps {
+    noinline fn parseCss(p: *Parser, css: []const u8) Error!CssProps {
         var props: CssProps = .{};
         var decls = std.mem.splitScalar(u8, css, ';');
         while (decls.next()) |d| {
@@ -1541,7 +1541,7 @@ pub const Parser = struct {
         return false;
     }
 
-    fn assemble(p: *Parser, props: CssProps, body: []const Node, pad: f32) Error!Node {
+    noinline fn assemble(p: *Parser, props: CssProps, body: []const Node, pad: f32) Error!Node {
         const inner: []const Node = if (props.fg) |c| try p.box1(.{ .color = .{ .color = c, .body = body } }) else body;
         if (props.bg == null and !props.border and pad == 0) return .{ .group = .{ .body = inner } };
         return .{ .enclose = .{
@@ -1600,7 +1600,7 @@ pub const Parser = struct {
         return i >= toks.len;
     }
 
-    fn casesBody(p: *Parser, rows: *std.ArrayList(tree.Row)) Error!void {
+    noinline fn casesBody(p: *Parser, rows: *std.ArrayList(tree.Row)) Error!void {
         var cell_total: usize = 0;
         while (true) {
             p.hlines = 0;
@@ -1664,7 +1664,7 @@ pub const Parser = struct {
         return i > 0 and i < s.len and s[i] == ':';
     }
 
-    fn encloseCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn encloseCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
         const raw = try p.rawText(cmd);
         _ = try p.ex.readBrackets(cmd);
         const body = try p.arg(cmd);
@@ -1678,7 +1678,7 @@ pub const Parser = struct {
         try p.add(st, .{ .enclose = .{ .body = body, .border = n.box, .notation = n } });
     }
 
-    fn braketCmd(p: *Parser, st: *State, cmd: []const u8, is_set: bool, stretchy: bool) Error!void {
+    noinline fn braketCmd(p: *Parser, st: *State, cmd: []const u8, is_set: bool, stretchy: bool) Error!void {
         p.ex.skipSpaces();
         const first = try p.ex.next();
         if (first.kind == .eof) return p.failFmt("Missing argument for {s}", .{cmd});
@@ -1738,7 +1738,7 @@ pub const Parser = struct {
         }
     }
 
-    fn mmlToken(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn mmlToken(p: *Parser, st: *State, cmd: []const u8) Error!void {
         const kind = try p.rawText(cmd);
         var attr = std.mem.trimStart(u8, try p.optRaw(cmd), " ");
         const text = try p.rawText(cmd);
@@ -1779,7 +1779,7 @@ pub const Parser = struct {
         try p.add(st, .{ .group = .{ .body = body.items } });
     }
 
-    fn unicodeCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn unicodeCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
         if (try p.ex.readBrackets(cmd)) |hd| {
             const s = try macros.textOf(p.a, hd);
             var compact: std.ArrayList(u8) = .empty;
@@ -1801,7 +1801,7 @@ pub const Parser = struct {
         try p.add(st, .{ .text = .{ .str = try p.a.dupe(u8, buf[0..len]) } });
     }
 
-    fn verbCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn verbCmd(p: *Parser, st: *State, cmd: []const u8) Error!void {
         p.ex.skipSpaces();
         const d = p.ex.raw() orelse return p.failFmt("Missing argument for {s}", .{cmd});
         var out: std.ArrayList(u8) = .empty;
@@ -1815,7 +1815,7 @@ pub const Parser = struct {
         try p.add(st, .{ .text = .{ .str = out.items, .font = .tt } });
     }
 
-    fn newExtArrow(p: *Parser, cmd: []const u8) Error!void {
+    noinline fn newExtArrow(p: *Parser, cmd: []const u8) Error!void {
         const cs_raw = try p.rawText(cmd);
         const space = try p.rawText(cmd);
         const chr = try p.rawText(cmd);
@@ -1853,7 +1853,7 @@ pub const Parser = struct {
         try p.sh.defs.put(p.a, cs_raw[1..], .{ .macro = .{ .nargs = 0, .default = null, .body = try p.lex(body) } });
     }
 
-    fn declareOp(p: *Parser, cmd: []const u8) Error!void {
+    noinline fn declareOp(p: *Parser, cmd: []const u8) Error!void {
         p.ex.skipSpaces();
         var star = false;
         if (p.ex.peekRaw()) |n| if (n.isChar('*')) {
@@ -1867,7 +1867,7 @@ pub const Parser = struct {
         try p.sh.defs.put(p.a, name, .{ .macro = .{ .nargs = 0, .default = null, .body = try p.lex(body) } });
     }
 
-    fn sideSet(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn sideSet(p: *Parser, st: *State, cmd: []const u8) Error!void {
         const pre = try p.arg(cmd);
         const post = try p.arg(cmd);
         const base = try p.arg(cmd);
@@ -1891,7 +1891,7 @@ pub const Parser = struct {
         return nodes[0].supsub;
     }
 
-    fn chemCmd(p: *Parser, cmd: []const u8, is_pu: bool) Error!void {
+    noinline fn chemCmd(p: *Parser, cmd: []const u8, is_pu: bool) Error!void {
         const raw = try p.rawText(cmd);
         if (raw.len > 4096) return p.fail("mhchem expression is too large");
         var err: ?[]const u8 = null;
