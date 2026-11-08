@@ -1,0 +1,27 @@
+{
+ "diagram-l1": {
+  "w": 13.1094,
+  "h": 19,
+  "text": "l1"
+ },
+ "diagram-l2": {
+  "w": 13.1094,
+  "h": 19,
+  "text": "l2"
+ },
+ "diagram-l3": {
+  "w": 13.1094,
+  "h": 19,
+  "text": "l3"
+ },
+ "diagram-flowchart-x-0": {
+  "w": 8.0156,
+  "h": 19,
+  "text": "x"
+ },
+ "diagram-flowchart-y-1": {
+  "w": 7.8906,
+  "h": 19,
+  "text": "y"
+ }
+}
