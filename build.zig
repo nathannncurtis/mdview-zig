@@ -74,7 +74,9 @@ pub fn build(b: *std.Build) void {
     });
     parser_tests.root_module.addImport("testdata", testdata);
     const test_step = b.step("test", "Run parser tests");
-    test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+    const run_parser = b.addRunArtifact(parser_tests);
+    run_parser.setCwd(b.path("."));
+    test_step.dependOn(&run_parser.step);
 
     const font_tests = b.addTest(.{
         .root_module = b.createModule(.{
