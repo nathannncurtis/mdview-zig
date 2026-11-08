@@ -1,0 +1,37 @@
+{
+ "L_B_C_0": {
+  "w": 22.6563,
+  "h": 19,
+  "text": "Yes"
+ },
+ "L_B_D_0": {
+  "w": 18.7969,
+  "h": 19,
+  "text": "No"
+ },
+ "diagram-flowchart-A-0": {
+  "w": 35.0156,
+  "h": 19,
+  "text": "Start"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 32.5313,
+  "h": 19,
+  "text": "Is it?"
+ },
+ "diagram-flowchart-C-3": {
+  "w": 20,
+  "h": 19,
+  "text": "OK"
+ },
+ "diagram-flowchart-D-5": {
+  "w": 36.4375,
+  "h": 19,
+  "text": "Nope"
+ },
+ "diagram-flowchart-E-7": {
+  "w": 26.2344,
+  "h": 19,
+  "text": "End"
+ }
+}

@@ -1,0 +1,22 @@
+{
+ "diagram-flowchart-A-0": {
+  "w": 104.2031,
+  "h": 43,
+  "text": "A label that is long"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 104.1563,
+  "h": 43,
+  "text": "Another fairly long label"
+ },
+ "diagram-flowchart-C-2": {
+  "w": 95.5156,
+  "h": 91,
+  "text": "Yet another long label to widen the diagram a lot"
+ },
+ "diagram-flowchart-D-3": {
+  "w": 108.3594,
+  "h": 19,
+  "text": "And a final one"
+ }
+}

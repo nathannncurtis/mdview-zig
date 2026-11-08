@@ -238,7 +238,7 @@ const Walker = struct {
     arena: Allocator,
     items: std.ArrayList(Item) = .empty,
 
-    fn walk(w: *Walker, n: xml.Node, ox: f64, oy: f64) Allocator.Error!void {
+    fn walk(w: *Walker, n: xml.Node, ox: f64, oy: f64, owner: []const u8) Allocator.Error!void {
         if (n.tag.len == 0 or skipped.has(n.tag)) return;
         const class = n.attr("class");
         const id = n.attr("id") orelse "";
@@ -249,7 +249,8 @@ const Walker = struct {
             if (n.attr("transform") != null and class != null) {
                 try w.items.append(w.arena, .{ .kind = .group, .key = key, .id = id, .x = ox + t[0], .y = oy + t[1] });
             }
-            for (n.kids) |k| try w.walk(k, ox + t[0], oy + t[1]);
+            const own = n.attr("data-id") orelse if (id.len > 0 and (std.mem.startsWith(u8, key, "g.") and (std.mem.indexOf(u8, key, ".node") != null or std.mem.indexOf(u8, key, ".cluster") != null))) id else owner;
+            for (n.kids) |k| try w.walk(k, ox + t[0], oy + t[1], own);
         } else if (std.mem.eql(u8, tag, "rect")) {
             if (n.attr("width") == null) return;
             try w.items.append(w.arena, .{ .kind = .box, .key = key, .id = id, .x = ox + numAttr(n, "x"), .y = oy + numAttr(n, "y"), .w = numAttr(n, "width"), .h = numAttr(n, "height") });
@@ -282,9 +283,9 @@ const Walker = struct {
         } else if (std.mem.eql(u8, tag, "text")) {
             try w.items.append(w.arena, .{ .kind = .text, .key = key, .id = id, .x = ox + numAttr(n, "x"), .y = oy + numAttr(n, "y"), .text = try normalized(w.arena, n) });
         } else if (std.mem.eql(u8, tag, "foreignObject")) {
-            try w.items.append(w.arena, .{ .kind = .label, .key = key, .id = id, .x = ox + numAttr(n, "x"), .y = oy + numAttr(n, "y"), .w = numAttr(n, "width"), .h = numAttr(n, "height"), .text = try normalized(w.arena, n) });
+            try w.items.append(w.arena, .{ .kind = .label, .key = key, .id = owner, .x = ox + numAttr(n, "x"), .y = oy + numAttr(n, "y"), .w = numAttr(n, "width"), .h = numAttr(n, "height"), .text = try normalized(w.arena, n) });
         } else {
-            for (n.kids) |k| try w.walk(k, ox, oy);
+            for (n.kids) |k| try w.walk(k, ox, oy, owner);
         }
     }
 };
@@ -298,24 +299,35 @@ pub fn extract(arena: Allocator, svg: []const u8) ExtractError!Model {
     var sc: Scanner = .{ .s = root.attr("viewBox") orelse return error.BadSvg };
     for (&vb) |*v| v.* = sc.next() orelse return error.BadSvg;
     var w: Walker = .{ .arena = arena };
-    for (root.kids) |k| try w.walk(k, 0, 0);
+    for (root.kids) |k| try w.walk(k, 0, 0, "");
     return .{ .view_box = vb, .items = w.items.items };
 }
 
 pub const Size = struct { w: f64, h: f64 };
 
+pub const Measured = struct { w: f64, h: f64, text: []const u8 = "" };
+pub const LabelSizes = std.json.ArrayHashMap(Measured);
+
 pub const ReplayMeasurer = struct {
     sizes: std.StringHashMapUnmanaged(Size) = .empty,
     conflicts: usize = 0,
 
-    pub fn init(arena: Allocator, model: Model) Allocator.Error!ReplayMeasurer {
+    pub fn init(arena: Allocator, model: Model, sidecar: ?[]const u8) (Allocator.Error || error{BadLabels})!ReplayMeasurer {
+        const measured: ?LabelSizes = if (sidecar) |bytes|
+            std.json.parseFromSliceLeaky(LabelSizes, arena, bytes, .{ .ignore_unknown_fields = true }) catch return error.BadLabels
+        else
+            null;
         var r: ReplayMeasurer = .{};
         for (model.items) |it| {
             if (it.kind != .label) continue;
+            var size: Size = .{ .w = it.w, .h = it.h };
+            if (measured) |m| if (m.map.get(it.id)) |t| {
+                size = .{ .w = t.w, .h = t.h };
+            };
             const gop = try r.sizes.getOrPut(arena, it.text);
             if (gop.found_existing) {
-                if (gop.value_ptr.w != it.w or gop.value_ptr.h != it.h) r.conflicts += 1;
-            } else gop.value_ptr.* = .{ .w = it.w, .h = it.h };
+                if (gop.value_ptr.w != size.w or gop.value_ptr.h != size.h) r.conflicts += 1;
+            } else gop.value_ptr.* = size;
         }
         return r;
     }
@@ -526,6 +538,12 @@ fn checkCmd(c: Ctx) !u8 {
             problems += 1;
             continue;
         };
+        if (c.read("refs/{s}.labels.json", .{name})) |side| {
+            _ = ReplayMeasurer.init(c.arena, m, side) catch {
+                c.out.print("{s}: labels.json does not parse\n", .{name});
+                problems += 1;
+            };
+        } else |_| {}
         if (@abs(@as(f64, @floatFromInt(img.width)) - m.view_box[2]) > 1.5 or @abs(@as(f64, @floatFromInt(img.height)) - m.view_box[3]) > 1.5) {
             c.out.print("{s}: png {d}x{d} does not match viewBox {d}x{d}\n", .{ name, img.width, img.height, m.view_box[2], m.view_box[3] });
             problems += 1;
@@ -618,8 +636,12 @@ fn errorsCmd(c: Ctx, cand_file: []const u8) !u8 {
 
 fn labelsCmd(c: Ctx, name: []const u8) !u8 {
     const m = try c.model(try std.fmt.allocPrint(c.arena, "{s}/refs", .{c.data}), name);
+    const sidecar = c.read("refs/{s}.labels.json", .{name}) catch null;
+    const r = try ReplayMeasurer.init(c.arena, m, sidecar);
     for (m.items) |it| {
-        if (it.kind == .label) c.out.print("{d}\t{d}\t{s}\n", .{ it.w, it.h, it.text });
+        if (it.kind != .label) continue;
+        const s = r.measure(it.text, "", 0, 0) catch continue;
+        c.out.print("{d}\t{d}\t{d}\t{d}\t{s}\n", .{ s.w, s.h, it.w, it.h, it.text });
     }
     return 0;
 }
@@ -677,7 +699,7 @@ pub fn main(init: std.process.Init) !u8 {
 const sample_svg =
     \\<svg viewBox="-36 -36 100 80" xmlns="http://www.w3.org/2000/svg"><g class="root"><g class="edgePaths">
     \\<path d="M10,10L10,40" class="flowchart-link" data-points="W3sieCI6MTAsInkiOjEwfSx7IngiOjEwLCJ5Ijo0MH1d"/></g>
-    \\<g class="node default" transform="translate(10, 10)"><rect class="basic label-container" x="-20" y="-10" width="40" height="20"/>
+    \\<g class="node default" id="diagram-flowchart-A-0" transform="translate(10, 10)"><rect class="basic label-container" x="-20" y="-10" width="40" height="20"/>
     \\<g class="label" transform="translate(-5, -6)"><foreignObject width="12" height="12"><div xmlns="http://www.w3.org/1999/xhtml"><span><p>Hi  there</p></span></div></foreignObject></g></g></g></svg>
 ;
 
@@ -702,10 +724,13 @@ test "extract reads viewBox, node translate, shape size, edge points and labels"
     }
     try std.testing.expectEqual(@as(usize, 1), groups);
     try std.testing.expectEqual(@as(usize, 2), edge_pts);
-    const r = try ReplayMeasurer.init(arena.allocator(), m);
+    const r = try ReplayMeasurer.init(arena.allocator(), m, null);
     const s = try r.measure("Hi there", "", 16, 400);
     try std.testing.expectEqual(@as(f64, 12), s.w);
     try std.testing.expectError(error.UnknownLabel, r.measure("nope", "", 16, 400));
+    const sidecar = "{\"diagram-flowchart-A-0\": {\"w\": 7.5, \"h\": 19, \"text\": \"Hi there\"}}";
+    const t = try ReplayMeasurer.init(arena.allocator(), m, sidecar);
+    try std.testing.expectEqual(@as(f64, 7.5), (try t.measure("Hi there", "", 16, 400)).w);
 }
 
 test "compare passes identical models and flags a node moved beyond tolerance" {

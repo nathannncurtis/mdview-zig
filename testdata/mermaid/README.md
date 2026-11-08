@@ -4,6 +4,7 @@ Reference output for the Mermaid port, made once with Mermaid 12.2.0 in the same
 
 - `cases/*.mmd`: inputs. `flow-*` flowcharts, `seq-*` sequence diagrams. Every case renders without error.
 - `refs/<case>.svg`: the SVG GitHub's page would hold, serialised as XML. `refs/<case>.png`: the same SVG at natural size, transparent background, 1x.
+- `refs/<case>.labels.json` (flowcharts): label id (node id, or edge `data-id`) to the measured size of the label's text, taken from the text node's client rects. Node labels in the SVG are clamped to 120 px wide, so this is the true text width. `ReplayMeasurer` uses it when present.
 - `errors.txt`: broken inputs with the exact message GitHub shows under "Unable to render rich display". Format per record: `#### name`, the source, a line `#---`, the message. Sources end in a newline, as GitHub passes them.
 - `GITHUB_FACTS.md`: what was observed on github.com, with the URLs.
 
@@ -25,7 +26,7 @@ A small Node script then drives headless Chromium (Playwright's bundled build, `
 4. PNG: element screenshot of the SVG at its natural size, animations disabled, background omitted.
 5. On a thrown error the message is written to `errors.txt` (these are GitHub's `reportError` text without the trailing docs link).
 
-Repeating the run gives byte-identical SVGs. PNGs agree to within a handful of anti-aliased pixels (two of 373 differed by up to 64 levels on 10 pixels between two runs), which the pixel tolerance absorbs.
+Sequence diagram ids such as `actor2` come from a counter that lives for the whole page, so they depend on how many diagrams were rendered before; render in one fixed order. Repeating the run gives byte-identical SVGs. PNGs agree to within a handful of anti-aliased pixels (two of 373 differed by up to 64 levels on 10 pixels between two runs), which the pixel tolerance absorbs.
 
 ## Using it
 
