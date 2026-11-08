@@ -18,7 +18,7 @@ pub const zigzag = [64]u8{
 
 const Huff = struct {
     present: bool = false,
-    lookup: [512]u16 = @splat(0),
+    lookup: [256]u16 = @splat(0),
     maxcode: [18]i32 = @splat(-1),
     valoff: [17]i32 = @splat(0),
     vals: [256]u8 = @splat(0),
@@ -33,8 +33,8 @@ const Huff = struct {
             if (n > 0) {
                 if (code + n > (@as(u32, 1) << @intCast(l))) return error.Corrupt;
                 for (0..n) |i| {
-                    if (l <= 9) {
-                        const shift: u5 = @intCast(9 - l);
+                    if (l <= 8) {
+                        const shift: u5 = @intCast(8 - l);
                         const base = (code + @as(u32, @intCast(i))) << shift;
                         const entry: u16 = @intCast((l << 8) | vals[k + i]);
                         for (0..(@as(usize, 1) << shift)) |j| self.lookup[base + j] = entry;
@@ -79,27 +79,42 @@ const Bits = struct {
     bad: bool = false,
     marker: bool = false,
 
-    fn fill(self: *Bits) void {
-        while (self.cnt <= 56) {
-            var b: u8 = 0;
-            if (!self.marker and self.pos < self.data.len) {
-                b = self.data[self.pos];
-                if (b == 0xFF) {
-                    const n: u8 = if (self.pos + 1 < self.data.len) self.data[self.pos + 1] else 0xD9;
-                    if (n == 0) {
-                        self.pos += 2;
-                    } else if (n == 0xFF) {
-                        self.pos += 1;
-                        continue;
-                    } else {
-                        self.marker = true;
-                        b = 0;
-                    }
-                } else self.pos += 1;
-            } else self.marker = true;
-            if (self.marker) self.zeros += 8;
-            self.buf = (self.buf << 8) | b;
-            self.cnt += 8;
+    fn fill(self: *Bits, need: u7) void {
+        if (!self.marker) {
+            while (self.cnt < 57) {
+                if (self.pos >= self.data.len) {
+                    self.bad = true;
+                    return;
+                }
+                const b = self.data[self.pos];
+                if (b != 0xFF) {
+                    self.pos += 1;
+                    self.buf = (self.buf << 8) | b;
+                    self.cnt += 8;
+                    continue;
+                }
+                var q = self.pos + 1;
+                while (q < self.data.len and self.data[q] == 0xFF) q += 1;
+                if (q >= self.data.len) {
+                    self.bad = true;
+                    return;
+                }
+                if (self.data[q] == 0) {
+                    self.pos = q + 1;
+                    self.buf = (self.buf << 8) | 0xFF;
+                    self.cnt += 8;
+                    continue;
+                }
+                self.pos = q - 1;
+                self.marker = true;
+                break;
+            }
+        }
+        if (self.marker and need > self.cnt) {
+            const pad: u7 = 57 - self.cnt;
+            self.buf <<= @intCast(pad);
+            self.cnt = 57;
+            self.zeros += pad;
         }
     }
 
@@ -117,7 +132,10 @@ const Bits = struct {
 
     fn get(self: *Bits, n: u7) u32 {
         if (n == 0) return 0;
-        if (self.cnt < n) self.fill();
+        if (self.cnt < n) {
+            self.fill(n);
+            if (self.bad) return 0;
+        }
         const v = self.peek(n);
         self.consume(n);
         return v;
@@ -128,24 +146,37 @@ const Bits = struct {
     }
 
     fn decode(self: *Bits, h: *const Huff) Error!u8 {
-        if (self.cnt < 16) self.fill();
-        const look = h.lookup[self.peek(9)];
-        if (look != 0) {
-            self.consume(@intCast(look >> 8));
-            return @intCast(look & 0xFF);
+        if (self.cnt < 8) {
+            self.fill(0);
+            if (self.bad) return 0;
         }
-        const p16: i32 = @intCast(self.peek(16));
-        var l: u7 = 10;
-        while (l <= 16) : (l += 1) {
-            const code = p16 >> @intCast(16 - l);
-            if (code <= h.maxcode[l]) {
-                const idx = h.valoff[l] + code;
-                if (idx < 0 or idx > 255) return error.Corrupt;
-                self.consume(l);
-                return h.vals[@intCast(idx)];
+        if (self.cnt >= 8) {
+            const look = h.lookup[self.peek(8)];
+            if (look != 0) {
+                self.consume(@intCast(look >> 8));
+                return @intCast(look & 0xFF);
             }
         }
-        return error.Corrupt;
+        if (self.cnt < 9) {
+            self.fill(9);
+            if (self.bad) return 0;
+        }
+        var l: u7 = 9;
+        var code: i32 = @intCast(self.peek(9));
+        self.consume(9);
+        while (code > h.maxcode[l]) {
+            l += 1;
+            if (l > 16) return error.Corrupt;
+            if (self.cnt < 1) {
+                self.fill(1);
+                if (self.bad) return 0;
+            }
+            code = (code << 1) | @as(i32, @intCast(self.peek(1)));
+            self.consume(1);
+        }
+        const idx = h.valoff[l] + code;
+        if (idx < 0 or idx > 255) return error.Corrupt;
+        return h.vals[@intCast(idx)];
     }
 
     fn restart(self: *Bits) bool {
