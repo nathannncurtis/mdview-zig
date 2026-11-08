@@ -11,10 +11,12 @@ const sections = [_][]const u8{
     "Textual content",
 };
 
+const html_sections = [_][]const u8{ "HTML blocks", "Raw HTML", "Disallowed Raw HTML (extension)" };
+
 const fence = "````````````````````````````````";
 
-fn wanted(section: []const u8) bool {
-    for (sections) |s| if (std.mem.eql(u8, s, section)) return true;
+fn inList(list: []const []const u8, section: []const u8) bool {
+    for (list) |s| if (std.mem.eql(u8, s, section)) return true;
     return false;
 }
 
@@ -52,7 +54,12 @@ fn block(arena: std.mem.Allocator, lines: []const []const u8) ![]u8 {
 const Case = struct { number: usize, section: []const u8, md: []const u8, html: []const u8 };
 
 pub fn main(init: std.process.Init) !void {
-    const a = try files.args(init, 2, "gen-spec-cases <spec.txt> <out.zig>");
+    const all_args = try init.minimal.args.toSlice(init.arena.allocator());
+    if (all_args.len != 3 and all_args.len != 4) {
+        files.say(init.io, "usage: gen-spec-cases <spec.txt> <out.zig> [<html-cases.json>]\n", .{});
+        return error.Usage;
+    }
+    const a = all_args[1..];
     const arena = init.arena.allocator();
     const raw = try files.read(init.io, arena, a[0]);
     const text = try std.mem.replaceOwned(u8, arena, raw, "\r\n", "\n");
@@ -63,6 +70,7 @@ pub fn main(init: std.process.Init) !void {
     const lines = all.items;
 
     var cases: std.ArrayList(Case) = .empty;
+    var html_cases: std.ArrayList(Case) = .empty;
     var section: []const u8 = "";
     var number: usize = 0;
     var i: usize = 0;
@@ -80,12 +88,14 @@ pub fn main(init: std.process.Init) !void {
         while (!std.mem.startsWith(u8, lines[i], fence)) : (i += 1) {
             if (std.mem.eql(u8, lines[i], ".")) cur = &html else try cur.append(arena, lines[i]);
         }
-        if (wanted(section)) try cases.append(arena, .{
+        const case: Case = .{
             .number = number,
             .section = section,
             .md = try block(arena, md.items),
             .html = try block(arena, html.items),
-        });
+        };
+        if (inList(&sections, section)) try cases.append(arena, case);
+        if (inList(&html_sections, section)) try html_cases.append(arena, case);
     }
 
     var out: Writer.Allocating = .init(arena);
@@ -104,5 +114,21 @@ pub fn main(init: std.process.Init) !void {
     }
     try w.writeAll("};\n");
     try files.write(init.io, a[1], out.written());
-    files.say(init.io, "{d} cases\n", .{cases.items.len});
+    if (a.len == 3) {
+        var json: Writer.Allocating = .init(arena);
+        const jw = &json.writer;
+        try jw.writeAll("[\n");
+        for (html_cases.items, 0..) |c, k| {
+            try jw.print("{{\"n\": {d}, \"section\": ", .{c.number});
+            try std.json.Stringify.encodeJsonString(c.section, .{}, jw);
+            try jw.writeAll(", \"md\": ");
+            try std.json.Stringify.encodeJsonString(c.md, .{}, jw);
+            try jw.writeAll(", \"html\": ");
+            try std.json.Stringify.encodeJsonString(c.html, .{}, jw);
+            try jw.writeAll(if (k + 1 < html_cases.items.len) "},\n" else "}\n");
+        }
+        try jw.writeAll("]\n");
+        try files.write(init.io, a[2], json.written());
+    }
+    files.say(init.io, "{d} cases, {d} html cases\n", .{ cases.items.len, html_cases.items.len });
 }
