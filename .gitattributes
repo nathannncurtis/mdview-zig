@@ -1,4 +1,5 @@
 *.sh text eol=lf
 *.in text eol=lf
 testdata/spec/spec_links.txt text eol=lf
+testdata/mermaid/** text eol=lf
 testdata/mermaid/jison/* text eol=lf

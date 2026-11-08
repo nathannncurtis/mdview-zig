@@ -100,6 +100,21 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
+    const yaml_mod = b.createModule(.{
+        .root_source_file = b.path("src/markdown/yaml_parse.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const mermaid_mod = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/mermaid.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    mermaid_mod.addImport("yaml", yaml_mod);
+    mermaid_mod.addImport("testdata", testdata);
+    const mermaid_tests = b.addTest(.{ .root_module = mermaid_mod });
+    test_step.dependOn(&b.addRunArtifact(mermaid_tests).step);
+
     const stress_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/stress.zig"),
@@ -179,6 +194,7 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .{ .step = "gen-spec-cases", .file = "tools/gen/gen_spec_cases.zig", .what = "Regenerate src/markdown/spec_inline_cases.zig: <spec.txt> <out.zig>" },
         .{ .step = "gen-stress", .file = "tools/gen/gen_stress.zig", .what = "Write adversarial Markdown files: <outdir> [small]" },
         .{ .step = "stress-app", .file = "tools/check/stress_app.zig", .what = "Run the built app on the gen-stress files: <mdview exe> <stress dir> <work dir> [options]" },
+        .{ .step = "gen-segment", .file = "tools/gen/gen_segment.zig", .what = "Regenerate src/mermaid/segment_data.zig: <GraphemeBreakProperty.txt> <WordBreakProperty.txt> <emoji-data.txt> <DerivedCoreProperties.txt> <out.zig>" },
         .{ .step = "release-notes", .file = "tools/release/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
         .{ .step = "msix-assets", .file = "tools/release/make_assets.zig", .what = "Write the MSIX PNG assets from icon.ico into msix/Assets" },
         .{ .step = "pack-msix", .file = "tools/release/pack_msix.zig", .what = "Build the MSIX: <mdview.exe> <version> <output.msix> <work dir>" },
@@ -200,6 +216,19 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .target = b.graph.host,
     }));
     _ = toolStep(b, "gen-languages", "Regenerate src/data/languages.zig: <languages.yml> <out.zig>", languages);
+
+    const mermaid_config = toolExe(b, "gen-mermaid-config", "tools/gen/gen_mermaid_config.zig");
+    const schema_yaml = b.createModule(.{
+        .root_source_file = b.path("src/markdown/yaml_parse.zig"),
+        .target = b.graph.host,
+    });
+    const schema_loader = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/frontmatter.zig"),
+        .target = b.graph.host,
+    });
+    schema_loader.addImport("yaml", schema_yaml);
+    mermaid_config.root_module.addImport("frontmatter", schema_loader);
+    _ = toolStep(b, "gen-mermaid-config", "Regenerate src/mermaid/config_defaults.zig: <config.schema.yaml> <out.zig>", mermaid_config);
 
     const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen/gen_growth.zig"));
     const growth_dir = growth.addOutputDirectoryArg("growth");
