@@ -1,5 +1,6 @@
 const std = @import("std");
-const svg = @import("svg");
+const svg = @import("svg.zig");
+const testdata = @import("testdata");
 
 const Fixture = struct { name: []const u8, w: u32, h: u32, mean: f64, bad: f64, t: u64 = 0 };
 
@@ -44,8 +45,8 @@ fn premul(c: u8, a: u8) i32 {
 
 fn checkFixture(comptime f: Fixture) !void {
     const a = std.testing.allocator;
-    const src = @embedFile(f.name ++ ".svg");
-    const ref = @embedFile(f.name ++ ".rgba");
+    const src = testdata.file("images/svg/" ++ f.name ++ ".svg");
+    const ref = testdata.file("images/svg/" ++ f.name ++ ".rgba");
     try std.testing.expectEqual(@as(usize, f.w * f.h * 4), ref.len);
     var img = try svg.renderAt(a, src, f.w, f.h, f.t);
     defer img.deinit(a);

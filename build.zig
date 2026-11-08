@@ -86,10 +86,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = svg_mod })).step);
     const svg_render_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("testdata/images/svg/render_test.zig"),
+            .root_source_file = b.path("src/image/svg_test.zig"),
             .target = target,
             .optimize = .ReleaseSafe,
-            .imports = &.{.{ .name = "svg", .module = svg_mod }},
+            .imports = &.{ .{ .name = "font", .module = font_mod }, .{ .name = "testdata", .module = testdata } },
         }),
     });
     test_step.dependOn(&b.addRunArtifact(svg_render_tests).step);

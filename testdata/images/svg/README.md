@@ -1,6 +1,6 @@
 # SVG test fixtures
 
-`render_test.zig` renders each `*.svg` here with `svg.render` at the size listed in the test and compares it with the matching `*.rgba` file.
+`src/image/svg_test.zig` renders each `*.svg` here with `svg.render` at the size listed in the test and compares it with the matching `*.rgba` file.
 
 ## Reference files
 
@@ -14,7 +14,7 @@ How they were made (the scripts are not part of the repo):
 - The browser context used `prefers-color-scheme: dark`, as mdview is dark only.
 - The `card.svg` reference was taken at the time in its table row (all its animations end before it).
 
-The comparison is on premultiplied channels. A fixture passes when the mean absolute error and the share of pixels with an error above 40/255 are under the limits in `render_test.zig`. Text fixtures have higher limits because the glyph rasterizers differ in hinting. Fixtures that exercise Chromium-specific corners (`feImage` placement, lighting) have the highest limits.
+The comparison is on premultiplied channels. A fixture passes when the mean absolute error and the share of pixels with an error above 40/255 are under the limits in `src/image/svg_test.zig`. Text fixtures have higher limits because the glyph rasterizers differ in hinting. Fixtures that exercise Chromium-specific corners (`feImage` placement, lighting) have the highest limits.
 
 ## Fixtures
 
