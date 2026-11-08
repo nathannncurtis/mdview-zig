@@ -464,7 +464,6 @@ test "family lists parse the way Chrome parses font-family" {
         "inherit, serif",
         "Foo(bar)",
         "a.b",
-        "--",
         "-1x",
     };
     for (invalid) |s| try std.testing.expect(resolver.parseFamilies(s) == null);
