@@ -1,0 +1,14 @@
+flowchart LR
+  subgraph a
+    a1 --> a2 --> a3
+  end
+  subgraph b
+    b1 --> b2
+    b1 --> b3
+  end
+  subgraph c
+    c1
+  end
+  a3 --> b1
+  b2 --> c1
+  b3 --> c1

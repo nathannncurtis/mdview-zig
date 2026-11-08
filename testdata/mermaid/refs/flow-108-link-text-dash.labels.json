@@ -1,0 +1,47 @@
+{
+ "L_A_B_0": {
+  "w": 29.4375,
+  "h": 19,
+  "text": "text"
+ },
+ "L_B_C_0": {
+  "w": 47.8281,
+  "h": 19,
+  "text": "dotted"
+ },
+ "L_C_D_0": {
+  "w": 35.6406,
+  "h": 19,
+  "text": "thick"
+ },
+ "L_D_E_0": {
+  "w": 34.9688,
+  "h": 19,
+  "text": "open"
+ },
+ "diagram-flowchart-A-0": {
+  "w": 9.4375,
+  "h": 19,
+  "text": "A"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 9.0625,
+  "h": 19,
+  "text": "B"
+ },
+ "diagram-flowchart-C-3": {
+  "w": 9.5781,
+  "h": 19,
+  "text": "C"
+ },
+ "diagram-flowchart-D-5": {
+  "w": 9.8125,
+  "h": 19,
+  "text": "D"
+ },
+ "diagram-flowchart-E-7": {
+  "w": 8.5781,
+  "h": 19,
+  "text": "E"
+ }
+}

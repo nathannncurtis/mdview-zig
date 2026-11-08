@@ -1,0 +1,12 @@
+{
+ "diagram-flowchart-A-0": {
+  "w": 72.1358,
+  "h": 18.9987,
+  "text": "path/to/x"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 79.7759,
+  "h": 18.9987,
+  "text": "db/schema"
+ }
+}
