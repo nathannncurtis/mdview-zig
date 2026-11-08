@@ -101,6 +101,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }));
+    flowchart_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(flowchart_tests).step);
     const flow_grammar = addTools(b, test_step, testdata);
     flowchart_tests.root_module.addImport("flow_grammar", flow_grammar);
@@ -243,6 +244,7 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .target = b.graph.host,
     });
     flowchart_lib.addImport("yaml", yaml_module);
+    flowchart_lib.addImport("testdata", testdata);
     flowchart_lib.addImport("html", b.createModule(.{
         .root_source_file = b.path("src/html_api.zig"),
         .target = b.graph.host,
