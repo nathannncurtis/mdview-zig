@@ -1,4 +1,5 @@
 const std = @import("std");
+const testdata = @import("testdata");
 const Allocator = std.mem.Allocator;
 
 pub const Error = error{ BadPattern, OutOfMemory, StepLimit };
@@ -681,7 +682,7 @@ const Cases = struct { texts: []const []const u8, cases: []const []const []const
 // Expected values come from JavaScript's RegExp: the FNV-1a fold of the match length at every offset of every text.
 test "match lengths agree with JavaScript at every offset" {
     const gpa = std.testing.allocator;
-    var parsed = try std.json.parseFromSlice(Cases, gpa, @embedFile("testdata/regex_cases.json"), .{});
+    var parsed = try std.json.parseFromSlice(Cases, gpa, testdata.file("mermaid/jison/regex_cases.json"), .{});
     defer parsed.deinit();
     var texts: std.ArrayList([]u16) = .empty;
     defer {

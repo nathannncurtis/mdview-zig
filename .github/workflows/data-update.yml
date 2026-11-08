@@ -54,11 +54,11 @@ jobs:
           head -n 1 "$DATA/ucd/CaseFolding.txt" | sed 's/^# /Unicode: /' >> "$GITHUB_STEP_SUMMARY"
       - name: Regenerate the tables
         run: |
-          zig build gen-entities -- "$DATA/entities.json" src/entities.zig
-          zig build gen-emoji -- "$DATA/emoji.json" src/emoji.zig
-          zig build gen-unicode -- "$DATA/ucd/UnicodeData.txt" src/unicode.zig
-          zig build gen-highlight-colors -- "$DATA/dark.json" src/highlight_colors.zig
-          zig build gen-languages -- "$DATA/languages.yml" src/languages.zig
+          zig build gen-entities -- "$DATA/entities.json" src/data/entities.zig
+          zig build gen-emoji -- "$DATA/emoji.json" src/data/emoji.zig
+          zig build gen-unicode -- "$DATA/ucd/UnicodeData.txt" src/data/unicode.zig
+          zig build gen-highlight-colors -- "$DATA/dark.json" src/data/highlight_colors.zig
+          zig build gen-languages -- "$DATA/languages.yml" src/data/languages.zig
           echo "Regenerated entities, emoji, unicode, highlight colours and languages." >> "$GITHUB_STEP_SUMMARY"
       - name: Test
         run: |
