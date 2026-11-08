@@ -1,4 +1,5 @@
 const std = @import("std");
+const testdata = @import("testdata");
 const rt = @import("jison_runtime");
 const flow = @import("flow_grammar");
 const seq = @import("seq_grammar");
@@ -93,11 +94,11 @@ fn runCorpus(comptime G: type, comptime stub: type, comptime mode: Mode, json: [
 }
 
 test "flowchart error strings match mermaid.parse" {
-    try runCorpus(flow, flow_stub, .flow, @embedFile("testdata/errors_flow.json"));
+    try runCorpus(flow, flow_stub, .flow, testdata.file("mermaid/jison/errors_flow.json"));
 }
 
 test "sequence error strings match mermaid.parse" {
-    try runCorpus(seq, seq_stub, .sequence, @embedFile("testdata/errors_sequence.json"));
+    try runCorpus(seq, seq_stub, .sequence, testdata.file("mermaid/jison/errors_sequence.json"));
 }
 
 fn everyArm(comptime G: type, comptime stub: type, comptime mode: Mode) !void {
@@ -173,8 +174,8 @@ fn mutate(comptime G: type, comptime stub: type, comptime mode: Mode, json: []co
 }
 
 test "mutated inputs end in a syntax error or acceptance, never a crash or a leak" {
-    try mutate(flow, flow_stub, .flow, @embedFile("testdata/errors_flow.json"), 1);
-    try mutate(seq, seq_stub, .sequence, @embedFile("testdata/errors_sequence.json"), 2);
+    try mutate(flow, flow_stub, .flow, testdata.file("mermaid/jison/errors_flow.json"), 1);
+    try mutate(seq, seq_stub, .sequence, testdata.file("mermaid/jison/errors_sequence.json"), 2);
 }
 
 test "a long diagram parses" {

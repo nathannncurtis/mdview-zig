@@ -1,6 +1,6 @@
 const std = @import("std");
-const markdown = @import("markdown.zig");
-const html = @import("html.zig");
+const markdown = @import("markdown/markdown.zig");
+const html = @import("markdown/html.zig");
 
 const max_input = 8192;
 

@@ -2,7 +2,7 @@ const std = @import("std");
 const app = @import("../../main.zig");
 const md = app.md;
 const c = @import("c");
-const lx = @import("../../linux.zig");
+const lx = @import("linux.zig");
 
 const Color = lx.Color;
 const ImageBox = lx.ImageBox;
