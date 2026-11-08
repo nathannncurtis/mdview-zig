@@ -84,6 +84,14 @@ pub fn build(b: *std.Build) void {
     });
     dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
+    const elk_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/elk/test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(elk_tests).step);
     addTools(b, test_step, testdata);
 
     if (linux_c) |c| {
