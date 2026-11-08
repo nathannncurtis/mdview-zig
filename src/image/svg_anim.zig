@@ -116,6 +116,28 @@ pub fn combine(arena: Allocator, a: []const u8, b: []const u8, factor: f64) Erro
     return out.items;
 }
 
+fn implicitFrom(arena: Allocator, name: []const u8, first: []const u8) Error!?[]const u8 {
+    const defaults = [_][2][]const u8{ .{ "opacity", "1" }, .{ "fill-opacity", "1" }, .{ "stroke-opacity", "1" }, .{ "stroke-width", "1" }, .{ "stroke-dashoffset", "0" } };
+    for (defaults) |d| if (std.mem.eql(u8, d[0], name)) return d[1];
+    if (!std.mem.eql(u8, name, "transform")) return null;
+    const toks = try tokenize(arena, first);
+    var out: std.ArrayList(u8) = .empty;
+    var one = false;
+    for (toks) |t| {
+        if (!t.num) {
+            try out.appendSlice(arena, t.text);
+            const open = std.mem.lastIndexOfScalar(u8, t.text, '(');
+            if (open) |o| {
+                var st = o;
+                while (st > 0 and std.ascii.isAlphabetic(t.text[st - 1])) st -= 1;
+                one = std.mem.startsWith(u8, t.text[st..o], "scale");
+                if (std.mem.eql(u8, t.text[st..o], "matrix")) return null;
+            }
+        } else try out.appendSlice(arena, if (one) "1" else "0");
+    }
+    return out.items;
+}
+
 pub const CssResult = struct { name: []const u8, value: []const u8 };
 
 pub fn cssProgress(a: sty.CssAnim, t_ms: f64) ?f64 {
@@ -186,7 +208,7 @@ pub fn cssAnimations(arena: Allocator, anims: []const sty.CssAnim, frames: []con
                 try pts.append(arena, .{ .pct = fr.pct, .val = v, .tf = if (tfs) |x| sty.parseTiming(x) else null });
             }
             if (pts.items.len == 0) continue;
-            const under = lastDecl(underlying, nm) orelse node.attr(nm);
+            const under = lastDecl(underlying, nm) orelse node.attr(nm) orelse try implicitFrom(arena, nm, pts.items[0].val);
             if (pts.items[0].pct > 0) {
                 if (under) |u| try pts.insert(arena, 0, .{ .pct = 0, .val = u, .tf = null });
             }
