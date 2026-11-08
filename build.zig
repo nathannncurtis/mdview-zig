@@ -160,7 +160,16 @@ pub fn build(b: *std.Build) void {
     fuzz_tests.root_module.addImport("testdata", testdata);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
-    b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
+    const fuzz_step = b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)");
+    const mermaid_only = fuzz_filter != null and std.mem.indexOf(u8, fuzz_filter.?, "mermaid") != null;
+    if (!mermaid_only) fuzz_step.dependOn(&run_fuzz.step);
+    if (fuzz_filter == null or mermaid_only) {
+        const mermaid_fuzz = b.addTest(.{
+            .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+            .root_module = mermaid_mod,
+        });
+        fuzz_step.dependOn(&b.addRunArtifact(mermaid_fuzz).step);
+    }
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {

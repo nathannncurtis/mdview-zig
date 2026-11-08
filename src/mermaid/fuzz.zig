@@ -61,3 +61,34 @@ test "hostile input" {
     try renderAndFree(big);
     try renderAndFree("info \xff\xfe\x80 \xf0\x9f");
 }
+
+fn lengthPrefixed(comptime bytes: []const u8) []const u8 {
+    comptime {
+        const len: [4]u8 = @bitCast(std.mem.nativeToLittle(u32, bytes.len));
+        const out = len ++ bytes.*;
+        return &out;
+    }
+}
+
+const corpus = [_][]const u8{
+    lengthPrefixed("info"),
+    lengthPrefixed("info showInfo\ntitle x\naccTitle: y\naccDescr {z}\n"),
+    lengthPrefixed("---\ntitle: t\nconfig:\n  theme: forest\n  themeVariables:\n    primaryColor: '#ff0'\n---\ninfo"),
+    lengthPrefixed("%%{init: {\"theme\":\"base\",\"themeVariables\":{\"primaryColor\":\"#ff0000\"}}}%%\n%% c\ninfo"),
+    lengthPrefixed("%%{init: {\"theme\": %%}%%\n\"forest\"}}%%\ninfo"),
+    lengthPrefixed("---\na: &x [1, *x]\nb: !!int 0x1F\nc: *y\n---\ninfo"),
+    lengthPrefixed("---\na:\n  b: 1\n c: 2\n---\ninfo"),
+    lengthPrefixed("flowchart TD\nA[<a href=\"x\">y</a>]-->B #35; style a fill:#fff;\n"),
+    lengthPrefixed("%%{init: {\"theme\":\"redux-color\",\"themeVariables\":{\"xyChart\":{\"titleColor\":\"#fff\"},\"primaryColor\":\"hsl(210, 50%, 40%)\"}}}%%\ninfo"),
+    lengthPrefixed("info \xff\xfe\x80 \xf0\x9f\n"),
+    lengthPrefixed("%%{init: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[["),
+};
+
+fn renderOne(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [4096]u8 = undefined;
+    try renderAndFree(buf[0..smith.slice(&buf)]);
+}
+
+test "fuzz mermaid.render" {
+    try std.testing.fuzz({}, renderOne, .{ .corpus = &corpus });
+}
