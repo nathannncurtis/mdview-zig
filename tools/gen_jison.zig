@@ -62,7 +62,7 @@ const Token = struct { tk: Tk, text: []const u8 };
 const Fail = error{ BadGrammar, OutOfMemory } || rt.regex.Error;
 
 fn bad(comptime fmt: []const u8, args: anytype) Fail {
-    std.debug.print("gen-jison: " ++ fmt ++ "\n", args);
+    std.log.err("gen-jison: " ++ fmt, args);
     return error.BadGrammar;
 }
 
@@ -1066,7 +1066,7 @@ fn buildTable(a: Allocator, m: *const Model, states: []State, look: []const []co
                 } else slots[t] = .{ .kind = .reduce, .arg = prod_id };
                 if (by_default) {
                     conflicts += 1;
-                    std.debug.print("gen-jison: conflict in state {d} on '{s}'\n", .{ si, m.names.items[t] });
+                    std.log.warn("gen-jison: conflict in state {d} on '{s}'", .{ si, m.names.items[t] });
                 }
             }
         }

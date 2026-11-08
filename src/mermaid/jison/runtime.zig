@@ -54,7 +54,10 @@ pub fn appendUtf8(gpa: Allocator, out: *std.ArrayList(u8), s: []const u16) Alloc
             i += 1;
         } else if (cp >= 0xD800 and cp <= 0xDFFF) cp = 0xFFFD;
         var buf: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(cp, &buf) catch unreachable;
+        const n = std.unicode.utf8Encode(cp, &buf) catch {
+            try out.appendSlice(gpa, "�");
+            continue;
+        };
         try out.appendSlice(gpa, buf[0..n]);
     }
 }
@@ -342,15 +345,11 @@ pub fn Parser(comptime G: type, comptime A: type) type {
             var yylineno: usize = 0;
             while (true) {
                 const state = states.items[states.items.len - 1];
-                var action: Entry = undefined;
-                var have = true;
-                if (G.defaults[state] != no_default) {
-                    action = .{ .kind = .reduce, .sym = 0, .arg = G.defaults[state] };
-                } else {
+                const action: Entry = if (G.defaults[state] != no_default) .{ .kind = .reduce, .sym = 0, .arg = G.defaults[state] } else blk: {
                     if (symbol == null) symbol = try lx.lex(actions);
-                    if (find(state, symbol.?)) |e| action = e else have = false;
-                }
-                if (!have or action.kind == .go) return syntaxError(gpa, diag, &lx, state, symbol.?, yylineno);
+                    break :blk find(state, symbol.?) orelse return syntaxError(gpa, diag, &lx, state, symbol.?, yylineno);
+                };
+                if (action.kind == .go) return syntaxError(gpa, diag, &lx, state, symbol.?, yylineno);
                 switch (action.kind) {
                     .shift => {
                         try states.append(gpa, action.arg);

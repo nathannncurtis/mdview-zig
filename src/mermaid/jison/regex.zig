@@ -160,8 +160,7 @@ const Parser = struct {
 
     fn term(self: *Parser) Error!Node {
         const c = self.peek().?;
-        var atom: Node = undefined;
-        switch (c) {
+        const atom: Node = switch (c) {
             '^' => {
                 self.pos += 1;
                 return .{ .assertion = .begin };
@@ -171,19 +170,19 @@ const Parser = struct {
                 return .{ .assertion = .end };
             },
             '*', '+', '?' => return error.BadPattern,
-            '.' => {
+            '.' => blk: {
                 self.pos += 1;
-                atom = .any;
+                break :blk .any;
             },
-            '[' => {
+            '[' => blk: {
                 self.pos += 1;
-                atom = try self.classAtom();
+                break :blk try self.classAtom();
             },
-            '(' => {
+            '(' => blk: {
                 self.pos += 1;
-                atom = try self.group();
+                break :blk try self.group();
             },
-            '\\' => {
+            '\\' => blk: {
                 self.pos += 1;
                 if (self.peek()) |e| {
                     if (e == 'b' or e == 'B') {
@@ -191,13 +190,13 @@ const Parser = struct {
                         return .{ .assertion = if (e == 'b') .word_b else .not_word_b };
                     }
                 }
-                atom = try self.escape();
+                break :blk try self.escape();
             },
-            else => {
+            else => blk: {
                 self.pos += 1;
-                atom = .{ .char = c };
+                break :blk .{ .char = c };
             },
-        }
+        };
         return self.quantifier(atom);
     }
 
