@@ -558,6 +558,10 @@ pub const JavaRandom = struct {
     const mult: u64 = 0x5DEECE66D;
     const mask: u64 = (1 << 48) - 1;
 
+    pub fn setSeed(self: *JavaRandom, seed: i64) void {
+        self.seed = (@as(u64, @bitCast(seed)) ^ mult) & mask;
+    }
+
     pub fn init(seed: i64) JavaRandom {
         return .{ .seed = (@as(u64, @bitCast(seed)) ^ mult) & mask };
     }

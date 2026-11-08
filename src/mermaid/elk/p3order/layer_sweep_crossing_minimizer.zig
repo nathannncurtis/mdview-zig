@@ -84,7 +84,7 @@ pub const LayerSweepCrossingMinimizer = struct {
 
     // the CONSIDER_MODEL_ORDER_CROSSING_COUNTER_NODE_INFLUENCE branch is left out: Mermaid keeps its default 0
     fn compareDifferentRandomizedLayouts(self: *LayerSweepCrossingMinimizer, gd: *GraphInfoHolder) lg.Error!void {
-        self.random.* = lg.JavaRandom.init(self.random_seed);
+        self.random.setSeed(self.random_seed);
         self.graphs_whose_node_order_changed.clearRetainingCapacity();
         var best_crossings: i32 = std.math.maxInt(i32);
         if (gd.l_graph.p.consider_model_order != .none) gd.l_graph.p.first_try_with_initial_order = true;
