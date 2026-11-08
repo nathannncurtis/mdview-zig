@@ -480,6 +480,11 @@ fn drawImages(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame_
                     c.CGContextDrawImage(ctx, cgRect(x, base, box.w, box.h), @ptrCast(bm.native));
                 },
                 .broken => {
+                    if (app.images.brokenIcon()) |icon| {
+                        c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
+                        c.CGContextDrawImage(ctx, cgRect(x, base, icon.w, icon.h), @ptrCast(icon.native));
+                        continue;
+                    }
                     const path = c.CGPathCreateMutable();
                     defer c.CGPathRelease(path);
                     for (alerts.brokenImage()) |op| switch (op) {

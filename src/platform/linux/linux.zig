@@ -18,6 +18,32 @@ var needs_redraw: bool = true;
 var wm_delete_window: c.Atom = 0;
 var hand_cursor: c.Cursor = 0;
 var over_link = false;
+/// Device pixels per layout unit; layout is in these units and the cairo context scales them up.
+var g_scale: f32 = 1;
+
+/// The `Xft.dpi` value of an X resource database, which is what desktops set for their text scale.
+fn xftDpi(db: []const u8) ?f32 {
+    var lines = std.mem.splitScalar(u8, db, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        const key = "Xft.dpi:";
+        if (!std.mem.startsWith(u8, line, key)) continue;
+        const dpi = std.fmt.parseFloat(f32, std.mem.trim(u8, line[key.len..], " \t")) catch return null;
+        return if (dpi > 0) dpi else null;
+    }
+    return null;
+}
+
+fn detectScale(dpy: *c.Display) f32 {
+    const scale: f32 = blk: {
+        if (c.XResourceManagerString(dpy)) |db| {
+            if (xftDpi(std.mem.span(db))) |dpi| break :blk dpi / 96.0;
+        }
+        const gdk = app.environ.get("GDK_SCALE") orelse break :blk 1;
+        break :blk std.fmt.parseFloat(f32, gdk) catch 1;
+    };
+    return std.math.clamp(scale, 0.75, 4);
+}
 
 // ============================================================
 // Colors
@@ -67,8 +93,10 @@ pub fn run() void {
     attrs.event_mask = c.ExposureMask | c.KeyPressMask | c.ButtonPressMask |
         c.ButtonReleaseMask | c.StructureNotifyMask | c.PointerMotionMask;
 
-    const width: c_uint = 900;
-    const height: c_uint = 700;
+    g_scale = detectScale(dpy);
+    app.images.dpi_scale = g_scale;
+    const width: c_uint = @intFromFloat(900 * g_scale);
+    const height: c_uint = @intFromFloat(700 * g_scale);
 
     window = c.XCreateWindow(
         dpy,
@@ -85,8 +113,8 @@ pub fn run() void {
         &attrs,
     );
 
-    app.window_width = @floatFromInt(width);
-    app.window_height = @floatFromInt(height);
+    app.window_width = 900;
+    app.window_height = 700;
     hand_cursor = c.XCreateFontCursor(dpy, c.XC_hand2);
     app.images.create_native = createNative;
     app.images.free_native = freeNative;
@@ -126,8 +154,8 @@ pub fn run() void {
                 },
                 c.ConfigureNotify => {
                     const ce = ev.xconfigure;
-                    app.window_width = @floatFromInt(ce.width);
-                    app.window_height = @floatFromInt(ce.height);
+                    app.window_width = @as(f32, @floatFromInt(ce.width)) / g_scale;
+                    app.window_height = @as(f32, @floatFromInt(ce.height)) / g_scale;
                     needs_redraw = true;
                 },
                 c.KeyPress => {
@@ -145,7 +173,7 @@ pub fn run() void {
                 },
                 c.MotionNotify => {
                     const me = ev.xmotion;
-                    const over = app.pointerMoved(@floatFromInt(me.x), @floatFromInt(me.y));
+                    const over = app.pointerMoved(@as(f32, @floatFromInt(me.x)) / g_scale, @as(f32, @floatFromInt(me.y)) / g_scale);
                     if (over != over_link) {
                         over_link = over;
                         if (over) _ = c.XDefineCursor(dpy, window, hand_cursor) else _ = c.XUndefineCursor(dpy, window);
@@ -153,7 +181,7 @@ pub fn run() void {
                 },
                 c.ButtonRelease => {
                     const be = ev.xbutton;
-                    if (be.button == 1) _ = app.mouseUp(@floatFromInt(be.x), @floatFromInt(be.y));
+                    if (be.button == 1) _ = app.mouseUp(@as(f32, @floatFromInt(be.x)) / g_scale, @as(f32, @floatFromInt(be.y)) / g_scale);
                 },
                 c.ButtonPress => {
                     const be = ev.xbutton;
@@ -178,8 +206,8 @@ pub fn run() void {
                     }
                     // Left click
                     else if (be.button == 1) {
-                        const bx: f32 = @floatFromInt(be.x);
-                        const by: f32 = @floatFromInt(be.y);
+                        const bx: f32 = @as(f32, @floatFromInt(be.x)) / g_scale;
+                        const by: f32 = @as(f32, @floatFromInt(be.y)) / g_scale;
                         // Close button: top-right area
                         if (bx > app.window_width - 40 and by < 36) {
                             running = false;
@@ -355,8 +383,8 @@ fn initiateMove(dpy: *c.Display, win: c.Window, root_x: c_int, root_y: c_int) vo
 fn render(dpy: *c.Display, win: c.Window) void {
     const screen = c.DefaultScreen(dpy);
     const visual = c.DefaultVisual(dpy, screen);
-    const w: c_int = @intFromFloat(app.window_width);
-    const h: c_int = @intFromFloat(app.window_height);
+    const w: c_int = @intFromFloat(app.window_width * g_scale);
+    const h: c_int = @intFromFloat(app.window_height * g_scale);
 
     if (w <= 0 or h <= 0) return;
 
@@ -369,6 +397,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
     // Clear background
     setColor(cr, col_bg);
     c.cairo_paint(cr);
+    c.cairo_scale(cr, g_scale, g_scale);
 
     // Create Pango layout
     const pango_layout = c.pango_cairo_create_layout(cr) orelse return;
@@ -764,6 +793,22 @@ fn addImageShape(attr_list: *c.PangoAttrList, box: *ImageBox, start: usize, end:
     c.pango_attr_list_insert(attr_list, attr);
 }
 
+fn blit(ctx: *c.cairo_t, handle: *anyopaque, pw: u32, ph: u32, x: f64, y: f64, w: f64, h: f64) void {
+    const native: *const Native = @ptrCast(@alignCast(handle));
+    const iw: f64 = @floatFromInt(pw);
+    const ih: f64 = @floatFromInt(ph);
+    c.cairo_save(ctx);
+    c.cairo_translate(ctx, x, y);
+    c.cairo_scale(ctx, w / iw, h / ih);
+    c.cairo_set_source_surface(ctx, native.surface, 0, 0);
+    const pattern = c.cairo_get_source(ctx);
+    c.cairo_pattern_set_filter(pattern, c.CAIRO_FILTER_BEST);
+    c.cairo_pattern_set_extend(pattern, c.CAIRO_EXTEND_PAD);
+    c.cairo_rectangle(ctx, 0, 0, iw, ih);
+    c.cairo_fill(ctx);
+    c.cairo_restore(ctx);
+}
+
 fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: ?*anyopaque) callconv(.c) void {
     const ctx = cr orelse return;
     const box: *const ImageBox = @ptrCast(@alignCast(attr.*.data orelse return));
@@ -776,21 +821,13 @@ fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: ?*an
         .pending => {},
         .picture => {
             const bm = app.images.bitmap(box.image.target, .{ .w = box.w, .h = box.h }) orelse return;
-            const native: *const Native = @ptrCast(@alignCast(bm.native));
-            const iw: f64 = @floatFromInt(bm.w);
-            const ih: f64 = @floatFromInt(bm.h);
-            c.cairo_save(ctx);
-            c.cairo_translate(ctx, x, top);
-            c.cairo_scale(ctx, box.w / iw, box.h / ih);
-            c.cairo_set_source_surface(ctx, native.surface, 0, 0);
-            const pattern = c.cairo_get_source(ctx);
-            c.cairo_pattern_set_filter(pattern, c.CAIRO_FILTER_BEST);
-            c.cairo_pattern_set_extend(pattern, c.CAIRO_EXTEND_PAD);
-            c.cairo_rectangle(ctx, 0, 0, iw, ih);
-            c.cairo_fill(ctx);
-            c.cairo_restore(ctx);
+            blit(ctx, bm.native, bm.w, bm.h, x, top, box.w, box.h);
         },
         .broken => {
+            if (app.images.brokenIcon()) |icon| {
+                blit(ctx, icon.native, icon.pw, icon.ph, x, top, icon.w, icon.h);
+                return;
+            }
             setColor(ctx, col_quote);
             c.cairo_new_path(ctx);
             for (alerts.brokenImage()) |op| switch (op) {
@@ -1364,4 +1401,12 @@ test "a missing image lays out a glyph and its alt text in the flow and a refere
     const plain = try imageLayoutSize(.{ .text = "a long alt text" }, 400);
     try std.testing.expectApproxEqAbs(plain[0] + broken_w, alt[0], 2);
     try std.testing.expectApproxEqAbs(plain[1], alt[1], 2);
+}
+
+test "the X resource database gives the text scale as Xft.dpi" {
+    try std.testing.expectEqual(@as(?f32, 144), xftDpi("*background:\tblack\nXft.dpi:\t144\nXft.hinting: 1\n"));
+    try std.testing.expectEqual(@as(?f32, 96), xftDpi("Xft.dpi: 96"));
+    try std.testing.expectEqual(@as(?f32, null), xftDpi("Xft.hinting: 1\n"));
+    try std.testing.expectEqual(@as(?f32, null), xftDpi("Xft.dpi: wide\n"));
+    try std.testing.expectEqual(@as(?f32, null), xftDpi("Xft.dpi: 0\n"));
 }

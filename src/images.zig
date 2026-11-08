@@ -500,6 +500,44 @@ fn sizedWork(e: *Entry, w: u32, h: u32) void {
     if (e.incoming.swap(p, .acq_rel)) |old| old.destroy();
 }
 
+// Chromium's IDR_BROKENIMAGE (third_party/blink/public/default_{100,200}_percent/blink/broken_image.png), BSD licence in chromium/LICENSE.
+const icon_files = [2][]const u8{ @embedFile("chromium/broken_image_100.png"), @embedFile("chromium/broken_image_200.png") };
+var icon_pics: [2]?*Picture = .{ null, null };
+var icon_failed: [2]bool = .{ false, false };
+
+pub const Icon = struct { native: *anyopaque, pw: u32, ph: u32, w: f32, h: f32 };
+
+/// Chrome's broken image icon, the 2x bitmap from a scale of 1.5. Null when it cannot be decoded or uploaded; the backends then draw a vector glyph.
+pub fn brokenIcon() ?Icon {
+    const i: usize = if (dpi_scale >= 1.5) 1 else 0;
+    if (icon_failed[i]) return null;
+    const p = icon_pics[i] orelse blk: {
+        var img = image.decode(gpa, icon_files[i]) catch {
+            icon_failed[i] = true;
+            return null;
+        };
+        const pic = Picture.create(img) catch {
+            img.deinit(gpa);
+            icon_failed[i] = true;
+            return null;
+        };
+        icon_pics[i] = pic;
+        break :blk pic;
+    };
+    if (p.natives[0] == null) {
+        const create = create_native orelse return null;
+        p.natives[0] = create(p.img.frames[0].rgba, p.img.width, p.img.height);
+    }
+    const factor: f32 = @floatFromInt(i + 1);
+    return .{
+        .native = p.natives[0] orelse return null,
+        .pw = p.img.width,
+        .ph = p.img.height,
+        .w = @as(f32, @floatFromInt(p.img.width)) / factor,
+        .h = @as(f32, @floatFromInt(p.img.height)) / factor,
+    };
+}
+
 pub fn beginFrame() void {
     wake = null;
     for (retired.items) |f| f.destroy();
@@ -707,6 +745,14 @@ pub fn injectReady(key: []const u8, w: f32, h: f32) !void {
 /// Frees what tests left behind once their loads have ended.
 pub fn clearAll() void {
     reset("", false);
+    for (&icon_pics, &icon_failed) |*p, *failed| {
+        if (p.*) |pic| {
+            pic.dropNatives();
+            pic.destroy();
+        }
+        p.* = null;
+        failed.* = false;
+    }
     while (active.load(.monotonic) > 0) std.Io.sleep(io, .fromMilliseconds(1), .awake) catch break;
     beginFrame();
     entries.deinit(gpa);

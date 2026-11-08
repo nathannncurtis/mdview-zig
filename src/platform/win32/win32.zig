@@ -510,6 +510,10 @@ fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f
             vt_rt.DrawBitmap(dc.rt, bm.native, &.{ .left = x, .top = y, .right = x + obj.w, .bottom = y + obj.h }, 1, 1, null);
         },
         .broken => {
+            if (app.images.brokenIcon()) |icon| {
+                vt_rt.DrawBitmap(dc.rt, icon.native, &.{ .left = x, .top = y, .right = x + icon.w, .bottom = y + icon.h }, 1, 1, null);
+                return;
+            }
             const geom = g_broken_geom orelse return;
             const muted = g_brush_quote orelse return;
             vt_rt.SetTransform(dc.rt, &matrix(x, y - app.scroll_y));

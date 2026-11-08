@@ -29,3 +29,26 @@ test "a fixture loads on the worker thread, scales down and animates" {
     try testing.expect(gif == .picture);
     try testing.expect(try waitFor("images/not-here.png", 100) == .missing);
 }
+
+var fake_native: u8 = 0;
+
+fn fakeCreate(_: []const u8, _: u32, _: u32) ?*anyopaque {
+    return &fake_native;
+}
+
+test "Chrome's broken image icon decodes at 1x and 2x" {
+    images.init(testing.allocator, testing.io);
+    images.create_native = fakeCreate;
+    defer images.create_native = null;
+    defer images.clearAll();
+    images.dpi_scale = 1;
+    const one = images.brokenIcon() orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u32, 14), one.pw);
+    try testing.expectEqual(@as(f32, 16), one.h);
+    images.dpi_scale = 2;
+    defer images.dpi_scale = 1;
+    const two = images.brokenIcon() orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u32, 28), two.pw);
+    try testing.expectEqual(@as(f32, 14), two.w);
+    try testing.expectEqual(@as(f32, 16), two.h);
+}
