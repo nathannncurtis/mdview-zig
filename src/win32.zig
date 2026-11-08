@@ -1692,7 +1692,7 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
             const cw = table_layout.cellWidth(t, widths, row, col);
             const ch = table_layout.cellHeight(t, heights, row, col);
             const span = t.spanAt(row, col);
-            const ty = row_y + cell_pad_y + valignOffset(if (t.valigns.len > 0) t.valigns[i] else .none, ch - cell_pad_y * 2 - content_h[i]);
+            const ty = row_y + cell_pad_y + valignOffset(t.valignAt(row, col), ch - cell_pad_y * 2 - content_h[i]);
             if (t.nestedAt(row, col)) |nt| {
                 _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, ty, cw - cell_pad_x * 2, true, null);
             } else if (layouts[i]) |l| {
@@ -2351,7 +2351,7 @@ test "colspan and rowspan share track sizes and valign offsets the content" {
     defer fx.deinit();
     const g = gfxOf();
     var cells = [_]md.Inline{ .{ .text = "a header cell that is rather wide" }, .{}, .{ .text = "x" }, .{ .text = "y" }, .{ .text = "z" }, .{ .text = "w" } };
-    const wide: md.Table = .{ .columns = 3, .cells = &cells, .spans = &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 1 }, .{ 1, 1 }, .{ 1, 1 } } };
+    const wide: md.Table = .{ .columns = 3, .cells = &cells, .ext = &.{ .spans = &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 1 }, .{ 1, 1 }, .{ 1, 1 } } } };
     var span_w: f32 = 0;
     _ = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, wide, 0, 0, 2000, false, &span_w);
     const natural = layoutSize(cells[0], 2000).widthIncludingTrailingWhitespace + cell_pad_x * 2 + 1;
@@ -2359,7 +2359,7 @@ test "colspan and rowspan share track sizes and valign offsets the content" {
     try testing.expect(span_w < natural + 2 * (cell_pad_x * 2 + 8 + 1));
 
     var tall = [_]md.Inline{ .{ .text = "one two three four five six seven eight nine ten eleven twelve" }, .{ .text = "x" }, .{}, .{ .text = "y" } };
-    const rowspan: md.Table = .{ .columns = 2, .cells = &tall, .spans = &.{ .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 } } };
+    const rowspan: md.Table = .{ .columns = 2, .cells = &tall, .ext = &.{ .spans = &.{ .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 }, .{ 1, 1 } } } };
     const h = renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, rowspan, 0, 0, 200, false, null);
     try testing.expect(h > 2 * (cell_min_text + cell_pad_y * 2) + 1);
 
