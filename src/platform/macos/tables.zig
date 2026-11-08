@@ -46,7 +46,7 @@ fn blocksHeight(blocks: []const md.Block, w: CGFloat) CGFloat {
     defer mac.releaseFonts(fonts);
     const noted = app.hits.items.len;
     defer app.hits.shrinkRetainingCapacity(noted);
-    return @max(mac.layoutBlocks(scratch, blocks, 0, w, 0, fonts, false) - mac.para_spacing, 0);
+    return mac.blocksHeight(scratch, blocks, 0, w, fonts);
 }
 
 pub fn cellNaturalWidth(ctx: c.CGContextRef, t: md.Table, row: usize, col: usize, body_font: c.CTFontRef, header_font: c.CTFontRef) f32 {

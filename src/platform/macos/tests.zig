@@ -503,7 +503,7 @@ test "a table with align floats and the text wraps beside it" {
     defer canvas.deinit();
     const fonts = makeFonts();
     defer releaseFonts(fonts);
-    var t: md.Table = .{
+    const t: md.Table = .{
         .columns = 1,
         .aligns = &.{.none},
         .header_row = false,
@@ -521,7 +521,6 @@ test "a table with align floats and the text wraps beside it" {
     try testing.expectApproxEqAbs(@as(f32, @floatCast(40 + 400 - table_w + cell_pad_x)), app.hits.items[0].x, 0.5);
     try testing.expectEqual(@as(f32, 40), app.hits.items[1].x);
     try testing.expectApproxEqAbs(@as(f32, @floatCast(400 - table_w - md.float_gap)), app.hits.items[1].w, 0.5);
-    t.float = .none;
 }
 
 test "a floated image inside a table cell floats within the cell" {

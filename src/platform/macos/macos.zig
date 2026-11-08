@@ -1155,10 +1155,24 @@ fn isCollapsed(block: *const md.Block) bool {
 }
 
 /// Draws `list` from `y0` (distance from the visual top) in a column `avail` wide starting at `left`; returns the y below the last block.
+const Extent = struct { y: CGFloat, gap: CGFloat, low: CGFloat };
+
 pub fn layoutBlocks(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, avail: CGFloat, y0: CGFloat, f: Fonts, top: bool) CGFloat {
+    const e = layoutExtent(ctx, list, left, avail, y0, f, top);
+    return @max(e.y, e.low);
+}
+
+/// The height of `list` below `y0` without the gap after its last block, floats included.
+pub fn blocksHeight(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, avail: CGFloat, f: Fonts) CGFloat {
+    const e = layoutExtent(ctx, list, left, avail, 0, f, false);
+    return @max(e.y - e.gap, e.low);
+}
+
+fn layoutExtent(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, avail: CGFloat, y0: CGFloat, f: Fonts, top: bool) Extent {
     const scroll: CGFloat = @floatCast(app.scroll_y);
     var screen_y = y0;
     var bands: html.Bands = .{};
+    var last_gap: CGFloat = 0;
 
     for (list) |*block| {
         // Cull blocks far below the visible area, unless a jump needs every block placed
@@ -1269,10 +1283,10 @@ pub fn layoutBlocks(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, 
         }
 
         screen_y += content_h + gap;
+        last_gap = gap;
     }
 
-    screen_y = @max(screen_y, bands.lowest());
-    return screen_y;
+    return .{ .y = screen_y, .gap = last_gap, .low = bands.lowest() };
 }
 
 fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
