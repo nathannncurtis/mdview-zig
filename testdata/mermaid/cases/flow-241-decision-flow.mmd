@@ -1,0 +1,8 @@
+flowchart TD
+  Start([Start]) --> In[/Read input/]
+  In --> Chk{Valid?}
+  Chk -->|yes| Proc[[Process]]
+  Chk -->|no| Err[Show error]
+  Err --> In
+  Proc --> Out[/Write output/]
+  Out --> End([End])

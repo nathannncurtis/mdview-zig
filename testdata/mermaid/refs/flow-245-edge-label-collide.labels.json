@@ -1,0 +1,27 @@
+{
+ "L_A_B_0": {
+  "w": 26.0625,
+  "h": 19,
+  "text": "one"
+ },
+ "L_A_B_2": {
+  "w": 26.8438,
+  "h": 19,
+  "text": "two"
+ },
+ "L_A_B_3": {
+  "w": 38.7656,
+  "h": 19,
+  "text": "three"
+ },
+ "diagram-flowchart-A-0": {
+  "w": 9.4375,
+  "h": 19,
+  "text": "A"
+ },
+ "diagram-flowchart-B-1": {
+  "w": 9.0625,
+  "h": 19,
+  "text": "B"
+ }
+}
