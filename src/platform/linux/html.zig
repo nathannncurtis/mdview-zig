@@ -20,7 +20,6 @@ const leftMark = lx.leftMark;
 const rightMark = lx.rightMark;
 const unmap = lx.unmap;
 const insertRange = lx.insertRange;
-const layoutPixelSize = lx.layoutPixelSize;
 const imageBox = lx.imageBox;
 const drawShape = lx.drawShape;
 const renderFlowed = lx.renderFlowed;
