@@ -392,8 +392,6 @@ const broken_h: CGFloat = 16;
 /// One image in a layout; CoreText reads its size through the run delegate and the drawing pass finds it again by the same pointer.
 pub const ImageBox = struct { w: CGFloat, h: CGFloat, kind: ImageKind, image: *const md.Image, link: bool, floated: bool = false };
 
-/// False while laying out table cells, where a floated image stays in the line.
-pub var g_float_ok = true;
 
 var g_boxes: ?std.heap.ArenaAllocator = null;
 var g_delegate: id = null;
@@ -445,7 +443,7 @@ fn altSize(alt: []const u8, avail: CGFloat) [2]CGFloat {
 pub fn imageBox(im: *const md.Image, avail: CGFloat, link: bool) ?*ImageBox {
     if (g_boxes == null) g_boxes = .init(app.gpa);
     const box = g_boxes.?.allocator().create(ImageBox) catch return null;
-    box.* = .{ .w = 0, .h = 0, .kind = .pending, .image = im, .link = link, .floated = g_float_ok and im.float != .none };
+    box.* = .{ .w = 0, .h = 0, .kind = .pending, .image = im, .link = link, .floated = im.float != .none };
     const sized = im.width > 0 or im.height > 0;
     switch (app.images.look(im.target, if (sized) 1e9 else @floatCast(avail))) {
         .pending => {},
@@ -1173,7 +1171,7 @@ pub fn layoutBlocks(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, 
         const inset: CGFloat = block.inset();
         const full_x = left + inset;
         const full_w = @max(avail - inset, 60);
-        const floated = top and g_float_ok and html.hasFloat(block);
+        const floated = html.hasFloat(block);
         if (floated) for (block.content.images) |*im| {
             if (im.float != .none) html.placeFloat(ctx, im, block.content, full_x, full_w, screen_y, &bands);
         };
@@ -1234,7 +1232,15 @@ pub fn layoutBlocks(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, 
                 content_h = 24;
             },
             .code_block => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
-            .table => content_h = tables.drawTable(ctx, block.table, x, cg_y, w, f.body, true, null),
+            .table => if (block.table.float == .none) {
+                content_h = tables.drawTable(ctx, block.table, x, cg_y, w, f.body, true, null);
+            } else {
+                var table_w: CGFloat = 0;
+                const table_h = tables.drawTable(ctx, block.table, 0, 0, full_w, f.body, false, &table_w);
+                const slot = html.claimFloat(&bands, block.table.float == .right, table_w, table_h, full_x, full_w, screen_y);
+                _ = tables.drawTable(ctx, block.table, slot.x, g_height - slot.y, full_w, f.body, true, null);
+                gap = 0;
+            },
             .hr => {
                 c.CGContextSetRGBStrokeColor(ctx, border_color.r, border_color.g, border_color.b, 1.0);
                 c.CGContextSetLineWidth(ctx, 1.0);
@@ -1265,7 +1271,7 @@ pub fn layoutBlocks(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, 
         screen_y += content_h + gap;
     }
 
-    if (top) screen_y = @max(screen_y, bands.lowest());
+    screen_y = @max(screen_y, bands.lowest());
     return screen_y;
 }
 

@@ -238,23 +238,29 @@ pub fn onlyFloat(block: *const md.Block) bool {
 }
 
 /// Draws a floated image at its side of the column and records the band it takes; a float on a side that is taken goes below it.
-pub fn placeFloat(ctx: c.CGContextRef, im: *const md.Image, content: md.Inline, x: CGFloat, w: CGFloat, screen_y: CGFloat, bands: *Bands) void {
-    const box = imageBox(im, w, false) orelse return;
-    if (box.w <= 0) return;
-    const right = im.float == .right;
+pub const Slot = struct { x: CGFloat, y: CGFloat };
+
+/// Finds the place for a float `bw` by `bh` and records its band: beside the floats on its side when the line has room, else below them.
+pub fn claimFloat(bands: *Bands, right: bool, bw: CGFloat, bh: CGFloat, x: CGFloat, w: CGFloat, screen_y: CGFloat) Slot {
     const side = bands.widths(screen_y);
     var offset = if (right) side.right else side.left;
     var y = screen_y;
-    if (offset > 0 and offset + (if (right) side.left else side.right) + box.w > w) {
+    if (offset > 0 and offset + (if (right) side.left else side.right) + bw > w) {
         for (bands.items[0..bands.n]) |b| if (b.right == right) {
             y = @max(y, b.bottom);
         };
         offset = 0;
     }
-    const fx = if (right) x + w - offset - box.w else x + offset;
-    drawImageBox(ctx, box, fx, mac.g_height - y - box.h);
-    bands.add(.{ .right = right, .w = offset + box.w + md.float_gap, .top = y, .bottom = y + box.h });
-    noteFloatHit(im, content, fx, y, box.w, box.h);
+    bands.add(.{ .right = right, .w = offset + bw + md.float_gap, .top = y, .bottom = y + bh });
+    return .{ .x = if (right) x + w - offset - bw else x + offset, .y = y };
+}
+
+pub fn placeFloat(ctx: c.CGContextRef, im: *const md.Image, content: md.Inline, x: CGFloat, w: CGFloat, screen_y: CGFloat, bands: *Bands) void {
+    const box = imageBox(im, w, false) orelse return;
+    if (box.w <= 0) return;
+    const slot = claimFloat(bands, im.float == .right, box.w, box.h, x, w, screen_y);
+    drawImageBox(ctx, box, slot.x, mac.g_height - slot.y - box.h);
+    noteFloatHit(im, content, slot.x, slot.y, box.w, box.h);
 }
 
 fn noteFloatHit(im: *const md.Image, content: md.Inline, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) void {

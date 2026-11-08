@@ -55,7 +55,8 @@ pub fn cellNaturalWidth(ctx: c.CGContextRef, t: md.Table, row: usize, col: usize
         _ = drawTable(ctx, nt, 0, 0, 100000.0, body_font, false, &nw);
         return @floatCast(nw);
     }
-    const blocks = t.cellBlocks(row, col);
+    var buf: [1]md.Block = undefined;
+    const blocks = cellBlocks(t, row, col, &buf);
     if (blocks.len > 0) return blocksWidth(blocks, body_font);
     const attr_str = createCellAttrStr(t, row, col, body_font, header_font, 100000.0) orelse return 0;
     defer c.CFRelease(attr_str);
@@ -64,7 +65,8 @@ pub fn cellNaturalWidth(ctx: c.CGContextRef, t: md.Table, row: usize, col: usize
 
 pub fn cellTextHeight(ctx: c.CGContextRef, t: md.Table, row: usize, col: usize, w: CGFloat, body_font: c.CTFontRef, header_font: c.CTFontRef) CGFloat {
     if (t.nestedAt(row, col)) |nt| return drawTable(ctx, nt, 0, 0, w, body_font, false, null) + md.nested_table_margin;
-    const blocks = t.cellBlocks(row, col);
+    var buf: [1]md.Block = undefined;
+    const blocks = cellBlocks(t, row, col, &buf);
     if (blocks.len > 0) return blocksHeight(blocks, w);
     const attr_str = createCellAttrStr(t, row, col, body_font, header_font, w) orelse return 0;
     defer c.CFRelease(attr_str);
@@ -76,9 +78,6 @@ pub fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, ma
     if (out_width) |o| o.* = 0;
     const nrows = t.rows();
     if (nrows == 0) return 0;
-    const saved_float = mac.g_float_ok;
-    mac.g_float_ok = false;
-    defer mac.g_float_ok = saved_float;
     const header_font = createFont("Helvetica Neue", c.CTFontGetSize(body_font), true, false);
     defer c.CFRelease(header_font);
     const widths = app.gpa.alloc(f32, t.columns) catch return 0;
@@ -118,7 +117,8 @@ pub fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, ma
                 const ch: CGFloat = table_layout.cellHeight(t, heights, row, col);
                 const inner_w = cw - cell_pad_x * 2;
                 const inner_h = ch - cell_pad_y * 2;
-                const blocks = t.cellBlocks(row, col);
+                var buf: [1]md.Block = undefined;
+                const blocks = cellBlocks(t, row, col, &buf);
                 if (blocks.len > 0) {
                     const fonts = mac.makeFonts();
                     defer mac.releaseFonts(fonts);
@@ -151,4 +151,16 @@ fn valignOffset(t: md.Table, row: usize, col: usize, inner_h: CGFloat, content_h
         .bottom => @max(inner_h - content_h, 0),
         .top => 0,
     };
+}
+
+/// A plain cell with a floated image runs its own float bands like a one-paragraph block list.
+fn cellBlocks(t: md.Table, row: usize, col: usize, buf: *[1]md.Block) []const md.Block {
+    const blocks = t.cellBlocks(row, col);
+    if (blocks.len > 0 or t.nestedAt(row, col) != null) return blocks;
+    const content = t.cell(row, col);
+    for (content.images) |im| if (im.float != .none) {
+        buf[0] = .{ .kind = .paragraph, .content = content, .alignment = t.alignAt(row, col) };
+        return buf[0..1];
+    };
+    return blocks;
 }

@@ -497,3 +497,48 @@ test "float bands past the cap clear the list instead of dropping the new one" {
     try testing.expectEqual(@as(usize, 1), bands.n);
     try testing.expectEqual(@as(CGFloat, html.max_bands), bands.items[0].top);
 }
+
+test "a table with align floats and the text wraps beside it" {
+    var canvas = try Canvas.init(800, 600);
+    defer canvas.deinit();
+    const fonts = makeFonts();
+    defer releaseFonts(fonts);
+    var t: md.Table = .{
+        .columns = 1,
+        .aligns = &.{.none},
+        .header_row = false,
+        .cells = &.{.{ .text = "cell", .links = &.{testLink(0, 4)} }},
+        .float = .right,
+    };
+    var table_w: CGFloat = 0;
+    _ = drawTable(canvas.ctx, t, 0, 0, 400, fonts.body, false, &table_w);
+    const list = [_]md.Block{
+        .{ .kind = .table, .table = t },
+        .{ .kind = .paragraph, .content = .{ .text = "beside", .links = &.{testLink(0, 6)} } },
+    };
+    _ = layoutBlocks(canvas.ctx, &list, 40, 400, 10, fonts, true);
+    try testing.expectEqual(@as(usize, 2), app.hits.items.len);
+    try testing.expectApproxEqAbs(@as(f32, @floatCast(40 + 400 - table_w + cell_pad_x)), app.hits.items[0].x, 0.5);
+    try testing.expectEqual(@as(f32, 40), app.hits.items[1].x);
+    try testing.expectApproxEqAbs(@as(f32, @floatCast(400 - table_w - md.float_gap)), app.hits.items[1].w, 0.5);
+    t.float = .none;
+}
+
+test "a floated image inside a table cell floats within the cell" {
+    var canvas = try Canvas.init(800, 600);
+    defer canvas.deinit();
+    const font = createFont("Helvetica Neue", font_size_body, false, false);
+    defer c.CFRelease(font);
+    try app.images.injectReady("logo.png", 200, 200);
+    const images = [_]md.Image{.{ .start = 0, .len = 3, .target = "logo.png", .width = 50, .float = .left }};
+    const t: md.Table = .{
+        .columns = 1,
+        .aligns = &.{.none},
+        .header_row = false,
+        .cells = &.{.{ .text = "\u{FFFC}beside", .images = &images, .links = &.{testLink(3, 6)} }},
+    };
+    const height = drawTable(canvas.ctx, t, 0, 600, 600, font, true, null);
+    try testing.expectEqual(@as(usize, 1), app.hits.items.len);
+    try testing.expectEqual(@as(f32, cell_pad_x + 50 + md.float_gap), app.hits.items[0].x);
+    try testing.expect(height >= 50 + 2 * 6);
+}
