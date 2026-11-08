@@ -92,3 +92,21 @@ fn renderOne(_: void, smith: *std.testing.Smith) anyerror!void {
 test "fuzz mermaid.render" {
     try std.testing.fuzz({}, renderOne, .{ .corpus = &corpus });
 }
+
+const sequence_corpus = [_][]const u8{
+    lengthPrefixed("participant A as Alice\nA->>+B: hi\nB-->>-A: yo\n"),
+    lengthPrefixed("autonumber 5 2\nloop every\nA->>B: x\nalt a\nB->>A: y\nelse b\nNote over A,B: n\nend\nend\n"),
+    lengthPrefixed("box Aqua G\nparticipant A@{ \"type\": \"database\" }\nactor B\nend\ncreate participant C\nA->>C: made\ndestroy C\nA-xC: bye\n"),
+    lengthPrefixed("A()->>()B: c\nA<<->>B: bi\nA/|-B: r\nlink A: L @ https://x.test\ntitle t <b>x</b>\n"),
+    lengthPrefixed("rect rgb(1,2,3)\npar p\nA->>A: s\nand q\nB->>B: t\nend\nend\ncritical c\nA->>B: z\noption o\nB->>A: w\nend\n"),
+    lengthPrefixed("participant A@{\ntype: queue\nalias: Q\n}\nNote right of A: a<br/>b\nactivate A\ndeactivate A\n"),
+};
+
+fn sequenceOne(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [2048]u8 = undefined;
+    try mermaid.sequence.fuzz.renderInput(std.testing.allocator, buf[0..smith.slice(&buf)]);
+}
+
+test "fuzz mermaid.sequence" {
+    try std.testing.fuzz({}, sequenceOne, .{ .corpus = &sequence_corpus });
+}
