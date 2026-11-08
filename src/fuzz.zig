@@ -1,6 +1,8 @@
 const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
 const html = @import("markdown/html.zig");
+const image = @import("image/image.zig");
+const fuzz_images = @import("image/fuzz_seeds.zig");
 
 const max_input = 8192;
 
@@ -73,6 +75,23 @@ fn parseOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz markdown.parse" {
     try std.testing.fuzz({}, parseOne, .{ .corpus = &corpus });
+}
+
+const image_corpus = blk: {
+    var out: [fuzz_images.files.len][]const u8 = undefined;
+    for (fuzz_images.files, 0..) |f, i| out[i] = seed(f);
+    break :blk out;
+};
+
+fn decodeOne(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [4096]u8 = undefined;
+    const input = buf[0..smith.slice(&buf)];
+    var img = image.decode(std.testing.allocator, input) catch return;
+    img.deinit(std.testing.allocator);
+}
+
+test "fuzz image.decode" {
+    try std.testing.fuzz({}, decodeOne, .{ .corpus = &image_corpus });
 }
 
 const html_corpus = [_][]const u8{
