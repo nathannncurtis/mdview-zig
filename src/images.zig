@@ -875,7 +875,7 @@ test "a missing image shows its alt text in the flow, with every span moved to m
 
 test "content whose images are ready or have no alt text is left as it is" {
     init(testing.allocator, testing.io);
-    reset("no-such-dir", false);
+    reset("", false);
     defer clearAll();
     try injectReady("here.png", 10, 10);
     var doc = try md.parse(testing.allocator, "a ![x](here.png) b ![](http://x.org/none.png)");
