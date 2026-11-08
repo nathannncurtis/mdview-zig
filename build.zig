@@ -73,6 +73,14 @@ pub fn build(b: *std.Build) void {
     });
     const test_step = b.step("test", "Run parser tests");
     test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+    const dagre_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/dagre_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
     addTools(b, test_step);
 
     if (linux_c) |c| {
