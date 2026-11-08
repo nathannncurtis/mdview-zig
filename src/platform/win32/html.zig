@@ -359,7 +359,7 @@ pub fn applyStyle(lay: *anyopaque, content: md.Inline, s: md.Styled, base: f32) 
         .mark => if (win.g_brush_bright) |b| {
             _ = vt.SetDrawingEffect(lay, b, range);
         },
-        .small, .abbr, .sub => {},
+        .sub => {},
     }
 }
 
