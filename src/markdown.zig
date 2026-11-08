@@ -79,6 +79,8 @@ pub const Table = struct {
     header_row: bool = true,
     /// First column cells are headers (front matter keys).
     header_col: bool = false,
+    /// `table align="left|right"`: the table floats and text wraps beside it.
+    float: links.Float = .none,
     /// Only HTML tables have these; kept behind a pointer so every `Table` copy stays small.
     ext: ?*const Extra = null,
 
@@ -333,6 +335,7 @@ const RawBlock = struct {
     cell_aligns: Range = .{ .lo = 0, .hi = 0 },
     valigns: Range = .{ .lo = 0, .hi = 0 },
     cell_blocks: Range = .{ .lo = 0, .hi = 0 },
+    float: links.Float = .none,
 };
 
 const alert_names = [_]struct { tag: []const u8, alert: Alert, label: []const u8 }{
@@ -820,6 +823,7 @@ const Parser = struct {
                     .aligns = p.aligns.items[raw.aligns.lo..raw.aligns.hi],
                     .cells = cells[raw.cells.lo..raw.cells.hi],
                     .header_row = raw.header_row,
+                    .float = raw.float,
                     .ext = if (raw.spans.hi > raw.spans.lo) try p.tableExtra(raw, cells) else null,
                 },
                 .lang = p.text.items[raw.lang.lo..raw.lang.hi],
@@ -1591,7 +1595,8 @@ const Parser = struct {
             };
             if (p.cur == null) try p.htmlFlush();
             const t = try p.work.create(TableBuild);
-            t.* = .{ .parent = p.tb };
+            const side = attrOf(n.attrs, "align") orelse "";
+            t.* = .{ .parent = p.tb, .float = if (std.ascii.eqlIgnoreCase(side, "left")) .left else if (std.ascii.eqlIgnoreCase(side, "right")) .right else .none };
             p.tb = t;
             return;
         }
@@ -1764,6 +1769,7 @@ const Parser = struct {
             .valigns = .{ .lo = va_lo, .hi = @intCast(p.valigns.items.len) },
             .cell_blocks = .{ .lo = cb_lo, .hi = @intCast(p.cell_blocks.items.len) },
             .header_row = header,
+            .float = t.float,
         });
     }
 
@@ -1895,6 +1901,7 @@ const CellBuild = struct {
 const TableBuild = struct {
     parent: ?*TableBuild,
     flat: u32 = 0,
+    float: links.Float = .none,
     rows: u32 = 0,
     cells: std.ArrayList(TableCell) = .empty,
     cell: ?CellBuild = null,
@@ -3008,6 +3015,13 @@ test "html: tables with spans" {
     try testing.expectEqualStrings("Head", t.cell(0, 0).text);
     try testing.expectEqualStrings("c", t.cell(2, 0).text);
     try testing.expectEqual(Align.right, t.alignAt(1, 0));
+}
+
+test "html: table align floats the table" {
+    var doc = try parseTest("<table align=\"right\"><tr><td>a</td></tr></table>\n\n<table><tr><td>b</td></tr></table>\n");
+    defer doc.deinit();
+    try testing.expectEqual(links.Float.right, doc.blocks[0].table.float);
+    try testing.expectEqual(links.Float.none, doc.blocks[1].table.float);
 }
 
 test "html: span limits are the browser's" {
