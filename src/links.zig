@@ -10,12 +10,18 @@ pub const Link = struct {
     title: []const u8 = "",
 };
 
+pub const Float = enum { none, left, right };
+
 pub const Image = struct {
     start: u32,
     len: u32,
     target: []const u8,
     title: []const u8 = "",
     alt: []const u8 = "",
+    /// Requested size in pixels from `width`/`height` attributes; 0 for unset.
+    width: f32 = 0,
+    height: f32 = 0,
+    float: Float = .none,
 };
 
 pub const Def = struct { dest: []const u8, title: []const u8 };

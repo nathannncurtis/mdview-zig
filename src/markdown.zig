@@ -5,6 +5,7 @@ const highlight = @import("highlight.zig");
 const blocks = @import("blocks.zig");
 const yaml = @import("yaml.zig");
 const links = @import("links.zig");
+const html = @import("html.zig");
 
 pub const Link = links.Link;
 pub const Image = links.Image;
@@ -18,9 +19,23 @@ pub const code_radius: f32 = 6;
 pub const code_pad_em: f32 = 0.4;
 pub const code_bg: u24 = 0x656c76;
 pub const code_bg_alpha: f32 = 0.2;
+pub const hr_height: f32 = 4;
+pub const hr_margin: f32 = 24;
+pub const dd_inset: f32 = 16;
+pub const figure_inset: f32 = 40;
+pub const figure_margin: f32 = 16;
+pub const float_gap: f32 = 20;
+pub const details_marker_inset: f32 = 20;
+pub const kbd_font_px: f32 = 11;
 
 /// Byte offset and length within `Inline.text`.
 pub const Span = [2]u32;
+
+pub const StyleKind = enum { sub, kbd, underline, mark, small, abbr, tt };
+pub const Styled = struct { span: Span, kind: StyleKind };
+/// What a block is within its HTML element: a `summary`, `dt` or `figcaption` line.
+pub const Role = enum { none, summary, dt, figcaption };
+pub const Anchor = struct { name: []const u8, block: u32 };
 
 pub const Inline = struct {
     text: []const u8 = "",
@@ -32,6 +47,7 @@ pub const Inline = struct {
     links: []const Link = &.{},
     images: []const Image = &.{},
     sup: []const Span = &.{},
+    styles: []const Styled = &.{},
 
     pub fn linkAt(self: Inline, byte: u32) ?Link {
         for (self.links) |l| if (byte >= l.start and byte < l.start + l.len) return l;
@@ -45,6 +61,7 @@ pub const Inline = struct {
 };
 
 pub const Align = enum { none, left, center, right };
+pub const VAlign = enum { none, top, middle, bottom };
 
 pub const Table = struct {
     columns: usize = 0,
@@ -56,6 +73,21 @@ pub const Table = struct {
     header_row: bool = true,
     /// First column cells are headers (front matter keys).
     header_col: bool = false,
+    /// Empty, or parallel to `cells`: `{colspan, rowspan}` of the cell anchored there, `{0, 0}` where another cell covers it.
+    spans: []const [2]u16 = &.{},
+    /// Empty, or parallel to `cells`: the cell's own alignment, which wins over `aligns`.
+    cell_aligns: []const Align = &.{},
+    valigns: []const VAlign = &.{},
+    caption: Inline = .{},
+
+    pub fn spanAt(t: Table, row: usize, col: usize) [2]u16 {
+        return if (t.spans.len == 0) .{ 1, 1 } else t.spans[row * t.columns + col];
+    }
+
+    pub fn alignAt(t: Table, row: usize, col: usize) Align {
+        if (t.cell_aligns.len > 0 and t.cell_aligns[row * t.columns + col] != .none) return t.cell_aligns[row * t.columns + col];
+        return if (col < t.aligns.len) t.aligns[col] else .none;
+    }
 
     pub fn rows(t: Table) usize {
         return if (t.columns == 0) 0 else t.cells.len / t.columns;
@@ -81,7 +113,7 @@ pub const Table = struct {
 
 pub const Marker = enum { none, bullet, number, task_open, task_done };
 pub const Alert = enum { none, note, tip, important, warning, caution };
-pub const FrameKind = enum { quote, list };
+pub const FrameKind = enum { quote, list, details, dd, figure };
 
 pub const Mark = struct {
     kind: Marker = .none,
@@ -109,7 +141,20 @@ pub const Frame = struct {
     ordered: bool = false,
     start: u32 = 0,
     tight: bool = true,
+    /// `details`: stable across reloads, see `Details`.
+    key: u64 = 0,
+    default_open: bool = false,
 };
+
+pub fn kindInset(kind: FrameKind) f32 {
+    return switch (kind) {
+        .quote => quote_inset,
+        .list => list_inset,
+        .dd => dd_inset,
+        .figure => figure_inset,
+        .details => 0,
+    };
+}
 
 pub const quote_inset: f32 = 20;
 pub const list_inset: f32 = 32;
@@ -129,10 +174,13 @@ pub const Block = struct {
     marks: []const Lead = &.{},
     /// Paragraph of a tight list item that is followed by more of that list: 4px gap instead of 16.
     compact: bool = false,
+    /// Horizontal placement of the lines, from `align` attributes on the enclosing HTML.
+    alignment: Align = .none,
+    role: Role = .none,
 
     pub fn insetBefore(b: Block, n: usize) f32 {
         var x: f32 = 0;
-        for (b.frames[0..n]) |f| x += if (f.kind == .quote) quote_inset else list_inset;
+        for (b.frames[0..n]) |f| x += kindInset(f.kind);
         return x;
     }
 
@@ -151,6 +199,27 @@ pub const Block = struct {
     }
 };
 
+/// Which `details` elements the reader has flipped, by `Frame.key`.
+pub const DetailsState = std.AutoHashMapUnmanaged(u64, bool);
+
+pub fn detailsOpen(f: Frame, state: *const DetailsState) bool {
+    return state.get(f.key) orelse f.default_open;
+}
+
+/// A block inside a closed `details`; the summary of that element stays visible.
+pub fn collapsed(b: Block, state: *const DetailsState) bool {
+    var last: ?usize = null;
+    for (b.frames, 0..) |f, i| if (f.kind == .details) {
+        last = i;
+    };
+    for (b.frames, 0..) |f, i| {
+        if (f.kind != .details or detailsOpen(f, state)) continue;
+        if (b.role == .summary and last == i) continue;
+        return true;
+    }
+    return false;
+}
+
 pub const Document = struct {
     arena: std.heap.ArenaAllocator,
     blocks: []const Block = &.{},
@@ -160,6 +229,13 @@ pub const Document = struct {
     definitions: []const Definition = &.{},
     /// For each referenced footnote, in number order, the index in `blocks` of its first block.
     footnote_blocks: []const u32 = &.{},
+    /// `a[name]`, `a[id]` and `[id]` targets, in source order; `block` is the block that follows.
+    anchors: []const Anchor = &.{},
+
+    pub fn anchorBlock(self: Document, name: []const u8) ?u32 {
+        for (self.anchors) |a| if (std.mem.eql(u8, a.name, name)) return a.block;
+        return null;
+    }
 
     pub fn deinit(self: *Document) void {
         self.arena.deinit();
@@ -206,6 +282,7 @@ const RawInline = struct {
     links: Range,
     images: Range,
     sup: Range,
+    styles: Range,
 };
 
 const RawBlock = struct {
@@ -219,6 +296,13 @@ const RawBlock = struct {
     frames: []Frame = &.{},
     marks: []Lead = &.{},
     compact: bool = false,
+    alignment: Align = .none,
+    role: Role = .none,
+    header_row: bool = true,
+    spans: Range = .{ .lo = 0, .hi = 0 },
+    cell_aligns: Range = .{ .lo = 0, .hi = 0 },
+    valigns: Range = .{ .lo = 0, .hi = 0 },
+    caption: ?RawInline = null,
 };
 
 const alert_names = [_]struct { tag: []const u8, alert: Alert, label: []const u8 }{
@@ -262,6 +346,18 @@ const Parser = struct {
     links: std.ArrayList(Link) = .empty,
     images: std.ArrayList(Image) = .empty,
     sup: std.ArrayList(Span) = .empty,
+    styles: std.ArrayList(Styled) = .empty,
+    anchors: std.ArrayList(Anchor) = .empty,
+    spans: std.ArrayList([2]u16) = .empty,
+    cell_aligns: std.ArrayList(Align) = .empty,
+    valigns: std.ArrayList(VAlign) = .empty,
+    hb: html.Builder = .{},
+    hf: ?Frag = null,
+    tb: ?*TableBuild = null,
+    html_ids: u32 = 0,
+    pre: u32 = 0,
+    pic: bool = false,
+    pic_src: ?[]const u8 = null,
     refs: links.Refs,
     seed: []const links.Note = &.{},
     backref: ?Backref = null,
@@ -286,12 +382,14 @@ const Parser = struct {
         for (tree.nodes.items, 0..) |n, i| if (n.kind == .footnote) try p.refs.addNote(n.label, @intCast(i));
         if (p.seed.len > 0) try p.refs.seed(p.seed);
         try p.walk(&tree, 0);
+        try p.htmlFinish();
         try p.footnoteSection(&tree);
         if (doc) |d| {
             const defs = try p.a.alloc(Definition, tree.defs.items.len);
             for (defs, tree.defs.items) |*o, t| o.* = .{ .label = try p.a.dupe(u8, t.label), .dest = try p.a.dupe(u8, t.dest), .title = try p.a.dupe(u8, t.title) };
             d.definitions = defs;
             d.footnote_blocks = p.note_starts.items;
+            d.anchors = p.anchors.items;
             tree_arena.deinit();
             tree_arena = .init(p.tmp.child_allocator);
             try p.finish(d);
@@ -330,7 +428,7 @@ const Parser = struct {
                 try p.emit(.{ .kind = .paragraph, .content = p.closeRange(r) });
             }
             if (p.leads.items.len > 0) try p.emit(.{ .kind = .paragraph, .content = try p.plain(" ") });
-            _ = p.frames.pop();
+            try p.popFrame();
         }
     }
 
@@ -349,8 +447,15 @@ const Parser = struct {
     }
 
     fn emit(p: *Parser, raw: RawBlock) Allocator.Error!void {
+        if (p.hb.stack.items.len > 0) try p.ensureSummary(raw.role);
         var b = raw;
-        b.frames = try p.a.dupe(Frame, p.frames.items);
+        if (b.alignment == .none) b.alignment = p.stackAlign();
+        return p.emitAt(b, p.hb.stack.items.len);
+    }
+
+    fn emitAt(p: *Parser, raw: RawBlock, limit: usize) Allocator.Error!void {
+        var b = raw;
+        b.frames = try p.mergedFrames(limit);
         b.marks = try p.a.dupe(Lead, p.leads.items);
         p.leads.clearRetainingCapacity();
         try p.blocks.append(p.work, b);
@@ -364,18 +469,31 @@ const Parser = struct {
 
     fn frameInset(p: *const Parser) f32 {
         var x: f32 = 0;
-        for (p.frames.items) |f| x += if (f.kind == .quote) quote_inset else list_inset;
+        for (p.frames.items) |f| x += kindInset(f.kind);
+        for (p.hb.stack.items) |e| if (e.id != 0) {
+            if (elementFrame(e)) |f| x += kindInset(f.kind);
+        };
         return x;
     }
 
     fn listDepth(p: *const Parser) u8 {
         var n: u8 = 0;
         for (p.frames.items) |f| n +|= @intFromBool(f.kind == .list);
+        for (p.hb.stack.items) |e| n +|= @intFromBool(e.el == .li and e.id != 0);
         return n;
+    }
+
+    fn popFrame(p: *Parser) Allocator.Error!void {
+        _ = p.frames.pop();
+        if (p.hb.stack.items.len > 0) try p.hb.closeToDepth(p.handler(), @intCast(p.frames.items.len));
     }
 
     fn walk(p: *Parser, t: *const blocks.Tree, idx: u32) Allocator.Error!void {
         const node = t.nodes.items[idx];
+        switch (node.kind) {
+            .document, .item, .footnote, .html => {},
+            else => try p.markdownStart(),
+        }
         switch (node.kind) {
             .document, .item => {
                 var c = node.first;
@@ -394,7 +512,7 @@ const Parser = struct {
                     num +%= 1;
                     try p.walk(t, c);
                     if (p.leads.items.len > 0) try p.emit(.{ .kind = .paragraph, .content = try p.plain(" ") });
-                    _ = p.frames.pop();
+                    try p.popFrame();
                 }
             },
             .quote => try p.quote(t, idx),
@@ -424,7 +542,7 @@ const Parser = struct {
                 try p.text.appendSlice(p.a, word);
                 try p.emit(.{ .kind = .code_block, .content = content, .lang = .{ .lo = lang_start, .hi = p.textLen() } });
             },
-            .html => {},
+            .html => try p.htmlBlock(node.content.items),
         }
     }
 
@@ -456,7 +574,7 @@ const Parser = struct {
         const before = p.blocks.items.len;
         while (c != blocks.none) : (c = t.nodes.items[c].next) try p.walk(t, c);
         if (p.blocks.items.len == before and alert == .none) try p.emit(.{ .kind = .paragraph, .content = try p.plain("") });
-        _ = p.frames.pop();
+        try p.popFrame();
     }
 
     // The inline parser turns the line ends into soft and hard breaks.
@@ -646,6 +764,7 @@ const Parser = struct {
 
     fn finish(p: *Parser, doc: *Document) Allocator.Error!void {
         settle(p.blocks.items);
+        try p.detailsKeys(p.blocks.items);
         const cells = try p.a.alloc(Inline, p.cells.items.len);
         for (cells, p.cells.items) |*c, raw| c.* = p.resolve(raw);
         doc.blocks = try p.build(p.blocks.items, cells);
@@ -662,11 +781,18 @@ const Parser = struct {
                     .columns = raw.columns,
                     .aligns = p.aligns.items[raw.aligns.lo..raw.aligns.hi],
                     .cells = cells[raw.cells.lo..raw.cells.hi],
+                    .header_row = raw.header_row,
+                    .spans = p.spans.items[raw.spans.lo..raw.spans.hi],
+                    .cell_aligns = p.cell_aligns.items[raw.cell_aligns.lo..raw.cell_aligns.hi],
+                    .valigns = p.valigns.items[raw.valigns.lo..raw.valigns.hi],
+                    .caption = if (raw.caption) |c| p.resolve(c) else .{},
                 },
                 .lang = p.text.items[raw.lang.lo..raw.lang.hi],
                 .frames = raw.frames,
                 .marks = raw.marks,
                 .compact = raw.compact,
+                .alignment = raw.alignment,
+                .role = raw.role,
             };
         }
         return out;
@@ -683,6 +809,7 @@ const Parser = struct {
             .links = p.links.items[r.links.lo..r.links.hi],
             .images = p.images.items[r.images.lo..r.images.hi],
             .sup = p.sup.items[r.sup.lo..r.sup.hi],
+            .styles = p.styles.items[r.styles.lo..r.styles.hi],
         };
     }
 
@@ -699,6 +826,7 @@ const Parser = struct {
         const l: u32 = @intCast(p.links.items.len);
         const im: u32 = @intCast(p.images.items.len);
         const su: u32 = @intCast(p.sup.items.len);
+        const sy: u32 = @intCast(p.styles.items.len);
         return .{
             .text = .{ .lo = start, .hi = p.textLen() },
             .bold = .{ .lo = b, .hi = b },
@@ -709,9 +837,9 @@ const Parser = struct {
             .links = .{ .lo = l, .hi = l },
             .images = .{ .lo = im, .hi = im },
             .sup = .{ .lo = su, .hi = su },
+            .styles = .{ .lo = sy, .hi = sy },
         };
     }
-
 
     fn tryTable(p: *Parser, header_line: []const u8, delim_line: []const u8, row_lines: []const []const u8) Allocator.Error!bool {
         const header = try splitRow(p.work, header_line);
@@ -761,44 +889,623 @@ const Parser = struct {
 
     fn parseInline(p: *Parser, raw: []const u8) Allocator.Error!RawInline {
         _ = p.tmp.reset(.retain_capacity);
+        const ta = p.tmp.allocator();
         const hooks: inl.Hooks = .{ .ctx = p, .link = linkHook, .autolink = autolinkHook, .bare = bareHook };
-        const parsed = try inl.parseWithHeap(p.tmp.allocator(), p.tmp.child_allocator, raw, &hooks);
-        const r = p.textFrom(p.textLen());
-        try p.text.appendSlice(p.a, parsed.text);
+        const parsed = try inl.parseWithHeap(ta, p.tmp.child_allocator, raw, &hooks);
+        var f: Frag = .init(ta);
 
         const Open = struct { kind: inl.Kind, pos: u32, url: []const u8, title: []const u8, alt: []const u8 };
         var stack: std.ArrayList(Open) = .empty;
-        for (parsed.events) |ev| switch (ev.tag) {
-            .open => try stack.append(p.tmp.allocator(), .{ .kind = ev.kind, .pos = ev.pos, .url = ev.url, .title = ev.title, .alt = ev.raw }),
-            .close => {
-                const open = stack.pop() orelse continue;
-                const span: Span = .{ open.pos, ev.pos - open.pos };
-                switch (open.kind) {
-                    .em => try p.italic.append(p.a, span),
-                    .strong => try p.bold.append(p.a, span),
-                    .strike => try p.strike.append(p.a, span),
-                    .code => try p.code.append(p.a, span),
-                    .emoji => try p.emoji.append(p.a, span),
-                    .sup => try p.sup.append(p.a, span),
-                    .link => try p.links.append(p.a, .{
-                        .start = span[0],
-                        .len = span[1],
-                        .target = try p.a.dupe(u8, open.url),
-                        .title = try p.a.dupe(u8, open.title),
-                    }),
-                    .image => try p.images.append(p.a, .{
-                        .start = span[0],
-                        .len = span[1],
-                        .target = try p.a.dupe(u8, open.url),
-                        .title = try p.a.dupe(u8, open.title),
-                        .alt = try p.a.dupe(u8, open.alt),
-                    }),
+        var copied: usize = 0;
+        for (parsed.events) |ev| {
+            try f.put(parsed.text[copied..ev.pos]);
+            copied = ev.pos;
+            const at: u32 = @intCast(f.text.items.len);
+            switch (ev.tag) {
+                .open => try stack.append(ta, .{ .kind = ev.kind, .pos = at, .url = ev.url, .title = ev.title, .alt = ev.raw }),
+                .close => {
+                    const open = stack.pop() orelse continue;
+                    const span: Span = .{ open.pos, at - open.pos };
+                    switch (open.kind) {
+                        .em => try f.italic.append(ta, span),
+                        .strong => try f.bold.append(ta, span),
+                        .strike => try f.strike.append(ta, span),
+                        .code => try f.code.append(ta, span),
+                        .emoji => try f.emoji.append(ta, span),
+                        .sup => try f.sup.append(ta, span),
+                        .link => try f.links.append(ta, .{
+                            .start = span[0],
+                            .len = span[1],
+                            .target = try p.a.dupe(u8, open.url),
+                            .title = try p.a.dupe(u8, open.title),
+                        }),
+                        .image => try f.images.append(ta, .{
+                            .start = span[0],
+                            .len = span[1],
+                            .target = try p.a.dupe(u8, open.url),
+                            .title = try p.a.dupe(u8, open.title),
+                            .alt = try p.a.dupe(u8, open.alt),
+                        }),
+                    }
+                },
+                .html => try p.inlineHtml(&f, ev.raw),
+                .soft, .hard => {},
+            }
+        }
+        try f.put(parsed.text[copied..]);
+        try p.closeFmt(&f);
+        return p.commit(&f);
+    }
+
+    fn handler(p: *Parser) html.Handler {
+        return .{ .ctx = p, .open = htmlOpenCb, .close = htmlCloseCb };
+    }
+
+    fn frag(p: *Parser) *Frag {
+        if (p.hf == null) p.hf = .init(p.work);
+        return &p.hf.?;
+    }
+
+    fn inCell(p: *const Parser) bool {
+        return if (p.tb) |t| t.cell != null else false;
+    }
+
+    fn curFrag(p: *Parser) *Frag {
+        if (p.tb) |t| if (t.cell) |*c| return c;
+        return p.frag();
+    }
+
+    fn nextHtmlId(p: *Parser) u32 {
+        p.html_ids += 1;
+        return html_id_base + p.html_ids;
+    }
+
+    fn htmlBlock(p: *Parser, content: []const u8) Allocator.Error!void {
+        var lx: html.Lexer = .{ .src = content };
+        while (try lx.next(p.work)) |tok| switch (tok) {
+            .text, .literal => |s| if (!p.hb.skipping()) try p.curFrag().htmlText(s, p.pre > 0),
+            .tag => |t| try p.hb.feed(p.work, p.handler(), t),
+        };
+    }
+
+    /// A Markdown block starts: HTML text still open becomes its own block first, and an open `p` ends.
+    fn markdownStart(p: *Parser) Allocator.Error!void {
+        if (p.hb.stack.items.len == 0 and p.hf == null) return;
+        try p.hb.closeP(p.handler());
+        try p.htmlFlush();
+    }
+
+    fn htmlFinish(p: *Parser) Allocator.Error!void {
+        if (p.hb.stack.items.len == 0 and p.hf == null) return;
+        try p.htmlFlush();
+        try p.hb.finish(p.handler());
+        try p.htmlFlush();
+    }
+
+    const Kind = struct { kind: BlockKind = .paragraph, role: Role = .none, compact: bool = false };
+
+    fn curKind(p: *const Parser) Kind {
+        var i = p.hb.stack.items.len;
+        while (i > 0) {
+            i -= 1;
+            const e = p.hb.stack.items[i];
+            switch (e.el) {
+                .h1, .h2, .h3, .h4, .h5, .h6 => return .{ .kind = @enumFromInt(@intFromEnum(BlockKind.h1) + @intFromEnum(e.el)) },
+                .pre => return .{ .kind = .code_block },
+                .summary => return .{ .role = .summary },
+                .dt => return .{ .role = .dt },
+                .figcaption => return .{ .role = .figcaption },
+                .li => return .{ .compact = true },
+                .p, .div, .ul, .ol, .dl, .dd, .blockquote, .details, .figure, .table, .td, .th, .caption => return .{},
+                else => {},
+            }
+        }
+        return .{};
+    }
+
+    fn htmlFlush(p: *Parser) Allocator.Error!void {
+        const f = p.curFrag();
+        if (p.inCell()) {
+            f.space = false;
+            if (f.any and f.text.items[f.text.items.len - 1] != '\n') try f.text.append(f.a, '\n');
+            return;
+        }
+        if (!f.any) {
+            f.reset();
+            return;
+        }
+        const k = p.curKind();
+        for (p.hb.stack.items) |*e| if (isInlineEl(e.el)) {
+            try p.spanFor(f, e.el, e.attrs, e.pos);
+            e.pos = 0;
+        };
+        if (k.kind != .code_block) {
+            const kept = std.mem.trimEnd(u8, f.text.items, "\n").len;
+            if (kept > 0 and kept < f.text.items.len) f.truncate(@intCast(kept));
+        }
+        const raw = try p.commit(f);
+        f.reset();
+        try p.emit(.{ .kind = k.kind, .role = k.role, .content = raw, .compact = k.compact });
+    }
+
+    fn htmlOpen(p: *Parser, e: *html.Element) Allocator.Error!void {
+        e.md_depth = @intCast(p.frames.items.len);
+        try p.anchor(e.attrs);
+        switch (e.el) {
+            .table, .tr, .td, .th, .thead, .tbody, .tfoot, .caption => return p.tableOpen(e),
+            else => {},
+        }
+        const f = p.curFrag();
+        if (e.el.isVoid()) return p.voidTag(f, e.el, e.attrs);
+        if (isBlockEl(e.el)) {
+            try p.htmlFlush();
+            if (!p.inCell()) try p.blockEnter(e);
+            return;
+        }
+        e.pos = @intCast(f.text.items.len);
+        try p.inlineOpen(f, e.el);
+    }
+
+    fn htmlClose(p: *Parser, e: *html.Element) Allocator.Error!void {
+        switch (e.el) {
+            .table, .tr, .td, .th, .thead, .tbody, .tfoot, .caption => return p.tableClose(e),
+            else => {},
+        }
+        if (e.el.isVoid()) return;
+        const f = p.curFrag();
+        if (!isBlockEl(e.el)) return p.inlineClose(f, e.el, e.attrs, e.pos);
+        if (e.el == .summary) p.markSummary();
+        try p.htmlFlush();
+        if (p.inCell()) return;
+        switch (e.el) {
+            .p => if (e.flag) try p.emit(.{ .kind = .paragraph, .content = try p.plain("") }),
+            .li => if (p.leads.items.len > 0) try p.emit(.{ .kind = .paragraph, .content = try p.plain(" ") }),
+            .pre => p.pre -|= 1,
+            .details => if (!e.flag) try p.synthSummary(p.hb.stack.items.len - 1),
+            else => {},
+        }
+    }
+
+    fn blockEnter(p: *Parser, e: *html.Element) Allocator.Error!void {
+        switch (e.el) {
+            .blockquote, .details, .dd, .figure => e.id = p.nextHtmlId(),
+            .ul, .ol => {
+                e.id = p.nextHtmlId();
+                e.flag = e.el == .ol;
+                const start = if (e.el == .ol) parseCount(e.attr("start")) orelse 1 else 1;
+                e.pos = start;
+                e.n = start;
+            },
+            .li => {
+                var parent: ?*html.Element = null;
+                var i = p.hb.stack.items.len;
+                while (i > 0 and parent == null) {
+                    i -= 1;
+                    if (p.hb.stack.items[i].el == .ul or p.hb.stack.items[i].el == .ol) parent = &p.hb.stack.items[i];
+                }
+                const depth = p.listDepth();
+                const inset = p.frameInset() + list_inset;
+                e.id = p.nextHtmlId();
+                var num: u32 = 1;
+                if (parent) |par| {
+                    e.group = par.id;
+                    e.flag = par.flag;
+                    e.n = par.pos;
+                    num = par.n;
+                    par.n +%= 1;
+                } else e.group = e.id;
+                try p.leads.append(p.a, .{
+                    .mark = .{ .kind = if (e.flag) .number else .bullet, .number = num, .depth = depth },
+                    .inset = inset,
+                });
+            },
+            .pre => p.pre += 1,
+            else => {},
+        }
+    }
+
+    fn voidTag(p: *Parser, f: *Frag, el: html.El, attrs: []const html.Attr) Allocator.Error!void {
+        switch (el) {
+            .br => try f.putNl(),
+            .img => try p.image(f, attrs),
+            .source => try p.pictureSource(attrs),
+            .hr => if (!p.inCell()) {
+                try p.htmlFlush();
+                try p.emit(.{ .kind = .hr, .content = p.textFrom(p.textLen()) });
+            },
+            else => {},
+        }
+    }
+
+    fn inlineOpen(p: *Parser, f: *Frag, el: html.El) Allocator.Error!void {
+        switch (el) {
+            .q => try f.put("\u{201c}"),
+            .rt => try f.put("("),
+            .rp => f.suppress += 1,
+            .picture => {
+                p.pic = true;
+                p.pic_src = null;
+            },
+            else => {},
+        }
+    }
+
+    fn inlineClose(p: *Parser, f: *Frag, el: html.El, attrs: []const html.Attr, start: u32) Allocator.Error!void {
+        switch (el) {
+            .q => try f.put("\u{201d}"),
+            .rt => try f.put(")"),
+            .rp => f.suppress -|= 1,
+            .picture => {
+                p.pic = false;
+                p.pic_src = null;
+            },
+            else => {},
+        }
+        try p.spanFor(f, el, attrs, start);
+    }
+
+    fn spanFor(p: *Parser, f: *Frag, el: html.El, attrs: []const html.Attr, start: u32) Allocator.Error!void {
+        const end: u32 = @intCast(f.text.items.len);
+        if (end <= start) return;
+        const sp: Span = .{ start, end - start };
+        switch (el) {
+            .b, .strong => try f.bold.append(f.a, sp),
+            .i, .em, .cite, .dfn, .@"var" => try f.italic.append(f.a, sp),
+            .code, .samp => try f.code.append(f.a, sp),
+            .del, .s, .strike => try f.strike.append(f.a, sp),
+            .sup => try f.sup.append(f.a, sp),
+            .tt => try f.styles.append(f.a, .{ .span = sp, .kind = .tt }),
+            .sub => try f.styles.append(f.a, .{ .span = sp, .kind = .sub }),
+            .kbd => try f.styles.append(f.a, .{ .span = sp, .kind = .kbd }),
+            .mark => try f.styles.append(f.a, .{ .span = sp, .kind = .mark }),
+            .small => try f.styles.append(f.a, .{ .span = sp, .kind = .small }),
+            .ins => try f.styles.append(f.a, .{ .span = sp, .kind = .underline }),
+            .abbr => if (html.attrOf(attrs, "title") != null) try f.styles.append(f.a, .{ .span = sp, .kind = .abbr }),
+            .a => if (html.attrOf(attrs, "href")) |href| {
+                const target = std.mem.trim(u8, href, " \t\r\n");
+                if (target.len > 0 and html.safeUrl(target, true)) try f.links.append(f.a, .{
+                    .start = sp[0],
+                    .len = sp[1],
+                    .target = try p.a.dupe(u8, target),
+                    .title = try p.a.dupe(u8, html.attrOf(attrs, "title") orelse ""),
+                });
+            },
+            else => {},
+        }
+    }
+
+    fn image(p: *Parser, f: *Frag, attrs: []const html.Attr) Allocator.Error!void {
+        const alt = html.attrOf(attrs, "alt") orelse "";
+        const own = html.attrOf(attrs, "src") orelse "";
+        const src = std.mem.trim(u8, if (p.pic) (p.pic_src orelse own) else own, " \t\r\n");
+        if (src.len == 0 or !html.safeUrl(src, false)) return f.put(alt);
+        const side = html.attrOf(attrs, "align") orelse "";
+        const start: u32 = @intCast(f.text.items.len);
+        try f.put(inl.object_char);
+        try f.images.append(f.a, .{
+            .start = start,
+            .len = inl.object_char.len,
+            .target = try p.a.dupe(u8, src),
+            .title = try p.a.dupe(u8, html.attrOf(attrs, "title") orelse ""),
+            .alt = try p.a.dupe(u8, alt),
+            .width = @floatFromInt(parseCount(html.attrOf(attrs, "width")) orelse 0),
+            .height = @floatFromInt(parseCount(html.attrOf(attrs, "height")) orelse 0),
+            .float = if (std.ascii.eqlIgnoreCase(side, "left")) .left else if (std.ascii.eqlIgnoreCase(side, "right")) .right else .none,
+        });
+    }
+
+    fn pictureSource(p: *Parser, attrs: []const html.Attr) Allocator.Error!void {
+        if (!p.pic or p.pic_src != null) return;
+        if (html.attrOf(attrs, "media")) |m| {
+            var buf: [96]u8 = undefined;
+            var n: usize = 0;
+            for (m) |c| if (c != ' ' and n < buf.len) {
+                buf[n] = std.ascii.toLower(c);
+                n += 1;
+            };
+            if (std.mem.indexOf(u8, buf[0..n], "prefers-color-scheme:dark") == null) return;
+        }
+        var it = std.mem.tokenizeAny(u8, html.attrOf(attrs, "srcset") orelse return, " \t\r\n");
+        const url = std.mem.trimEnd(u8, it.next() orelse return, ",");
+        if (url.len == 0 or !html.safeUrl(url, false)) return;
+        p.pic_src = try p.a.dupe(u8, url);
+    }
+
+    fn anchor(p: *Parser, attrs: []const html.Attr) Allocator.Error!void {
+        for ([_][]const u8{ "id", "name" }) |key| {
+            const v = html.attrOf(attrs, key) orelse continue;
+            if (v.len == 0) continue;
+            try p.anchors.append(p.a, .{ .name = try p.a.dupe(u8, v), .block = @intCast(p.blocks.items.len) });
+        }
+    }
+
+    fn inlineHtml(p: *Parser, f: *Frag, raw: []const u8) Allocator.Error!void {
+        var lx: html.Lexer = .{ .src = raw };
+        const tok = (try lx.next(f.a)) orelse return;
+        switch (tok) {
+            .literal => |s| try f.put(s),
+            .text => {},
+            .tag => |t| try p.inlineTag(f, t),
+        }
+    }
+
+    fn inlineTag(p: *Parser, f: *Frag, t: html.Tag) Allocator.Error!void {
+        const el = t.el orelse return;
+        try p.anchor(t.attrs);
+        if (t.closing) {
+            if (el == .br) return f.putNl();
+            var i = f.fmt.items.len;
+            while (i > 0) {
+                i -= 1;
+                if (f.fmt.items[i].el != el) continue;
+                const o = f.fmt.orderedRemove(i);
+                return p.inlineClose(f, o.el, o.attrs, o.pos);
+            }
+            return;
+        }
+        if (el.isVoid()) {
+            if (el != .hr) try p.voidTag(f, el, t.attrs);
+            return;
+        }
+        if (!isInlineEl(el)) return;
+        try f.fmt.append(f.a, .{ .el = el, .attrs = t.attrs, .pos = @intCast(f.text.items.len) });
+        try p.inlineOpen(f, el);
+    }
+
+    fn closeFmt(p: *Parser, f: *Frag) Allocator.Error!void {
+        while (f.fmt.pop()) |o| try p.inlineClose(f, o.el, o.attrs, o.pos);
+    }
+
+    fn commit(p: *Parser, f: *const Frag) Allocator.Error!RawInline {
+        const r = p.textFrom(p.textLen());
+        try p.text.appendSlice(p.a, f.text.items);
+        try p.bold.appendSlice(p.a, f.bold.items);
+        try p.italic.appendSlice(p.a, f.italic.items);
+        try p.code.appendSlice(p.a, f.code.items);
+        try p.strike.appendSlice(p.a, f.strike.items);
+        try p.emoji.appendSlice(p.a, f.emoji.items);
+        try p.sup.appendSlice(p.a, f.sup.items);
+        try p.styles.appendSlice(p.a, f.styles.items);
+        try p.links.appendSlice(p.a, f.links.items);
+        try p.images.appendSlice(p.a, f.images.items);
+        return p.closeRange(r);
+    }
+
+    fn elementFrame(e: html.Element) ?Frame {
+        if (e.id == 0) return null;
+        return switch (e.el) {
+            .details => .{ .kind = .details, .id = e.id, .default_open = e.attr("open") != null },
+            .blockquote => .{ .kind = .quote, .id = e.id },
+            .dd => .{ .kind = .dd, .id = e.id },
+            .figure => .{ .kind = .figure, .id = e.id },
+            .li => .{ .kind = .list, .id = e.id, .group = e.group, .ordered = e.flag, .start = e.n },
+            else => null,
+        };
+    }
+
+    /// The Markdown frames with the open HTML elements' frames woven in, outermost first.
+    fn mergedFrames(p: *Parser, limit: usize) Allocator.Error![]Frame {
+        var out: std.ArrayList(Frame) = .empty;
+        var si: usize = 0;
+        for (0..p.frames.items.len + 1) |i| {
+            while (si < limit and p.hb.stack.items[si].md_depth <= i) : (si += 1) {
+                if (elementFrame(p.hb.stack.items[si])) |f| try out.append(p.a, f);
+            }
+            if (i < p.frames.items.len) try out.append(p.a, p.frames.items[i]);
+        }
+        return out.items;
+    }
+
+    fn stackAlign(p: *const Parser) Align {
+        var i = p.hb.stack.items.len;
+        while (i > 0) {
+            i -= 1;
+            const e = p.hb.stack.items[i];
+            switch (e.el) {
+                .p, .div, .h1, .h2, .h3, .h4, .h5, .h6, .td, .th => {},
+                else => continue,
+            }
+            const v = e.attr("align") orelse continue;
+            if (std.ascii.eqlIgnoreCase(v, "center") or std.ascii.eqlIgnoreCase(v, "middle")) return .center;
+            if (std.ascii.eqlIgnoreCase(v, "left")) return .left;
+            if (std.ascii.eqlIgnoreCase(v, "right")) return .right;
+        }
+        return .none;
+    }
+
+    fn markSummary(p: *Parser) void {
+        var i = p.hb.stack.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (p.hb.stack.items[i].el == .details) {
+                p.hb.stack.items[i].flag = true;
+                return;
+            }
+        }
+    }
+
+    fn ensureSummary(p: *Parser, role: Role) Allocator.Error!void {
+        if (role == .summary) return;
+        for (0..p.hb.stack.items.len) |i| {
+            const e = p.hb.stack.items[i];
+            if (e.el == .details and !e.flag and e.id != 0) try p.synthSummary(i);
+        }
+    }
+
+    // A details element without a summary shows the browser's default label.
+    fn synthSummary(p: *Parser, index: usize) Allocator.Error!void {
+        p.hb.stack.items[index].flag = true;
+        try p.emitAt(.{ .kind = .paragraph, .role = .summary, .content = try p.plain("Details") }, index + 1);
+    }
+
+    fn detailsKeys(p: *Parser, raws: []RawBlock) Allocator.Error!void {
+        var seen: std.StringHashMapUnmanaged(u32) = .empty;
+        var keys: std.AutoHashMapUnmanaged(u32, u64) = .empty;
+        for (raws) |b| {
+            if (b.role != .summary) continue;
+            var i = b.frames.len;
+            const at = while (i > 0) {
+                i -= 1;
+                if (b.frames[i].kind == .details) break i;
+            } else continue;
+            const text = p.text.items[b.content.text.lo..b.content.text.hi];
+            const slot = try seen.getOrPut(p.work, text);
+            slot.value_ptr.* = if (slot.found_existing) slot.value_ptr.* + 1 else 0;
+            try keys.put(p.work, b.frames[at].id, std.hash.Wyhash.hash(slot.value_ptr.*, text));
+        }
+        if (keys.count() == 0) return;
+        for (raws) |b| for (b.frames) |*f| if (f.kind == .details) {
+            f.key = keys.get(f.id) orelse 0;
+        };
+    }
+
+    fn tableOpen(p: *Parser, e: *html.Element) Allocator.Error!void {
+        if (e.el == .table) {
+            if (p.tb) |t| {
+                t.depth += 1;
+                return;
+            }
+            try p.htmlFlush();
+            const t = try p.work.create(TableBuild);
+            t.* = .{};
+            p.tb = t;
+            return;
+        }
+        const t = p.tb orelse return;
+        if (t.depth > 1) return;
+        switch (e.el) {
+            .tr => t.rows += 1,
+            .td, .th => {
+                if (t.rows == 0) t.rows = 1;
+                t.cell = .init(p.work);
+                const al = html.attrOf(e.attrs, "align") orelse "";
+                const va = html.attrOf(e.attrs, "valign") orelse "";
+                t.cur = .{
+                    .raw = p.textFrom(p.textLen()),
+                    .colspan = clampCount(parseCount(html.attrOf(e.attrs, "colspan")), max_table_span),
+                    .rowspan = clampCount(parseCount(html.attrOf(e.attrs, "rowspan")), max_table_span),
+                    .th = e.el == .th,
+                    .al = if (std.ascii.eqlIgnoreCase(al, "center")) .center else if (std.ascii.eqlIgnoreCase(al, "right")) .right else if (std.ascii.eqlIgnoreCase(al, "left")) .left else .none,
+                    .va = if (std.ascii.eqlIgnoreCase(va, "top")) .top else if (std.ascii.eqlIgnoreCase(va, "bottom")) .bottom else if (std.ascii.eqlIgnoreCase(va, "middle")) .middle else .none,
+                    .row = t.rows - 1,
+                };
+            },
+            .caption => {
+                t.cell = .init(p.work);
+                t.cur = null;
+            },
+            else => {},
+        }
+    }
+
+    fn tableClose(p: *Parser, e: *html.Element) Allocator.Error!void {
+        const t = p.tb orelse return;
+        switch (e.el) {
+            .table => {
+                if (t.depth > 1) {
+                    t.depth -= 1;
+                    return;
+                }
+                p.tb = null;
+                try p.htmlFlush();
+                try p.tableEnd(t);
+            },
+            .td, .th, .caption => {
+                if (t.depth > 1) {
+                    if (t.cell) |*c| c.space = true;
+                    return;
+                }
+                const c = &(t.cell orelse return);
+                const kept = std.mem.trimEnd(u8, c.text.items, "\n").len;
+                if (kept < c.text.items.len) c.truncate(@intCast(kept));
+                const raw = try p.commit(c);
+                t.cell = null;
+                if (e.el == .caption) {
+                    t.caption = raw;
+                } else if (t.cur) |*cur| {
+                    cur.raw = raw;
+                    try t.cells.append(p.work, cur.*);
+                    t.cur = null;
                 }
             },
-            .html, .soft, .hard => {},
-        };
+            else => {},
+        }
+    }
 
-        return p.closeRange(r);
+    fn tableEnd(p: *Parser, t: *TableBuild) Allocator.Error!void {
+        if (t.cells.items.len == 0) return;
+        const rows: u32 = @min(t.rows, max_table_rows);
+        const stride = max_table_cols;
+        const occ = try p.work.alloc(bool, @as(usize, rows) * stride);
+        @memset(occ, false);
+        const Placed = struct { row: u32, col: u32, cs: u32, rs: u32 };
+        const placed = try p.work.alloc(?Placed, t.cells.items.len);
+        var columns: u32 = 0;
+        var cur_row: u32 = 0;
+        var cursor: u32 = 0;
+        for (t.cells.items, placed) |c, *slot| {
+            slot.* = null;
+            if (c.row >= rows) continue;
+            if (c.row != cur_row) {
+                cur_row = c.row;
+                cursor = 0;
+            }
+            var col = cursor;
+            while (col < stride and occ[c.row * stride + col]) col += 1;
+            if (col >= stride) continue;
+            var cs: u32 = 1;
+            while (cs < c.colspan and col + cs < stride and !occ[c.row * stride + col + cs]) cs += 1;
+            const rs = @min(c.rowspan, rows - c.row);
+            for (0..rs) |dr| for (0..cs) |dc| {
+                occ[(c.row + dr) * stride + col + dc] = true;
+            };
+            slot.* = .{ .row = c.row, .col = col, .cs = cs, .rs = rs };
+            cursor = col + cs;
+            columns = @max(columns, col + cs);
+        }
+        if (columns == 0) return;
+
+        const grid = try p.work.alloc(?u32, @as(usize, rows) * columns);
+        @memset(grid, null);
+        var header = true;
+        for (placed, 0..) |pl, i| {
+            const at = pl orelse continue;
+            grid[at.row * columns + at.col] = @intCast(i);
+            if (at.row == 0 and !t.cells.items[i].th) header = false;
+        }
+        const aligns_lo: u32 = @intCast(p.aligns.items.len);
+        for (0..columns) |_| try p.aligns.append(p.a, .none);
+        const cells_lo: u32 = @intCast(p.cells.items.len);
+        const spans_lo: u32 = @intCast(p.spans.items.len);
+        const al_lo: u32 = @intCast(p.cell_aligns.items.len);
+        const va_lo: u32 = @intCast(p.valigns.items.len);
+        for (0..rows) |r| for (0..columns) |c| {
+            if (grid[r * columns + c]) |ci| {
+                const cell = t.cells.items[ci];
+                const at = placed[ci].?;
+                try p.cells.append(p.work, cell.raw);
+                try p.spans.append(p.a, .{ @intCast(at.cs), @intCast(at.rs) });
+                try p.cell_aligns.append(p.a, cell.al);
+                try p.valigns.append(p.a, cell.va);
+            } else {
+                try p.cells.append(p.work, p.textFrom(p.textLen()));
+                try p.spans.append(p.a, if (occ[r * stride + c]) .{ 0, 0 } else .{ 1, 1 });
+                try p.cell_aligns.append(p.a, .none);
+                try p.valigns.append(p.a, .none);
+            }
+        };
+        try p.emit(.{
+            .kind = .table,
+            .content = p.textFrom(p.textLen()),
+            .columns = columns,
+            .aligns = .{ .lo = aligns_lo, .hi = @intCast(p.aligns.items.len) },
+            .cells = .{ .lo = cells_lo, .hi = @intCast(p.cells.items.len) },
+            .spans = .{ .lo = spans_lo, .hi = @intCast(p.spans.items.len) },
+            .cell_aligns = .{ .lo = al_lo, .hi = @intCast(p.cell_aligns.items.len) },
+            .valigns = .{ .lo = va_lo, .hi = @intCast(p.valigns.items.len) },
+            .header_row = header,
+            .caption = t.caption,
+        });
     }
 
     fn closeRange(p: *const Parser, open: RawInline) RawInline {
@@ -812,7 +1519,161 @@ const Parser = struct {
         r.links.hi = @intCast(p.links.items.len);
         r.images.hi = @intCast(p.images.items.len);
         r.sup.hi = @intCast(p.sup.items.len);
+        r.styles.hi = @intCast(p.styles.items.len);
         return r;
+    }
+};
+
+const html_id_base: u32 = 0x4000_0000;
+const max_table_cols = 128;
+const max_table_rows = 2048;
+const max_table_span = 64;
+
+fn parseCount(v: ?[]const u8) ?u32 {
+    const s = std.mem.trim(u8, v orelse return null, " \t\r\n");
+    var n: u32 = 0;
+    var digits: usize = 0;
+    for (s) |c| {
+        if (!std.ascii.isDigit(c)) break;
+        n = n *| 10 +| (c - '0');
+        digits += 1;
+    }
+    return if (digits == 0) null else n;
+}
+
+fn clampCount(v: ?u32, max: u32) u32 {
+    return std.math.clamp(v orelse 1, 1, max);
+}
+
+fn isBlockEl(el: html.El) bool {
+    return switch (el) {
+        .h1, .h2, .h3, .h4, .h5, .h6, .p, .div, .ul, .ol, .li, .dl, .dt, .dd, .blockquote, .pre, .figure, .figcaption, .details, .summary => true,
+        else => false,
+    };
+}
+
+fn isInlineEl(el: html.El) bool {
+    return switch (el) {
+        .table, .tr, .td, .th, .thead, .tbody, .tfoot, .caption => false,
+        else => !isBlockEl(el) and !el.isVoid(),
+    };
+}
+
+fn htmlOpenCb(ctx: *anyopaque, e: *html.Element) Allocator.Error!void {
+    const p: *Parser = @ptrCast(@alignCast(ctx));
+    try p.htmlOpen(e);
+}
+
+fn htmlCloseCb(ctx: *anyopaque, e: *html.Element) Allocator.Error!void {
+    const p: *Parser = @ptrCast(@alignCast(ctx));
+    try p.htmlClose(e);
+}
+
+const TableCell = struct { raw: RawInline, colspan: u32, rowspan: u32, th: bool, al: Align, va: VAlign, row: u32 };
+
+const TableBuild = struct {
+    depth: u32 = 1,
+    rows: u32 = 0,
+    cells: std.ArrayList(TableCell) = .empty,
+    cell: ?Frag = null,
+    cur: ?TableCell = null,
+    caption: ?RawInline = null,
+};
+
+/// Text and spans of one run of inline content, offsets relative to its own text.
+const Frag = struct {
+    a: Allocator,
+    text: std.ArrayList(u8) = .empty,
+    bold: std.ArrayList(Span) = .empty,
+    italic: std.ArrayList(Span) = .empty,
+    code: std.ArrayList(Span) = .empty,
+    strike: std.ArrayList(Span) = .empty,
+    emoji: std.ArrayList(Span) = .empty,
+    sup: std.ArrayList(Span) = .empty,
+    styles: std.ArrayList(Styled) = .empty,
+    links: std.ArrayList(Link) = .empty,
+    images: std.ArrayList(Image) = .empty,
+    fmt: std.ArrayList(OpenFmt) = .empty,
+    space: bool = false,
+    any: bool = false,
+    suppress: u32 = 0,
+
+    const OpenFmt = struct { el: html.El, attrs: []const html.Attr, pos: u32 };
+
+    fn init(a: Allocator) Frag {
+        return .{ .a = a };
+    }
+
+    fn reset(f: *Frag) void {
+        f.text.clearRetainingCapacity();
+        f.bold.clearRetainingCapacity();
+        f.italic.clearRetainingCapacity();
+        f.code.clearRetainingCapacity();
+        f.strike.clearRetainingCapacity();
+        f.emoji.clearRetainingCapacity();
+        f.sup.clearRetainingCapacity();
+        f.styles.clearRetainingCapacity();
+        f.links.clearRetainingCapacity();
+        f.images.clearRetainingCapacity();
+        f.space = false;
+        f.any = false;
+    }
+
+    fn flushSpace(f: *Frag) Allocator.Error!void {
+        if (!f.space) return;
+        f.space = false;
+        const n = f.text.items.len;
+        if (n > 0 and f.text.items[n - 1] != '\n') try f.text.append(f.a, ' ');
+    }
+
+    fn put(f: *Frag, s: []const u8) Allocator.Error!void {
+        if (s.len == 0 or f.suppress > 0) return;
+        try f.flushSpace();
+        try f.text.appendSlice(f.a, s);
+        f.any = true;
+    }
+
+    fn putNl(f: *Frag) Allocator.Error!void {
+        if (f.suppress > 0) return;
+        f.space = false;
+        try f.text.append(f.a, '\n');
+        f.any = true;
+    }
+
+    /// Character data from HTML: runs of white space collapse to one space, none at the edges.
+    fn htmlText(f: *Frag, s: []const u8, pre: bool) Allocator.Error!void {
+        if (f.suppress > 0) return;
+        if (pre) return f.put(if (f.text.items.len == 0 and s.len > 0 and s[0] == '\n') s[1..] else s);
+        for (s) |c| {
+            if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0c) {
+                f.space = true;
+                continue;
+            }
+            try f.flushSpace();
+            try f.text.append(f.a, c);
+            f.any = true;
+        }
+    }
+
+    fn truncate(f: *Frag, n: u32) void {
+        f.text.shrinkRetainingCapacity(n);
+        inline for (.{ &f.bold, &f.italic, &f.code, &f.strike, &f.emoji, &f.sup }) |list| {
+            var w: usize = 0;
+            for (list.items) |sp| {
+                if (sp[0] >= n) continue;
+                list.items[w] = .{ sp[0], @min(sp[1], n - sp[0]) };
+                w += 1;
+            }
+            list.shrinkRetainingCapacity(w);
+        }
+        var w: usize = 0;
+        for (f.styles.items) |st| {
+            if (st.span[0] >= n) continue;
+            f.styles.items[w] = .{ .span = .{ st.span[0], @min(st.span[1], n - st.span[0]) }, .kind = st.kind };
+            w += 1;
+        }
+        f.styles.shrinkRetainingCapacity(w);
+        for (f.links.items) |*l| l.len = @min(l.len, n -| l.start);
     }
 };
 
@@ -943,6 +1804,8 @@ test {
     _ = inl;
     _ = @import("images.zig");
     _ = @import("scale.zig");
+    _ = @import("html.zig");
+    _ = @import("table_layout.zig");
     _ = highlight;
     _ = links;
     _ = @import("unicode_test.zig");
@@ -1531,4 +2394,256 @@ test "unclosed HTML constructs do not rescan the paragraph" {
     var doc = try parse(testing.allocator, src.items);
     defer doc.deinit();
     try testing.expectEqual(@as(usize, 1), doc.blocks.len);
+}
+
+fn parseTest(src: []const u8) !Document {
+    return parse(testing.allocator, src);
+}
+
+fn hasStyle(c: Inline, kind: StyleKind, text: []const u8) bool {
+    for (c.styles) |s| if (s.kind == kind and std.mem.eql(u8, c.text[s.span[0] .. s.span[0] + s.span[1]], text)) return true;
+    return false;
+}
+
+test "html: centred header block from a real README" {
+    var doc = try parseTest(
+        \\<p align="center">
+        \\  <a href="https://example.dev"><img src="logo.png" width="200" alt="Logo"></a>
+        \\  <br>
+        \\  <a href="https://ci.example.dev"><img src="badge.svg" alt="ci"></a>
+        \\  <a href="https://example.dev/b"><img src="b2.svg"></a>
+        \\</p>
+        \\
+        \\<!-- a comment -->
+        \\
+        \\# Title
+        \\
+    );
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 2), doc.blocks.len);
+    const b = doc.blocks[0];
+    try testing.expectEqual(Align.center, b.alignment);
+    try testing.expectEqualStrings("\u{fffc}\n\u{fffc} \u{fffc}", b.content.text);
+    try testing.expectEqual(@as(usize, 3), b.content.images.len);
+    try testing.expectEqual(@as(f32, 200), b.content.images[0].width);
+    try testing.expectEqual(@as(usize, 3), b.content.links.len);
+    try testing.expectEqualStrings("https://example.dev", b.content.links[0].target);
+    try testing.expectEqual(b.content.images[0].start, b.content.links[0].start);
+    try testing.expectEqual(BlockKind.h1, doc.blocks[1].kind);
+    try testing.expectEqual(Align.none, doc.blocks[1].alignment);
+}
+
+test "html: div centres Markdown inside it, p does not" {
+    var doc = try parseTest("<div align=\"center\">\n\nHello **x**\n\n</div>\n\nAfter\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 2), doc.blocks.len);
+    try testing.expectEqual(Align.center, doc.blocks[0].alignment);
+    try testing.expectEqualStrings("Hello x", doc.blocks[0].content.text);
+    try testing.expectEqual(Align.none, doc.blocks[1].alignment);
+
+    var p = try parseTest("<p align=\"center\">\n\nText\n");
+    defer p.deinit();
+    try testing.expectEqual(Align.none, p.blocks[0].alignment);
+}
+
+test "html: heading align and anchors" {
+    var doc = try parseTest("<h2 align=\"right\" id=\"x\">Y</h2>\n\n<a name=\"top\"></a>\n\ntext\n\n<span id=\"s\">z</span>\n");
+    defer doc.deinit();
+    try testing.expectEqual(BlockKind.h2, doc.blocks[0].kind);
+    try testing.expectEqual(Align.right, doc.blocks[0].alignment);
+    try testing.expectEqual(@as(?u32, 0), doc.anchorBlock("x"));
+    try testing.expectEqual(@as(?u32, 1), doc.anchorBlock("top"));
+    try testing.expect(doc.anchorBlock("s") != null);
+    try testing.expect(doc.anchorBlock("nope") == null);
+}
+
+test "html: inline tags map onto spans" {
+    var doc = try parseTest("H<sub>2</sub>O <kbd>Ctrl</kbd> <ins>u</ins> <q>hi</q> <mark>m</mark> <b>b</b><del>d</del> <abbr title=\"t\">ab</abbr> <small>s</small>\n");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqualStrings("H2O Ctrl u \u{201c}hi\u{201d} m bd ab s", c.text);
+    try testing.expect(hasStyle(c, .sub, "2"));
+    try testing.expect(hasStyle(c, .kbd, "Ctrl"));
+    try testing.expect(hasStyle(c, .underline, "u"));
+    try testing.expect(hasStyle(c, .mark, "m"));
+    try testing.expect(hasStyle(c, .abbr, "ab"));
+    try testing.expect(hasStyle(c, .small, "s"));
+    try testing.expectEqual(@as(usize, 1), c.bold.len);
+    try testing.expectEqual(@as(usize, 1), c.strike.len);
+}
+
+test "html: Markdown stays live inside inline tags" {
+    var doc = try parseTest("press <kbd>**Ctrl**</kbd>\n");
+    defer doc.deinit();
+    try testing.expectEqualStrings("press Ctrl", doc.blocks[0].content.text);
+    try testing.expectEqual(@as(usize, 1), doc.blocks[0].content.bold.len);
+    try testing.expect(hasStyle(doc.blocks[0].content, .kbd, "Ctrl"));
+}
+
+test "html: tagfilter names show as text, unknown tags and comments vanish" {
+    var doc = try parseTest("a <script>x</script> b <center>c</center> <!-- no --> d <svg>e</svg>\n");
+    defer doc.deinit();
+    try testing.expectEqualStrings("a <script>x</script> b c  d e", doc.blocks[0].content.text);
+
+    var blk = try parseTest("<center>text</center>\n\n<script>\nalert(1)\n</script>\n");
+    defer blk.deinit();
+    try testing.expectEqual(@as(usize, 1), blk.blocks.len);
+    try testing.expectEqualStrings("text <script> alert(1) </script>", blk.blocks[0].content.text);
+
+    var rm = try parseTest("<svg>\n<circle/>\n</svg>\n\nafter\n");
+    defer rm.deinit();
+    try testing.expectEqual(@as(usize, 1), rm.blocks.len);
+}
+
+test "html: unsafe urls are dropped" {
+    var doc = try parseTest("<a href=\"javascript:alert(1)\">x</a> <img src=\"data:image/png;base64,AAAA\" alt=\"fallback\">\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 0), doc.blocks[0].content.links.len);
+    try testing.expectEqual(@as(usize, 0), doc.blocks[0].content.images.len);
+    try testing.expectEqualStrings("x fallback", doc.blocks[0].content.text);
+}
+
+test "html: picture resolves to a plain image" {
+    var doc = try parseTest(
+        \\<picture>
+        \\  <source media="(prefers-color-scheme: light)" srcset="light.png">
+        \\  <source media="(prefers-color-scheme: dark)" srcset="dark.png 2x, dark@3.png 3x">
+        \\  <img alt="logo" src="fallback.png" align="right" width="64" height="32" title="tip">
+        \\</picture>
+        \\
+    );
+    defer doc.deinit();
+    const im = doc.blocks[0].content.images[0];
+    try testing.expectEqualStrings("dark.png", im.target);
+    try testing.expectEqualStrings("logo", im.alt);
+    try testing.expectEqualStrings("tip", im.title);
+    try testing.expectEqual(links.Float.right, im.float);
+    try testing.expectEqual(@as(f32, 64), im.width);
+    try testing.expectEqual(@as(f32, 32), im.height);
+
+    var plain = try parseTest("<picture><img alt=\"a\" src=\"only.png\"></picture>\n");
+    defer plain.deinit();
+    try testing.expectEqualStrings("only.png", plain.blocks[0].content.images[0].target);
+}
+
+test "html: lists, quotes and definition lists become frames" {
+    var doc = try parseTest("<ul>\n<li>one</li>\n<li>two\n</ul>\n\n<blockquote>\nquoted\n</blockquote>\n\n<dl>\n<dt>Term</dt>\n<dd>Meaning</dd>\n</dl>\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 5), doc.blocks.len);
+    try testing.expectEqualStrings("one", doc.blocks[0].content.text);
+    try testing.expectEqual(FrameKind.list, doc.blocks[0].frames[0].kind);
+    try testing.expectEqual(Marker.bullet, doc.blocks[0].marks[0].mark.kind);
+    try testing.expectEqual(doc.blocks[0].frames[0].group, doc.blocks[1].frames[0].group);
+    try testing.expect(doc.blocks[0].frames[0].id != doc.blocks[1].frames[0].id);
+    try testing.expectEqual(FrameKind.quote, doc.blocks[2].frames[0].kind);
+    try testing.expect(doc.blocks[2].muted());
+    try testing.expectEqual(Role.dt, doc.blocks[3].role);
+    try testing.expectEqual(FrameKind.dd, doc.blocks[4].frames[0].kind);
+    try testing.expectEqual(dd_inset, doc.blocks[4].inset());
+
+    var ol = try parseTest("<ol start=\"3\"><li>a</li><li>b</li></ol>\n");
+    defer ol.deinit();
+    try testing.expectEqual(@as(u32, 3), ol.blocks[0].marks[0].mark.number);
+    try testing.expectEqual(@as(u32, 4), ol.blocks[1].marks[0].mark.number);
+}
+
+test "html: details frames, summary and default label" {
+    const src = "<details>\n<summary>More</summary>\n\n- a\n\n</details>\n\n<details open>\n\ninner\n\n</details>\n";
+    var doc = try parseTest(src);
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 4), doc.blocks.len);
+    try testing.expectEqual(Role.summary, doc.blocks[0].role);
+    try testing.expectEqualStrings("More", doc.blocks[0].content.text);
+    try testing.expectEqual(FrameKind.details, doc.blocks[0].frames[0].kind);
+    try testing.expectEqual(FrameKind.list, doc.blocks[1].frames[1].kind);
+    try testing.expect(!doc.blocks[0].frames[0].default_open);
+    try testing.expectEqual(Role.summary, doc.blocks[2].role);
+    try testing.expectEqualStrings("Details", doc.blocks[2].content.text);
+    try testing.expect(doc.blocks[2].frames[0].default_open);
+
+    var state: DetailsState = .empty;
+    defer state.deinit(testing.allocator);
+    try testing.expect(!collapsed(doc.blocks[0], &state));
+    try testing.expect(collapsed(doc.blocks[1], &state));
+    try testing.expect(!collapsed(doc.blocks[3], &state));
+    try state.put(testing.allocator, doc.blocks[0].frames[0].key, true);
+    try testing.expect(!collapsed(doc.blocks[1], &state));
+}
+
+test "html: details keys survive a reload and edits elsewhere" {
+    var a = try parseTest("<details><summary>One</summary>\n\nx\n\n</details>\n\n<details><summary>One</summary>\n\ny\n\n</details>\n");
+    defer a.deinit();
+    var b = try parseTest("New paragraph\n\n<details><summary>One</summary>\n\nx\n\n</details>\n\n<details><summary>One</summary>\n\ny\n\n</details>\n");
+    defer b.deinit();
+    const ka1 = a.blocks[0].frames[0].key;
+    const ka2 = a.blocks[2].frames[0].key;
+    try testing.expect(ka1 != 0 and ka1 != ka2);
+    try testing.expectEqual(ka1, a.blocks[1].frames[0].key);
+    try testing.expectEqual(ka1, b.blocks[1].frames[0].key);
+    try testing.expectEqual(ka2, b.blocks[3].frames[0].key);
+}
+
+test "html: spec examples" {
+    var d1 = try parseTest("<div>\n*hello*\n         <foo><a>\n");
+    defer d1.deinit();
+    try testing.expectEqualStrings("*hello*", d1.blocks[0].content.text);
+
+    var d2 = try parseTest("<DIV CLASS=\"foo\">\n\n*Markdown*\n\n</DIV>\n");
+    defer d2.deinit();
+    try testing.expectEqual(@as(usize, 1), d2.blocks.len);
+    try testing.expectEqualStrings("Markdown", d2.blocks[0].content.text);
+    try testing.expectEqual(@as(usize, 1), d2.blocks[0].content.italic.len);
+
+    var d3 = try parseTest("<a  /><b2\ndata=\"foo\" >\n\nFoo <responsive-image src=\"foo.jpg\" />\n\nfoo <!-- this is a\ncomment - with hyphen -->\n\nfoo <![CDATA[>&<]]>\n");
+    defer d3.deinit();
+    try testing.expectEqualStrings("", d3.blocks[0].content.text);
+    try testing.expectEqualStrings("Foo ", d3.blocks[1].content.text);
+    try testing.expectEqualStrings("foo ", d3.blocks[2].content.text);
+    try testing.expectEqualStrings("foo ", d3.blocks[3].content.text);
+
+    var d4 = try parseTest("<pre language=\"haskell\"><code>\nimport Text.HTML.TagSoup\n\nmain :: IO ()\n</code></pre>\nokay\n");
+    defer d4.deinit();
+    try testing.expectEqual(BlockKind.code_block, d4.blocks[0].kind);
+    try testing.expectEqualStrings("import Text.HTML.TagSoup\n\nmain :: IO ()\n", d4.blocks[0].content.text);
+}
+
+test "html: a lone br is a spacer and a stray end tag an empty paragraph" {
+    var doc = try parseTest("<br>\n\n</p>\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 2), doc.blocks.len);
+    try testing.expectEqualStrings("\n", doc.blocks[0].content.text);
+    try testing.expectEqualStrings("", doc.blocks[1].content.text);
+}
+
+test "html: tables with spans" {
+    var doc = try parseTest(
+        \\<table>
+        \\<caption>Cap</caption>
+        \\<tr><th colspan="2">Head</th></tr>
+        \\<tr><td align="right">a</td><td rowspan="2">b</td></tr>
+        \\<tr><td>c</td></tr>
+        \\</table>
+        \\
+    );
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 1), doc.blocks.len);
+    const t = doc.blocks[0].table;
+    try testing.expectEqual(@as(usize, 2), t.columns);
+    try testing.expectEqual(@as(usize, 3), t.rows());
+    try testing.expect(t.header_row);
+    try testing.expectEqualSlices([2]u16, &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 } }, t.spans);
+    try testing.expectEqualStrings("Head", t.cell(0, 0).text);
+    try testing.expectEqualStrings("c", t.cell(2, 0).text);
+    try testing.expectEqual(Align.right, t.alignAt(1, 0));
+    try testing.expectEqualStrings("Cap", t.caption.text);
+}
+
+test "html: unclosed elements and deep nesting are bounded" {
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(testing.allocator);
+    for (0..2000) |_| try src.appendSlice(testing.allocator, "<div>");
+    try src.appendSlice(testing.allocator, "deep\n");
+    var doc = try parseTest(src.items);
+    defer doc.deinit();
+    try testing.expectEqualStrings("deep", doc.blocks[0].content.text);
 }
