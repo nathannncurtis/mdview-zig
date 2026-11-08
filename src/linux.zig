@@ -405,7 +405,7 @@ fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []const md
         var cw = @max(width - inset, 60);
         const top = y;
         var gap: f32 = 0;
-        const text_col = if (block.muted() or block.role == .figcaption) col_quote else col_text;
+        const text_col = if (block.muted()) col_quote else col_text;
         block_align = block.alignment;
         for (block.marks) |l| drawMarker(cr, pango_layout, l.mark, left + l.inset, y);
 
@@ -476,7 +476,7 @@ fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []const md
                 gap = 16;
             },
             .table => {
-                y += renderTableWithCaption(cr, pango_layout, block.table, x, y, cw);
+                y += renderTable(cr, pango_layout, block.table, x, y, cw, true, null);
                 gap = 16;
             },
             .hr => {
@@ -573,7 +573,7 @@ fn renderFlowed(
     setAlign(pango_layout, block_align);
 
     drawCodeBackgrounds(cr, pango_layout, content, x, y);
-    drawStyleRects(cr, pango_layout, content, x, y, color);
+    drawStyleRects(cr, pango_layout, content, x, y);
     setColor(cr, color);
     c.cairo_move_to(cr, x, y);
     c.pango_cairo_show_layout(cr, pango_layout);
@@ -1053,7 +1053,7 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
                     const cell = app.images.flow(t.cell(row, col));
                     setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
                     drawCodeBackgrounds(cr, pango_layout, cell, cx + cell_pad_x, ty);
-                    drawStyleRects(cr, pango_layout, cell, cx + cell_pad_x, ty, col_text);
+                    drawStyleRects(cr, pango_layout, cell, cx + cell_pad_x, ty);
                     setColor(cr, col_text);
                     c.cairo_move_to(cr, cx + cell_pad_x, ty);
                     c.pango_cairo_show_layout(cr, pango_layout);
@@ -1535,8 +1535,6 @@ fn drawSummaryMarker(cr: *c.cairo_t, block: *const md.Block, x: f32, top: f32, h
 var block_align: md.Align = .none;
 
 const kbd_pad: c_int = 4 * c.PANGO_SCALE;
-const small_scale: f64 = 13.0 / 16.0;
-const caption_gap: f32 = 6;
 
 fn setAlign(layout: *c.PangoLayout, a: md.Align) void {
     c.pango_layout_set_alignment(layout, @intCast(switch (a) {
@@ -1615,8 +1613,7 @@ fn applyStyles(attr_list: *c.PangoAttrList, content: md.Inline, spans: []const m
                 insertRange(attr_list, c.pango_attr_background_new(0xbbbb, 0x8080, 0x0909), start, end);
                 insertRange(attr_list, c.pango_attr_background_alpha_new(0x2626), start, end);
             },
-            .small => insertRange(attr_list, c.pango_attr_scale_new(small_scale), start, end),
-            .kbd, .tt, .abbr => {},
+            .kbd, .tt, .small, .abbr => {},
         }
     }
 }
@@ -1640,7 +1637,7 @@ fn collectLines(layout: *c.PangoLayout, out: *std.ArrayList(LineInfo)) void {
     }
 }
 
-/// A box in layout pixels: `kbd` is a bordered key cap, otherwise a dotted underline at `baseline`.
+/// A key cap box in layout pixels.
 const StyleRect = struct { x: f32, y: f32, w: f32, h: f32, baseline: f32, kbd: bool };
 
 fn lineXRanges(layout: *c.PangoLayout, lines: []const LineInfo, text_len: usize, from: usize, to: usize, kbd: bool, out: *std.ArrayList(StyleRect)) void {
@@ -1669,7 +1666,7 @@ fn lineXRanges(layout: *c.PangoLayout, lines: []const LineInfo, text_len: usize,
 
 fn needsRects(content: md.Inline) bool {
     for (content.styles) |s| {
-        if (s.kind == .kbd or s.kind == .abbr) return true;
+        if s.kind == .kbd) return true;
     }
     return false;
 }
@@ -1685,13 +1682,9 @@ fn styleRects(layout: *c.PangoLayout, content_in: md.Inline, out: *std.ArrayList
         if (!isKbd(content_in, span)) continue;
         lineXRanges(layout, lines.items, text_len, leftMark(spans, k), rightMark(spans, k) + pad_len, true, out);
     }
-    for (content_in.styles) |s| {
-        if (s.kind != .abbr) continue;
-        lineXRanges(layout, lines.items, text_len, mapStart(spans, s.span[0]), mapEnd(spans, s.span[0] + s.span[1]), false, out);
-    }
 }
 
-fn drawStyleRects(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32, color: Color) void {
+fn drawStyleRects(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32) void {
     if (!needsRects(content)) return;
     var rects: std.ArrayList(StyleRect) = .empty;
     defer rects.deinit(app.gpa);
@@ -1709,15 +1702,6 @@ fn drawStyleRects(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x:
             c.cairo_stroke(cr);
             c.cairo_rectangle(cr, x + r.x + 3, top + h - 2, r.w - 6, 1);
             c.cairo_fill(cr);
-        } else {
-            const dash = [_]f64{ 1, 2 };
-            setColor(cr, color);
-            c.cairo_set_line_width(cr, 1);
-            c.cairo_set_dash(cr, &dash, 2, 0);
-            c.cairo_move_to(cr, x + r.x, y + r.baseline + 2.5);
-            c.cairo_line_to(cr, x + r.x + r.w, y + r.baseline + 2.5);
-            c.cairo_stroke(cr);
-            c.cairo_set_dash(cr, null, 0, 0);
         }
     }
 }
@@ -1727,28 +1711,6 @@ fn naturalSize(target: []const u8) app.images.Size {
         .picture => |s| s,
         else => .{ .w = 0, .h = 0 },
     };
-}
-
-fn measureText(layout: *c.PangoLayout, content: md.Inline, width: ?f32, font: [*:0]const u8) [2]f32 {
-    setInline(layout, content, width, font);
-    const size = layoutPixelSize(layout);
-    c.pango_layout_set_attributes(layout, null);
-    return size;
-}
-
-/// The caption is centred above the table; it never wraps narrower than its own text.
-fn renderTableWithCaption(cr: *c.cairo_t, layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32) f32 {
-    const caption = t.caption();
-    if (caption.text.len == 0) return renderTable(cr, layout, t, x, y, max_width, true, null);
-    const cap_w = @min(measureText(layout, caption, null, "Sans 12")[0], max_width);
-    const cap_h = measureText(layout, caption, cap_w, "Sans 12")[1] + caption_gap;
-    var table_w: f32 = 0;
-    const table_h = renderTable(cr, layout, t, x, y + cap_h, max_width, true, &table_w);
-    const saved = block_align;
-    block_align = .center;
-    _ = renderTextBlock(cr, layout, caption, x, y, @max(table_w, cap_w), col_text, "Sans 12");
-    block_align = saved;
-    return cap_h + table_h;
 }
 
 test "the code span padding keeps the neighbouring letters where they were" {
@@ -1936,30 +1898,13 @@ test "kbd is padded like code and drawn as one box" {
     try std.testing.expect(rects.items[0].h > 8);
 }
 
-test "abbr is a dotted underline under its own text" {
-    app.gpa = std.testing.allocator;
-    defer resetBoxes();
-    const content: md.Inline = .{ .text = "an HTML page", .styles = &.{.{ .span = .{ 3, 4 }, .kind = .abbr }} };
-    const p = try Probe.init(400, 100);
-    defer p.deinit();
-    setInline(p.layout, content, 400, "Sans 12");
-    var rects: std.ArrayList(StyleRect) = .empty;
-    defer rects.deinit(std.testing.allocator);
-    styleRects(p.layout, content, &rects);
-    try std.testing.expectEqual(@as(usize, 1), rects.items.len);
-    try std.testing.expect(!rects.items[0].kbd);
-    try std.testing.expect(rects.items[0].w > 20 and rects.items[0].w < 60);
-    try std.testing.expect(rects.items[0].baseline > 8);
-}
-
-test "sub, small, underline and mark set their Pango attributes on their own range only" {
+test "sub, underline and mark set their Pango attributes on their own range only" {
     app.gpa = std.testing.allocator;
     defer resetBoxes();
     const content: md.Inline = .{
         .text = "a1b2c3d4e",
         .styles = &.{
             .{ .span = .{ 1, 1 }, .kind = .sub },
-            .{ .span = .{ 3, 1 }, .kind = .small },
             .{ .span = .{ 5, 1 }, .kind = .underline },
             .{ .span = .{ 7, 1 }, .kind = .mark },
         },
@@ -1972,9 +1917,6 @@ test "sub, small, underline and mark set their Pango attributes on their own ran
     try std.testing.expect(rise.value < 0);
     try std.testing.expect(attrAt(p.layout, 0, c.PANGO_ATTR_RISE) == null);
     try std.testing.expect(attrAt(p.layout, 2, c.PANGO_ATTR_RISE) == null);
-
-    const scale: *c.PangoAttrFloat = @ptrCast(@alignCast(attrAt(p.layout, 3, c.PANGO_ATTR_SCALE) orelse return error.TestUnexpectedResult));
-    try std.testing.expectApproxEqAbs(@as(f64, small_scale), scale.value, 0.001);
 
     const line: *c.PangoAttrInt = @ptrCast(@alignCast(attrAt(p.layout, 5, c.PANGO_ATTR_UNDERLINE) orelse return error.TestUnexpectedResult));
     try std.testing.expectEqual(@as(c_int, c.PANGO_UNDERLINE_SINGLE), line.value);
@@ -2002,21 +1944,6 @@ test "an image with a width attribute is laid out at that width" {
     const size = try imageLayoutSize(content, 600);
     try std.testing.expect(size[0] >= 199 and size[0] < 215);
     try std.testing.expect(size[1] >= 100 and size[1] < 130);
-}
-
-test "a table caption sits above the table and adds its height" {
-    app.gpa = std.testing.allocator;
-    defer resetBoxes();
-    const p = try Probe.init(400, 400);
-    defer p.deinit();
-    const cells = [_]md.Inline{ .{ .text = "a" }, .{ .text = "b" } };
-    var t: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &cells };
-    const plain = renderTableWithCaption(p.cr, p.layout, t, 0, 0, 400);
-    const ext: md.Table.Extra = .{ .caption = .{ .text = "A caption" } };
-    t.ext = &ext;
-    const with = renderTableWithCaption(p.cr, p.layout, t, 0, 0, 400);
-    try std.testing.expect(with > plain + 15);
-    try std.testing.expect(with < plain + 40);
 }
 
 test "a closed details skips its content and its marker toggles it" {
