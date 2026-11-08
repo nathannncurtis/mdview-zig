@@ -88,4 +88,6 @@ test {
     _ = @import("parse.zig");
     _ = @import("sanitize.zig");
     _ = @import("fuzz_test.zig");
+    _ = @import("parity_test.zig");
+    _ = @import("actions.zig");
 }
