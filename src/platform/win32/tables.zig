@@ -1,4 +1,3 @@
-const std = @import("std");
 const win = @import("../../win32.zig");
 const app = @import("../../main.zig");
 const md = app.md;

@@ -4,7 +4,6 @@ const md = app.md;
 const hl = @import("highlight.zig");
 const alerts = @import("alerts.zig");
 const html = @import("platform/win32/html.zig");
-const table_layout = @import("table_layout.zig");
 const windows = std.os.windows;
 const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
