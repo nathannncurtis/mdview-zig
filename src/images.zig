@@ -698,41 +698,46 @@ fn buildFlow(c: md.Inline) !*Flow {
         pos = end;
     }
     try text.appendSlice(a, c.text[pos..]);
-    const map = struct {
-        fn at(list: []const [2]u32, p: u32) u32 {
-            var out = p;
-            for (list) |e| {
-                if (e[0] <= p) out += e[1] else break;
-            }
-            return out;
+    var out: md.Inline = .{};
+    const info = @typeInfo(md.Inline).@"struct";
+    inline for (info.field_names, info.field_types) |name, T| {
+        if (comptime std.mem.eql(u8, name, "text")) {
+            out.text = text.items;
+        } else if (@typeInfo(T) == .pointer) {
+            @field(out, name) = try shiftList(std.meta.Child(T), a, @field(c, name), ends.items);
+        } else {
+            @field(out, name) = @field(c, name);
         }
-    }.at;
-    var out: md.Inline = .{ .text = text.items };
-    inline for (.{ "bold", "italic", "code", "strike", "emoji", "sup" }) |name| {
-        const src = @field(c, name);
-        const moved = try a.alloc(md.Span, src.len);
-        for (src, moved) |s, *m| {
-            const start = map(ends.items, s[0]);
-            m.* = .{ start, map(ends.items, s[0] + s[1]) - start };
-        }
-        @field(out, name) = moved;
     }
-    const moved_links = try a.alloc(md.Link, c.links.len);
-    for (c.links, moved_links) |l, *m| {
-        const start = map(ends.items, l.start);
-        m.* = l;
-        m.start = start;
-        m.len = map(ends.items, l.start + l.len) - start;
-    }
-    out.links = moved_links;
-    const moved_images = try a.alloc(md.Image, c.images.len);
-    for (c.images, moved_images) |im, *m| {
-        m.* = im;
-        m.start = map(ends.items, im.start);
-    }
-    out.images = moved_images;
     f.content = out;
     return f;
+}
+
+/// The offset in the laid-out text of offset `p` of the original: everything after an image moves by the alt text put in behind it.
+fn shiftOffset(ends: []const [2]u32, p: u32) u32 {
+    var out = p;
+    for (ends) |e| {
+        if (e[0] <= p) out += e[1] else break;
+    }
+    return out;
+}
+
+/// A copy of a span list with every offset shifted. Any list of spans or of structs with `start` and `len` is carried, so a field
+/// added to `md.Inline` later is moved too; an image keeps its own length, which is the object it stays.
+fn shiftList(comptime T: type, a: std.mem.Allocator, src: []const T, ends: []const [2]u32) std.mem.Allocator.Error![]const T {
+    const out = try a.alloc(T, src.len);
+    for (src, out) |s, *o| {
+        o.* = s;
+        if (T == md.Span) {
+            const start = shiftOffset(ends, s[0]);
+            o.* = .{ start, shiftOffset(ends, s[0] + s[1]) - start };
+        } else if (@hasField(T, "start") and @hasField(T, "len")) {
+            const start = shiftOffset(ends, s.start);
+            if (T != md.Image) o.len = shiftOffset(ends, s.start + s.len) - start;
+            o.start = start;
+        }
+    }
+    return out;
 }
 
 const testing = std.testing;
