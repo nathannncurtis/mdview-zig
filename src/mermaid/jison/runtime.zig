@@ -118,7 +118,7 @@ pub fn Lexer(comptime G: type) type {
         arena: std.heap.ArenaAllocator,
         diag: *Diag,
         input: []const u16,
-        regexes: []regex.Regex,
+        regexes: []const regex.Regex,
         matcher: regex.Matcher,
         cond_stack: std.ArrayList(u16) = .empty,
         offset: usize = 0,
@@ -128,28 +128,47 @@ pub fn Lexer(comptime G: type) type {
         yylloc: Loc = .{},
         done: bool = false,
 
+        const Shared = struct {
+            var table: std.atomic.Value(?*const []const regex.Regex) = .init(null);
+
+            fn get() (Allocator.Error || regex.Error)![]const regex.Regex {
+                if (table.load(.acquire)) |t| return t.*;
+                const pa = std.heap.page_allocator;
+                var scratch = std.heap.ArenaAllocator.init(pa);
+                defer scratch.deinit();
+                const built = try pa.alloc(regex.Regex, G.lex_patterns.len);
+                var made: usize = 0;
+                errdefer {
+                    for (built[0..made]) |*r| r.deinit();
+                    pa.free(built);
+                }
+                for (G.lex_patterns, 0..) |p, k| {
+                    const src = try std.fmt.allocPrint(scratch.allocator(), "^(?:{s})", .{p});
+                    built[k] = try regex.Regex.compile(pa, src, G.lex_ignore_case);
+                    made += 1;
+                }
+                const holder = try pa.create([]const regex.Regex);
+                holder.* = built;
+                if (table.cmpxchgStrong(null, holder, .acq_rel, .acquire)) |winner| {
+                    for (built) |*r| r.deinit();
+                    pa.free(built);
+                    pa.destroy(holder);
+                    return winner.?.*;
+                }
+                return built;
+            }
+        };
+
         pub fn init(gpa: Allocator, input: []const u16, diag: *Diag) (Allocator.Error || regex.Error)!Self {
+            const regexes = try Shared.get();
             var arena = std.heap.ArenaAllocator.init(gpa);
             errdefer arena.deinit();
-            const regexes = try gpa.alloc(regex.Regex, G.lex_patterns.len);
-            var made: usize = 0;
-            errdefer {
-                for (regexes[0..made]) |*r| r.deinit();
-                gpa.free(regexes);
-            }
-            for (G.lex_patterns, 0..) |p, k| {
-                const src = try std.fmt.allocPrint(arena.allocator(), "^(?:{s})", .{p});
-                regexes[k] = try regex.Regex.compile(gpa, src, G.lex_ignore_case);
-                made += 1;
-            }
             var self: Self = .{ .gpa = gpa, .arena = arena, .diag = diag, .input = input, .regexes = regexes, .matcher = regex.Matcher.init(gpa) };
             try self.cond_stack.append(gpa, @intCast(G.lex_conditions.len - 1));
             return self;
         }
 
         pub fn deinit(self: *Self) void {
-            for (self.regexes) |*r| r.deinit();
-            self.gpa.free(self.regexes);
             self.matcher.deinit();
             self.cond_stack.deinit(self.gpa);
             self.arena.deinit();
