@@ -133,6 +133,7 @@ pub const LayerSweepCrossingMinimizer = struct {
 
     fn countCurrentNumberOfCrossings(self: *LayerSweepCrossingMinimizer, current: *GraphInfoHolder) lg.Error!i32 {
         var total = try current.crossings_counter.countAllCrossings(current.current_node_order);
+        if (@import("../layered.zig").trace) std.debug.print("CC {d}\n", .{total});
         for (current.child_graphs.items) |child_graph| {
             const child = self.graph_info_holders.items[@intCast(child_graph.id)];
             if (!child.dontSweepInto()) total +%= try self.countCurrentNumberOfCrossings(child);
