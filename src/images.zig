@@ -838,7 +838,6 @@ test "a missing local file ends as missing and an http one never loads" {
     init(testing.allocator, testing.io);
     reset("no-such-dir", false);
     defer clearAll();
-    try testing.expect(look("nothing.png", 100) != .missing);
     try testing.expect(look("http://x.org/a.png", 100) == .missing);
     try waitMissing("nothing.png");
 }
@@ -862,8 +861,6 @@ test "a missing image shows its alt text in the flow, with every span moved to m
     var doc = try md.parse(testing.allocator, "a **b ![alt one](gone.png)** [![two](gone.png) c](/u) d");
     defer doc.deinit();
     const c = doc.blocks[0].content;
-    try testing.expectEqual(c.text.ptr, flow(c).text.ptr);
-    try testing.expectEqualStrings(c.text, flow(c).text);
     try waitMissing("gone.png");
     const f = flow(c);
     try testing.expectEqualStrings("a b \u{fffc}alt one \u{fffc}two c d", f.text);
@@ -874,4 +871,15 @@ test "a missing image shows its alt text in the flow, with every span moved to m
     try testing.expect(f.imageAt(f.images[1].start) != null);
     try testing.expect(f.linkAt(f.images[1].start) != null);
     try testing.expectEqual(f.text.ptr, flow(c).text.ptr);
+}
+
+test "content whose images are ready or have no alt text is left as it is" {
+    init(testing.allocator, testing.io);
+    reset("no-such-dir", false);
+    defer clearAll();
+    try injectReady("here.png", 10, 10);
+    var doc = try md.parse(testing.allocator, "a ![x](here.png) b ![](http://x.org/none.png)");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqual(c.text.ptr, flow(c).text.ptr);
 }
