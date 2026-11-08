@@ -66,6 +66,34 @@ pub fn parseWithHeap(a: Allocator, heap: Allocator, src: []const u8, hooks: *con
     return s.flatten();
 }
 
+pub const CharRef = struct { end: usize, text: []const u8 };
+
+/// The character reference starting at `src[i]` (an `&`); numeric ones are encoded into `buf`.
+pub fn charRef(src: []const u8, i: usize, buf: *[4]u8) ?CharRef {
+    var j = i + 1;
+    if (j < src.len and src[j] == '#') {
+        j += 1;
+        const hex = j < src.len and (src[j] == 'x' or src[j] == 'X');
+        if (hex) j += 1;
+        const start = j;
+        var v: u32 = 0;
+        const limit: usize = if (hex) 6 else 7;
+        while (j < src.len and j - start < limit) : (j += 1) {
+            const d = std.fmt.charToDigit(src[j], if (hex) 16 else 10) catch break;
+            v = v * (if (hex) @as(u32, 16) else 10) + d;
+        }
+        if (j == start or j >= src.len or src[j] != ';') return null;
+        const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
+        const n = std.unicode.utf8Encode(cp, buf) catch return null;
+        return .{ .end = j + 1, .text = buf[0..n] };
+    }
+    const start = j;
+    while (j < src.len and j - start < 32 and std.ascii.isAlphanumeric(src[j])) j += 1;
+    if (j == start or j >= src.len or src[j] != ';') return null;
+    const v = entities.lookup(src[start..j]) orelse return null;
+    return .{ .end = j + 1, .text = v };
+}
+
 const none: u32 = std.math.maxInt(u32);
 
 const NodeTag = enum { text, open, close, html, soft, hard };
@@ -114,7 +142,7 @@ const Scanner = struct {
     dtail: u32 = none,
     brackets: std.ArrayList(Bracket) = .empty,
     bare_count: u32 = 0,
-    html_miss: [3]usize = @splat(std.math.maxInt(usize)),
+    html_miss: [4]usize = @splat(std.math.maxInt(usize)),
     /// Once a backtick run finds no closer, the last start of every run length from there on.
     tick_last: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     tick_from: usize = std.math.maxInt(usize),
@@ -278,32 +306,10 @@ const Scanner = struct {
     }
 
     fn entity(s: *Scanner, i: usize) Allocator.Error!?usize {
-        const src = s.src;
-        var j = i + 1;
-        if (j < src.len and src[j] == '#') {
-            j += 1;
-            const hex = j < src.len and (src[j] == 'x' or src[j] == 'X');
-            if (hex) j += 1;
-            const start = j;
-            var v: u32 = 0;
-            const limit: usize = if (hex) 6 else 7;
-            while (j < src.len and j - start < limit) : (j += 1) {
-                const d = std.fmt.charToDigit(src[j], if (hex) 16 else 10) catch break;
-                v = v * (if (hex) @as(u32, 16) else 10) + d;
-            }
-            if (j == start or j >= src.len or src[j] != ';') return null;
-            const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
-            const buf = try s.a.alloc(u8, 4);
-            const n = std.unicode.utf8Encode(cp, buf) catch return null;
-            try s.text(buf[0..n]);
-            return j + 1;
-        }
-        const start = j;
-        while (j < src.len and j - start < 32 and std.ascii.isAlphanumeric(src[j])) j += 1;
-        if (j == start or j >= src.len or src[j] != ';') return null;
-        const v = entities.lookup(src[start..j]) orelse return null;
-        try s.text(v);
-        return j + 1;
+        var buf: [4]u8 = undefined;
+        const r = charRef(s.src, i, &buf) orelse return null;
+        try s.text(try s.a.dupe(u8, r.text));
+        return r.end;
     }
 
     fn codeSpan(s: *Scanner, i: usize) Allocator.Error!usize {
@@ -633,7 +639,7 @@ fn findFrom(src: []const u8, from: usize, needle: []const u8, miss: *usize) ?usi
 }
 
 /// `miss` remembers where a terminator was last found absent, so unclosed constructs do not rescan the rest of the text.
-fn htmlEnd(src: []const u8, i: usize, miss: *[3]usize) ?usize {
+fn htmlEnd(src: []const u8, i: usize, miss: *[4]usize) ?usize {
     var j = i + 1;
     if (j >= src.len) return null;
     const c = src[j];
@@ -653,9 +659,10 @@ fn htmlEnd(src: []const u8, i: usize, miss: *[3]usize) ?usize {
     j += 1;
     if (std.mem.startsWith(u8, src[j..], "--")) {
         const body = j + 2;
-        if (std.mem.startsWith(u8, src[body..], ">") or std.mem.startsWith(u8, src[body..], "->")) return null;
-        const e = std.mem.indexOfPos(u8, src, body, "--") orelse return null;
-        return if (std.mem.startsWith(u8, src[e..], "-->")) e + 3 else null;
+        if (std.mem.startsWith(u8, src[body..], ">")) return body + 1;
+        if (std.mem.startsWith(u8, src[body..], "->")) return body + 2;
+        const e = findFrom(src, body, "-->", &miss[3]) orelse return null;
+        return e + 3;
     }
     if (std.mem.startsWith(u8, src[j..], "[CDATA[")) {
         const e = findFrom(src, j + 7, "]]>", &miss[1]) orelse return null;
