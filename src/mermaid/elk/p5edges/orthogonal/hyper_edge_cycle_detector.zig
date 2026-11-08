@@ -108,7 +108,6 @@ fn computeLinearOrderingMarks(a: Allocator, segments: []const *HyperEdgeSegment,
         }
         if (max_segments.items.len != 0) {
             const idx: usize = @intCast(random.nextIntBound(@intCast(max_segments.items.len)));
-            if (@import("../../layered.zig").trace) std.debug.print("NI {d} -> {d}\n", .{ max_segments.items.len, idx });
             const max_node = max_segments.items[idx];
             treeRemove(&unprocessed, max_node);
             max_node.mark = next_source_mark;

@@ -2,11 +2,11 @@ const std = @import("std");
 const eg = @import("elk_graph.zig");
 const elk_json = @import("elk_json.zig");
 const layered = @import("layered.zig");
-const lgraph_mod = @import("lgraph.zig");
 const Value = std.json.Value;
 
 test {
     std.testing.refAllDecls(@import("mermaid.zig"));
+    std.testing.refAllDecls(@import("fuzz.zig"));
     _ = @import("p1cycles/test.zig");
     _ = @import("p3order/test.zig");
     _ = @import("p4nodes/test.zig");
@@ -173,8 +173,6 @@ test "elk layout matches elkjs on the fixtures" {
         stats.graphs += 1;
         var c: Cmp = .{ .a = a, .name = name, .stats = &stats, .expected_edges = std.StringHashMap(Value).init(a) };
         const out = field(doc, "output").?;
-        layered.trace = isTraced(name);
-        lgraph_mod.JavaRandom.trace_draws = layered.trace;
         layered.layout(a, root) catch |err| {
             std.debug.print("  {s}: layout failed: {s}\n", .{ name, @errorName(err) });
             stats.failed += 1;
@@ -189,10 +187,4 @@ test "elk layout matches elkjs on the fixtures" {
     }
     std.debug.print("\nelk parity: graphs={d} failed={d} nodes={d} edges={d} points={d} labels={d} maxNode={d:.4} maxPoint={d:.4} maxLabel={d:.4}\n", .{ stats.graphs, stats.failed, stats.nodes, stats.edges, stats.points, stats.labels, stats.max_node, stats.max_point, stats.max_label });
     try std.testing.expectEqual(@as(usize, 0), stats.failed);
-}
-
-fn isTraced(name: []const u8) bool {
-    const traced = [_][]const u8{ "c-flow-113-link-amp-both", "syn-095-self", "c-flow-143-sub-basic" };
-    for (traced) |t| if (std.mem.startsWith(u8, name, t)) return true;
-    return false;
 }

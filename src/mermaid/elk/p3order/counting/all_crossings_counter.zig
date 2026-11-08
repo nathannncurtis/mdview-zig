@@ -20,6 +20,7 @@ pub const AllCrossingsCounter = struct {
             .has_hyper_edges_east_of_index = hyper,
             // SAFETY: initialize sets both counters before any counting
             .crossing_counter = undefined,
+            // SAFETY: assigned before first use
             .hyperedge_crossings_counter = undefined,
         };
         return self;

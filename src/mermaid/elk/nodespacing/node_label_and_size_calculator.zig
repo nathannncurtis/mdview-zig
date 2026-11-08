@@ -88,6 +88,7 @@ pub const NodeContext = struct {
             .node_container_middle_row = middle_row,
             // SAFETY: both are assigned before any read
             .inside_node_label_container = undefined,
+            // SAFETY: assigned before first use
             .inside_port_label_cells = undefined,
         };
     }

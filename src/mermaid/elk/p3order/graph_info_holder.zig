@@ -115,8 +115,11 @@ pub const GraphInfoHolder = struct {
             .has_external_ports = graph.p.graph_properties.external_ports,
             // SAFETY: create assigns the first four below; cross_minimizer is assigned before the sweeps run
             .layer_sweep_type_decider = undefined,
+            // SAFETY: assigned before first use
             .cross_minimizer = undefined,
+            // SAFETY: assigned before first use
             .port_distributor = undefined,
+            // SAFETY: assigned before first use
             .crossings_counter = undefined,
         };
         const order = self.current_node_order;

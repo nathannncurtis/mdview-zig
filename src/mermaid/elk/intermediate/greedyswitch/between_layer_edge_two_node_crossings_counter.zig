@@ -71,6 +71,7 @@ pub const BetweenLayerEdgeTwoNodeCrossingsCounter = struct {
             .free_layer_index = free_layer_index,
             // SAFETY: assigned before each count
             .upper = undefined,
+            // SAFETY: assigned before first use
             .lower = undefined,
         };
         if (free_layer_index > 0) try self.setPortPositionsForLayer(free_layer_index - 1, .east);

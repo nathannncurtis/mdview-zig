@@ -1,6 +1,7 @@
 const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
 const html = @import("markdown/html.zig");
+const elk_fuzz = @import("mermaid/elk/fuzz.zig");
 
 const max_input = 8192;
 
@@ -117,4 +118,8 @@ fn buildOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz html.Builder" {
     try std.testing.fuzz({}, buildOne, .{ .corpus = &html_corpus });
+}
+
+test "fuzz mermaid.elk" {
+    try std.testing.fuzz({}, elk_fuzz.fuzzOne, .{ .corpus = &elk_fuzz.corpus });
 }

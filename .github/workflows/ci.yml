@@ -112,6 +112,8 @@ jobs:
             iterations: 800K
           - target: html.Builder
             iterations: 800K
+          - target: mermaid.elk
+            iterations: 200K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30

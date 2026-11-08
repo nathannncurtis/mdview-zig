@@ -300,7 +300,6 @@ pub const Props = struct {
     separate_layer_connections: HiddenNodeConnections = .none,
     self_loop_holder: ?*anyopaque = null,
     // opaque slots for state a single processor family owns (self loops, label cells, ...)
-    debug_id: []const u8 = "",
     slot_a: ?*anyopaque = null,
     slot_b: ?*anyopaque = null,
 };
@@ -553,7 +552,6 @@ pub fn removeItem(comptime T: type, list: *std.ArrayList(*T), item: *T) void {
 // java.util.Random, bit for bit
 pub const JavaRandom = struct {
     seed: u64,
-    count: u64 = 0,
 
     const mult: u64 = 0x5DEECE66D;
     const mask: u64 = (1 << 48) - 1;
@@ -565,11 +563,8 @@ pub const JavaRandom = struct {
     pub fn init(seed: i64) JavaRandom {
         return .{ .seed = (@as(u64, @bitCast(seed)) ^ mult) & mask };
     }
-    pub var trace_draws = false;
 
     pub fn next(self: *JavaRandom, bits: u6) i32 {
-        if (trace_draws) std.debug.print("DR {d}\n", .{bits});
-        self.count += 1;
         self.seed = (self.seed *% mult +% 0xB) & mask;
         const v: u64 = self.seed >> @intCast(48 - @as(u7, bits));
         return @bitCast(@as(u32, @truncate(v)));
