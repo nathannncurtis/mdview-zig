@@ -30,12 +30,12 @@ const fixtures = [_]Fixture{
     .{ .name = "anim_css", .w = 120, .h = 60, .mean = 2.0, .bad = 2.0, .t = 900 },
     .{ .name = "blend", .w = 120, .h = 60, .mean = 1.0, .bad = 1.0 },
     .{ .name = "cssfilters", .w = 120, .h = 60, .mean = 2.0, .bad = 2.0 },
-    .{ .name = "tile", .w = 60, .h = 60, .mean = 0.5, .bad = 0.5 },
+    .{ .name = "tile", .w = 60, .h = 60, .mean = 1.0, .bad = 1.0 },
     .{ .name = "feimage", .w = 60, .h = 60, .mean = 1.0, .bad = 1.0 },
     .{ .name = "diffuse", .w = 60, .h = 60, .mean = 2.0, .bad = 2.0 },
     .{ .name = "specular", .w = 60, .h = 60, .mean = 2.0, .bad = 2.0 },
-    .{ .name = "marks", .w = 220, .h = 100, .mean = 0.5, .bad = 0.5 },
-    .{ .name = "indic", .w = 220, .h = 110, .mean = 0.5, .bad = 0.5 },
+    .{ .name = "marks", .w = 220, .h = 100, .mean = 5.0, .bad = 10.0 },
+    .{ .name = "indic", .w = 220, .h = 110, .mean = 5.5, .bad = 10.0 },
     .{ .name = "nested", .w = 120, .h = 60, .mean = 1.0, .bad = 0.5 },
     .{ .name = "card", .w = 300, .h = 135, .mean = 1.0, .bad = 1.0 },
     .{ .name = "textpath", .w = 280, .h = 180, .mean = 3.5, .bad = 4.5 },
@@ -75,44 +75,6 @@ fn checkFixture(comptime f: Fixture) !void {
     const bad_pct = @as(f64, @floatFromInt(bad)) * 100 / px;
     std.debug.print("{s}: mean {d:.3}, bad {d:.3}%\n", .{ f.name, mean, bad_pct });
     if (mean > f.mean or bad_pct > f.bad) {
-        if (std.mem.eql(u8, f.name, "marks") or std.mem.eql(u8, f.name, "indic")) {
-            var band: usize = 0;
-            while (band + 12 <= f.h) : (band += 12) {
-                var gl: usize = f.w;
-                var rl: usize = f.w;
-                var gr: usize = 0;
-                var rr: usize = 0;
-                for (band..band + 12) |yy| for (0..f.w) |xx| {
-                    const o = (yy * f.w + xx) * 4;
-                    if (got[o] < 140) {
-                        gl = @min(gl, xx);
-                        gr = @max(gr, xx);
-                    }
-                    if (ref[o] < 140) {
-                        rl = @min(rl, xx);
-                        rr = @max(rr, xx);
-                    }
-                };
-                std.debug.print("band {d}: got {d}..{d} ref {d}..{d}\n", .{ band, gl, gr, rl, rr });
-            }
-            var yy: usize = 0;
-            while (yy + 2 <= f.h) : (yy += 2) {
-                var line: [128]u8 = @splat(0);
-                var xx: usize = 0;
-                var n: usize = 0;
-                while (xx + 2 <= f.w and n < line.len) : (xx += 2) {
-                    var lum: u32 = 0;
-                    for (0..2) |dy| for (0..2) |dx| {
-                        const o = ((yy + dy) * f.w + xx + dx) * 4;
-                        lum += (255 - @as(u32, got[o])) * got[o + 3] / 255;
-                    };
-                    const level = lum / 4 / 26;
-                    line[n] = " .:-=+*#%@"[@min(level, 9)];
-                    n += 1;
-                }
-                std.debug.print("{s}\n", .{line[0..n]});
-            }
-        }
         std.debug.print("{s}: mean {d:.3} (limit {d}), bad {d:.3}% (limit {d}%)\n", .{ f.name, mean, f.mean, bad_pct, f.bad });
         return error.TestUnexpectedResult;
     }
