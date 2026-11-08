@@ -109,7 +109,6 @@ test "resolver falls back to the bundled font" {
     const io = std.testing.io;
     try std.testing.expect(resolveFont(io, "no-such-family-zz", 400, false) == bundled(false, false));
     try std.testing.expect(resolveFont(io, "'No Such', \"Other One\"", 700, false) == bundled(true, false));
-    try std.testing.expect(resolveFont(io, "", 400, true) == bundled(false, true));
     try std.testing.expect(resolveFont(io, "no-such-family-zz", 400, false) == bundled(false, false));
 }
 
@@ -428,4 +427,68 @@ test "math kern info and extended shapes are exposed" {
     }
     try std.testing.expect(kerned > 50);
     try std.testing.expect(extended > 0);
+}
+
+test "family lists parse the way Chrome parses font-family" {
+    const p = resolver.parseFamilies("\"trebuchet ms\", verdana, arial, sans-serif").?;
+    try std.testing.expectEqual(@as(usize, 4), p.n);
+    try std.testing.expectEqualStrings("trebuchet ms", p.name(0));
+    try std.testing.expectEqualStrings("sans-serif", p.name(3));
+    try std.testing.expect(p.quoted[0] and !p.quoted[1]);
+
+    const q = resolver.parseFamilies("Segoe  UI   Symbol , 'Noto Sans' ,-apple-system").?;
+    try std.testing.expectEqual(@as(usize, 3), q.n);
+    try std.testing.expectEqualStrings("segoe ui symbol", q.name(0));
+    try std.testing.expectEqualStrings("noto sans", q.name(1));
+    try std.testing.expectEqualStrings("-apple-system", q.name(2));
+
+    const esc = resolver.parseFamilies("\"A\\\"B\", Foo\\20 Bar").?;
+    try std.testing.expectEqualStrings("a\"b", esc.name(0));
+    try std.testing.expectEqualStrings("foo bar", esc.name(1));
+
+    try std.testing.expect(resolver.parseFamilies("inherit") != null);
+    try std.testing.expect(resolver.parseFamilies("'unterminated") != null);
+
+    const invalid = [_][]const u8{
+        "\"trebuchet ms\", verdana, arial, sans-serif;",
+        "",
+        "   ",
+        "a,,b",
+        "a,",
+        ",a",
+        "1abc",
+        "Foo \"bar\"",
+        "Foo!important",
+        "a b;",
+        "'broken\nstring'",
+        "inherit, serif",
+        "Foo(bar)",
+        "a.b",
+        "--",
+        "-1x",
+    };
+    for (invalid) |s| try std.testing.expect(resolver.parseFamilies(s) == null);
+}
+
+test "an invalid family list measures in the default serif" {
+    const io = std.testing.io;
+    const mermaid_default = "\"trebuchet ms\", verdana, arial, sans-serif;";
+    const bad = resolve(io, mermaid_default, 400, false);
+    const good = resolve(io, "\"trebuchet ms\", verdana, arial, sans-serif", 400, false);
+    try std.testing.expect(bad != good);
+    try std.testing.expect(bad.primary != good.primary);
+    switch (builtin.os.tag) {
+        .windows, .macos => {
+            const serif = resolveFont(io, if (builtin.os.tag == .windows) "times new roman" else "times", 400, false);
+            try std.testing.expect(bad.primary == serif);
+            const ratio = serif.advance(serif.glyphIndex('A')) / @as(f64, @floatFromInt(serif.upem));
+            try std.testing.expectApproxEqAbs(@as(f64, 0.722), ratio, 0.003);
+        },
+        else => try std.testing.expect(bad.primary != bundled(false, false)),
+    }
+    const same = resolve(io, "\"trebuchet ms\", verdana, arial, sans-serif;", 400, false);
+    try std.testing.expect(same == bad);
+    const bold = resolve(io, mermaid_default, 700, false);
+    try std.testing.expect(bold.primary != good.primary);
+    try std.testing.expect(bad.measure("Hello world", 16).w != good.measure("Hello world", 16).w);
 }

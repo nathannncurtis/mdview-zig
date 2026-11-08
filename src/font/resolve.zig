@@ -37,6 +37,9 @@ const linux_fonts = [_]Entry{
     e("noto sans cjk", "notosanscjk-regular.ttc", "notosanscjk-bold.ttc", "", ""),
     e("noto sans symbols", "notosanssymbols-regular.ttf", "notosanssymbols-bold.ttf", "", ""),
     e("noto sans symbols2", "notosanssymbols2-regular.ttf", "", "", ""),
+    e("dejavu serif", "dejavuserif.ttf", "dejavuserif-bold.ttf", "dejavuserif-italic.ttf", "dejavuserif-bolditalic.ttf"),
+    e("liberation serif", "liberationserif-regular.ttf", "liberationserif-bold.ttf", "liberationserif-italic.ttf", "liberationserif-bolditalic.ttf"),
+    e("noto serif", "notoserif-regular.ttf", "notoserif-bold.ttf", "notoserif-italic.ttf", "notoserif-bolditalic.ttf"),
 };
 
 const mac_fonts = [_]Entry{
@@ -395,23 +398,205 @@ pub const Chain = struct {
     }
 };
 
+pub const Families = struct {
+    buf: [16][96]u8 = @splat(@splat(0)),
+    len: [16]u8 = @splat(0),
+    quoted: [16]bool = @splat(false),
+    n: usize = 0,
+
+    pub fn name(f: *const Families, i: usize) []const u8 {
+        return f.buf[i][0..f.len[i]];
+    }
+
+    fn begin(f: *Families) ?*[96]u8 {
+        if (f.n == f.buf.len) return null;
+        f.len[f.n] = 0;
+        return &f.buf[f.n];
+    }
+
+    fn put(f: *Families, byte: u8) bool {
+        if (f.len[f.n] == 96) return false;
+        f.buf[f.n][f.len[f.n]] = std.ascii.toLower(byte);
+        f.len[f.n] += 1;
+        return true;
+    }
+
+    fn putCp(f: *Families, cp: u21) bool {
+        var tmp: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(cp, &tmp) catch return f.put('?');
+        for (tmp[0..n]) |c| if (!f.put(c)) return false;
+        return true;
+    }
+};
+
+const css_wide = [_][]const u8{ "inherit", "initial", "unset", "revert", "revert-layer", "default" };
+
+fn isWs(c: u8) bool {
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0c;
+}
+
+fn identStart(c: u8) bool {
+    return std.ascii.isAlphabetic(c) or c == '_' or c >= 0x80 or c == '\\';
+}
+
+fn identChar(c: u8) bool {
+    return identStart(c) or std.ascii.isDigit(c) or c == '-';
+}
+
+fn readEscape(raw: []const u8, i: *usize) ?u21 {
+    if (i.* >= raw.len) return null;
+    const c = raw[i.*];
+    if (c == '\n' or c == '\r' or c == 0x0c) return null;
+    if (std.ascii.isHex(c)) {
+        var v: u32 = 0;
+        var k: usize = 0;
+        while (k < 6 and i.* < raw.len and std.ascii.isHex(raw[i.*])) : (k += 1) {
+            v = v * 16 + (std.fmt.charToDigit(raw[i.*], 16) catch 0);
+            i.* += 1;
+        }
+        if (i.* < raw.len and isWs(raw[i.*])) i.* += 1;
+        return if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
+    }
+    i.* += 1;
+    return c;
+}
+
+fn skipWs(raw: []const u8, i: *usize) void {
+    while (i.* < raw.len and isWs(raw[i.*])) i.* += 1;
+}
+
+fn readString(f: *Families, raw: []const u8, i: *usize) bool {
+    const q = raw[i.*];
+    i.* += 1;
+    while (i.* < raw.len) {
+        const c = raw[i.*];
+        i.* += 1;
+        if (c == q) return true;
+        if (c == '\n' or c == '\r' or c == 0x0c) return false;
+        if (c == '\\') {
+            if (i.* >= raw.len) return true;
+            if (raw[i.*] == '\n') {
+                i.* += 1;
+                continue;
+            }
+            const cp = readEscape(raw, i) orelse return false;
+            if (!f.putCp(cp)) return false;
+            continue;
+        }
+        if (!f.put(c)) return false;
+    }
+    return true;
+}
+
+fn readIdent(f: *Families, raw: []const u8, i: *usize) bool {
+    var k = i.*;
+    if (raw[k] == '-') {
+        k += 1;
+        if (k >= raw.len or !(identStart(raw[k]) or raw[k] == '-')) return false;
+    } else if (!identStart(raw[k])) return false;
+    while (i.* < raw.len and identChar(raw[i.*])) {
+        const c = raw[i.*];
+        i.* += 1;
+        if (c == '\\') {
+            const cp = readEscape(raw, i) orelse return false;
+            if (!f.putCp(cp)) return false;
+        } else if (!f.put(c)) return false;
+    }
+    return true;
+}
+
+pub fn parseFamilies(raw: []const u8) ?Families {
+    var f: Families = .{};
+    var i: usize = 0;
+    while (true) {
+        skipWs(raw, &i);
+        if (i >= raw.len) return null;
+        _ = f.begin() orelse return null;
+        if (raw[i] == '"' or raw[i] == '\'') {
+            if (!readString(&f, raw, &i)) return null;
+            f.quoted[f.n] = true;
+        } else {
+            var first = true;
+            while (i < raw.len and raw[i] != ',') {
+                if (!first and !f.put(' ')) return null;
+                if (!readIdent(&f, raw, &i)) return null;
+                first = false;
+                const before = i;
+                skipWs(raw, &i);
+                if (i < raw.len and raw[i] != ',' and i == before) return null;
+            }
+            if (first) return null;
+        }
+        f.n += 1;
+        skipWs(raw, &i);
+        if (i >= raw.len) break;
+        if (raw[i] != ',') return null;
+        i += 1;
+    }
+    if (f.n > 1) {
+        for (0..f.n) |k| {
+            if (f.quoted[k]) continue;
+            for (css_wide) |w| if (std.mem.eql(u8, f.name(k), w)) return null;
+        }
+    }
+    return f;
+}
+
+fn defaultSerif(os: std.Target.Os.Tag) []const []const u8 {
+    return switch (os) {
+        .windows => &.{"times new roman"},
+        .macos => &.{"times"},
+        else => &.{ "dejavu serif", "liberation serif", "noto serif" },
+    };
+}
+
+fn isCssWide(name: []const u8) bool {
+    for (css_wide) |w| if (std.mem.eql(u8, name, w)) return true;
+    return false;
+}
+
 fn buildChain(io: std.Io, families: []const u8, bold: bool, italic: bool) *const Chain {
     var faces: [16]*const Font = undefined;
     var n: usize = 0;
-    var it = std.mem.splitScalar(u8, families, ',');
-    while (it.next()) |raw| {
-        var name_buf: [96]u8 = undefined;
-        const trimmed = std.mem.trim(u8, raw, " \t\r\n\"'");
-        if (trimmed.len == 0 or trimmed.len > name_buf.len) continue;
-        const name = std.ascii.lowerString(&name_buf, trimmed);
-        const f = switch (alias(builtin.os.tag, name)) {
+    var list_len: usize = 0;
+    var use_default = false;
+    var names: [16][]const u8 = @splat("");
+    var quoted: [16]bool = @splat(false);
+    var parsed = parseFamilies(families);
+    if (parsed) |*p| {
+        if (p.n == 1 and !p.quoted[0] and isCssWide(p.name(0))) {
+            for (defaultSerif(builtin.os.tag), 0..) |d, k| {
+                names[k] = d;
+                quoted[k] = true;
+            }
+            list_len = defaultSerif(builtin.os.tag).len;
+            use_default = true;
+        } else {
+            for (0..p.n) |k| {
+                names[k] = p.name(k);
+                quoted[k] = p.quoted[k];
+            }
+            list_len = p.n;
+        }
+    } else {
+        for (defaultSerif(builtin.os.tag), 0..) |d, k| {
+            names[k] = d;
+            quoted[k] = true;
+        }
+        list_len = defaultSerif(builtin.os.tag).len;
+        use_default = true;
+    }
+    for (0..list_len) |k| {
+        const name = names[k];
+        if (!quoted[k] and builtin.os.tag != .windows and builtin.os.tag != .macos and std.mem.eql(u8, name, "serif")) {
+            for (defaultSerif(builtin.os.tag)) |d| addFace(io, &faces, &n, loadNamed(io, builtin.os.tag, d, bold, italic, use_default));
+            continue;
+        }
+        const f = if (quoted[k]) loadNamed(io, builtin.os.tag, name, bold, italic, use_default) else switch (alias(builtin.os.tag, name)) {
             .bundled => bundled(bold, italic),
-            .named => |nm| loadNamed(io, builtin.os.tag, nm, bold, italic, false) orelse continue,
+            .named => |nm| loadNamed(io, builtin.os.tag, nm, bold, italic, use_default),
         };
-        if (std.mem.indexOfScalar(*const Font, faces[0..n], f) != null) continue;
-        if (n == faces.len) break;
-        faces[n] = f;
-        n += 1;
+        addFace(io, &faces, &n, f);
     }
     if (n == 0) {
         faces[0] = bundled(bold, italic);
@@ -421,6 +606,15 @@ fn buildChain(io: std.Io, families: []const u8, bold: bool, italic: bool) *const
     const c = gpa.create(Chain) catch @panic("out of memory");
     c.* = .{ .io = io, .bold = bold, .italic = italic, .faces = owned, .primary = owned[0] };
     return c;
+}
+
+fn addFace(io: std.Io, faces: *[16]*const Font, n: *usize, found: ?*const Font) void {
+    _ = io;
+    const f = found orelse return;
+    if (std.mem.indexOfScalar(*const Font, faces[0..n.*], f) != null) return;
+    if (n.* == faces.len) return;
+    faces[n.*] = f;
+    n.* += 1;
 }
 
 pub fn resolve(io: std.Io, families: []const u8, weight: u16, italic: bool) *const Chain {
