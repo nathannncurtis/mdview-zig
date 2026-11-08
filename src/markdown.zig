@@ -73,19 +73,38 @@ pub const Table = struct {
     header_row: bool = true,
     /// First column cells are headers (front matter keys).
     header_col: bool = false,
-    /// Empty, or parallel to `cells`: `{colspan, rowspan}` of the cell anchored there, `{0, 0}` where another cell covers it.
-    spans: []const [2]u16 = &.{},
-    /// Empty, or parallel to `cells`: the cell's own alignment, which wins over `aligns`.
-    cell_aligns: []const Align = &.{},
-    valigns: []const VAlign = &.{},
-    caption: Inline = .{},
+    /// Only HTML tables have these; kept behind a pointer so every `Table` copy stays small.
+    ext: ?*const Extra = null,
+
+    pub const Extra = struct {
+        /// Parallel to `cells`: `{colspan, rowspan}` of the cell anchored there, `{0, 0}` where another cell covers it.
+        spans: []const [2]u16 = &.{},
+        /// Parallel to `cells`: the cell's own alignment, which wins over `aligns`.
+        cell_aligns: []const Align = &.{},
+        valigns: []const VAlign = &.{},
+        caption: Inline = .{},
+    };
+
+    pub fn spans(t: Table) []const [2]u16 {
+        return if (t.ext) |e| e.spans else &.{};
+    }
+
+    pub fn caption(t: Table) Inline {
+        return if (t.ext) |e| e.caption else .{};
+    }
+
+    pub fn valignAt(t: Table, row: usize, col: usize) VAlign {
+        const e = t.ext orelse return .none;
+        return if (e.valigns.len == 0) .none else e.valigns[row * t.columns + col];
+    }
 
     pub fn spanAt(t: Table, row: usize, col: usize) [2]u16 {
-        return if (t.spans.len == 0) .{ 1, 1 } else t.spans[row * t.columns + col];
+        const e = t.ext orelse return .{ 1, 1 };
+        return if (e.spans.len == 0) .{ 1, 1 } else e.spans[row * t.columns + col];
     }
 
     pub fn alignAt(t: Table, row: usize, col: usize) Align {
-        if (t.cell_aligns.len > 0 and t.cell_aligns[row * t.columns + col] != .none) return t.cell_aligns[row * t.columns + col];
+        if (t.ext) |e| if (e.cell_aligns.len > 0 and e.cell_aligns[row * t.columns + col] != .none) return e.cell_aligns[row * t.columns + col];
         return if (col < t.aligns.len) t.aligns[col] else .none;
     }
 
@@ -782,10 +801,7 @@ const Parser = struct {
                     .aligns = p.aligns.items[raw.aligns.lo..raw.aligns.hi],
                     .cells = cells[raw.cells.lo..raw.cells.hi],
                     .header_row = raw.header_row,
-                    .spans = p.spans.items[raw.spans.lo..raw.spans.hi],
-                    .cell_aligns = p.cell_aligns.items[raw.cell_aligns.lo..raw.cell_aligns.hi],
-                    .valigns = p.valigns.items[raw.valigns.lo..raw.valigns.hi],
-                    .caption = if (raw.caption) |c| p.resolve(c) else .{},
+                    .ext = if (raw.spans.hi > raw.spans.lo) try p.tableExtra(raw) else null,
                 },
                 .lang = p.text.items[raw.lang.lo..raw.lang.hi],
                 .frames = raw.frames,
@@ -796,6 +812,17 @@ const Parser = struct {
             };
         }
         return out;
+    }
+
+    fn tableExtra(p: *Parser, raw: RawBlock) Allocator.Error!*const Table.Extra {
+        const e = try p.a.create(Table.Extra);
+        e.* = .{
+            .spans = p.spans.items[raw.spans.lo..raw.spans.hi],
+            .cell_aligns = p.cell_aligns.items[raw.cell_aligns.lo..raw.cell_aligns.hi],
+            .valigns = p.valigns.items[raw.valigns.lo..raw.valigns.hi],
+            .caption = if (raw.caption) |c| p.resolve(c) else .{},
+        };
+        return e;
     }
 
     fn resolve(p: *const Parser, r: RawInline) Inline {
@@ -2631,11 +2658,11 @@ test "html: tables with spans" {
     try testing.expectEqual(@as(usize, 2), t.columns);
     try testing.expectEqual(@as(usize, 3), t.rows());
     try testing.expect(t.header_row);
-    try testing.expectEqualSlices([2]u16, &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 } }, t.spans);
+    try testing.expectEqualSlices([2]u16, &.{ .{ 2, 1 }, .{ 0, 0 }, .{ 1, 1 }, .{ 1, 2 }, .{ 1, 1 }, .{ 0, 0 } }, t.spans());
     try testing.expectEqualStrings("Head", t.cell(0, 0).text);
     try testing.expectEqualStrings("c", t.cell(2, 0).text);
     try testing.expectEqual(Align.right, t.alignAt(1, 0));
-    try testing.expectEqualStrings("Cap", t.caption.text);
+    try testing.expectEqualStrings("Cap", t.caption().text);
 }
 
 test "html: unclosed elements and deep nesting are bounded" {
