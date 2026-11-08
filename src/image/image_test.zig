@@ -325,6 +325,26 @@ test "decoded pixels match Chromium read-back references" {
         }
         if (count != 0) {
             std.debug.print("{s}: {d} bytes differ by more than {d} (worst {d}), first at pixel {d} channel {d}\n", .{ name, count, tol, worst, first / 4, first % 4 });
+            var by: usize = 0;
+            while (by < h) : (by += 8) {
+                var bx: usize = 0;
+                while (bx < w) : (bx += 8) {
+                    var n: usize = 0;
+                    var yy = by;
+                    while (yy < @min(by + 8, h)) : (yy += 1) {
+                        var xx = bx;
+                        while (xx < @min(bx + 8, w)) : (xx += 1) {
+                            const i = (yy * w + xx) * 4;
+                            for (0..3) |c| {
+                                const d = if (got[i + c] > ref[i + c]) got[i + c] - ref[i + c] else ref[i + c] - got[i + c];
+                                if (d > tol) n += 1;
+                            }
+                        }
+                    }
+                    std.debug.print("{d:4}", .{n});
+                }
+                std.debug.print("\n", .{});
+            }
             failed = true;
         }
     }
