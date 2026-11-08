@@ -879,7 +879,7 @@ pub fn render() void {
     app.beginFrame();
 
     const g: Gfx = .{ .vt_rt = vt_rt, .vt_dw = vt_dw, .rt = rt, .dwf = dwf };
-    y += html.layoutBlocks(g, app.blocks, padding, max_width, y, true, true);
+    y += html.layoutBlocks(g, app.blocks, padding, max_width, y, true, true, null);
 
     app.content_height = y + padding;
     const max_scroll = app.content_height - app.window_height + 40;
@@ -902,7 +902,10 @@ pub fn render() void {
 
 pub const Gfx = struct { vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque };
 
-pub const BlockStyle = struct { alignment: md.Align = .none, dt: bool = false };
+pub const BlockStyle = struct { alignment: md.Align = .none };
+
+/// Width of the text most recently laid out, which measure-only passes read to size table cells.
+pub var g_last_text_w: f32 = 0;
 
 fn drawTooltip(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: app.Tooltip) void {
     const lay = createLayout(vt_dw, dwf, .{ .text = t.text }, g_text_format.?, 360) orelse return;
@@ -1080,21 +1083,18 @@ pub fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTa
 
 pub fn textBlock(g: Gfx, draw: bool, content_in: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque, style: BlockStyle) f32 {
     const content = app.images.flow(content_in);
+    g_last_text_w = 0;
     const lay = createLayout(g.vt_dw, g.dwf, content, text_format, max_width) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
     const vt = vtable(IDWriteTextLayout_VTable, lay);
     _ = vt.SetTextAlignment(lay, alignmentCode(style.alignment));
-    if (style.dt) {
-        const all = wideRange(content.text, .{ 0, @intCast(content.text.len) });
-        _ = vt.SetFontWeight(lay, 600, all);
-        _ = vt.SetFontStyle(lay, 2, all);
-    }
     // SAFETY: written by GetMetrics
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vt.GetMetrics(lay, &metrics);
+    g_last_text_w = metrics.widthIncludingTrailingWhitespace;
     if (draw) {
         drawLayout(g.vt_rt, g.rt, lay, x, y, brush, content);
-        app.noteHit(.{ .content = content, .x = x, .y = y, .w = max_width, .h = metrics.height, .font = fontOf(text_format), .header = style.dt, .alignment = style.alignment });
+        app.noteHit(.{ .content = content, .x = x, .y = y, .w = max_width, .h = metrics.height, .font = fontOf(text_format), .alignment = style.alignment });
     }
     return metrics.height;
 }
@@ -1235,6 +1235,7 @@ pub fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactor
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
     const block_height = metrics.height + 24;
+    g_last_text_w = metrics.widthIncludingTrailingWhitespace + 32;
     if (!draw) return block_height;
 
     if (g_brush_code_bg) |bg| {

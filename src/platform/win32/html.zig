@@ -46,11 +46,90 @@ fn drawKbdBox(vt_rt: *const win.ID2D1RT_VTable, rt: *anyopaque, r: win.D2D1_RECT
 }
 
 const Side = enum { left, right };
-/// A floated image: following text blocks sit beside it (width includes the gap) until `bottom`.
-const Band = struct { side: Side, width: f32, bottom: f32 };
+
+/// A float: blocks beside it keep clear of `edge` (its inner edge plus the gap) from `top` to `bottom`.
+const FloatBox = struct { side: Side, edge: f32, top: f32, bottom: f32 };
+
+const max_floats = 16;
+
+const Region = struct { x: f32, w: f32 };
+
+const Floats = struct {
+    items: [max_floats]FloatBox = undefined,
+    len: usize = 0,
+
+    fn active(f: FloatBox, y: f32) bool {
+        return f.top <= y and y < f.bottom;
+    }
+
+    fn limits(s: *const Floats, y: f32, bx: f32, bw: f32) Region {
+        var left = bx;
+        var right = bx + bw;
+        for (s.items[0..s.len]) |f| {
+            if (!active(f, y)) continue;
+            switch (f.side) {
+                .left => left = @max(left, f.edge),
+                .right => right = @min(right, f.edge),
+            }
+        }
+        return .{ .x = left, .w = right - left };
+    }
+
+    fn region(s: *const Floats, y: f32, bx: f32, bw: f32) Region {
+        const r = s.limits(y, bx, bw);
+        return .{ .x = r.x, .w = @max(r.w, 60) };
+    }
+
+    /// The next y below `y` where a float starts or ends.
+    fn change(s: *const Floats, y: f32) ?f32 {
+        var best: ?f32 = null;
+        for (s.items[0..s.len]) |f| {
+            for ([_]f32{ f.top, f.bottom }) |edge| {
+                if (edge > y and (best == null or edge < best.?)) best = edge;
+            }
+        }
+        return best;
+    }
+
+    /// Moves `y` down until a region at least `need` wide is free.
+    fn clear(s: *const Floats, y_in: f32, bx: f32, bw: f32, need: f32) f32 {
+        var y = y_in;
+        while (s.limits(y, bx, bw).w < need) y = s.change(y) orelse return y;
+        return y;
+    }
+
+    fn anyActive(s: *const Floats, y: f32) bool {
+        for (s.items[0..s.len]) |f| if (active(f, y)) return true;
+        return false;
+    }
+
+    /// Places a float `size` big at the first y at or below `y` where it fits, and returns its top left.
+    fn place(s: *Floats, side: Side, size: Extent, y_in: f32, bx: f32, bw: f32) struct { x: f32, y: f32 } {
+        var y = y_in;
+        var x: f32 = bx;
+        while (true) {
+            const r = s.limits(y, bx, bw);
+            x = if (side == .left) r.x else r.x + r.w - size.w;
+            if (size.w <= r.w or !s.anyActive(y)) break;
+            y = s.change(y) orelse break;
+        }
+        if (s.len < max_floats) {
+            s.items[s.len] = .{
+                .side = side,
+                .edge = if (side == .left) x + size.w + md.float_gap else x - md.float_gap,
+                .top = y,
+                .bottom = y + size.h,
+            };
+            s.len += 1;
+        }
+        return .{ .x = x, .y = y };
+    }
+};
+
+pub const Measure = struct { width: f32 = 0, trailing: f32 = 0 };
 
 fn blockStyleOf(block: *const md.Block) win.BlockStyle {
-    return .{ .alignment = block.alignment, .dt = block.role == .dt };
+    return .{ .alignment = block.alignment };
 }
 
 fn hidden(block: *const md.Block) bool {
@@ -70,75 +149,159 @@ fn detailsOpen(f: md.Frame) bool {
     return app.isOpen(f);
 }
 
-/// The side of a paragraph that holds nothing but floated images.
-fn floatSide(block: *const md.Block) ?Side {
-    if (block.kind != .paragraph or block.content.images.len == 0) return null;
-    var covered: usize = 0;
-    var side: ?Side = null;
-    for (block.content.images) |im| {
-        const s: Side = switch (im.float) {
-            .none => return null,
-            .left => .left,
-            .right => .right,
-        };
-        if (side != null and side.? != s) return null;
-        side = s;
-        covered += im.len;
+fn tableFloat(t: md.Table) ?Side {
+    if (comptime @hasField(md.Table, "float")) {
+        if (std.mem.eql(u8, @tagName(t.float), "left")) return .left;
+        if (std.mem.eql(u8, @tagName(t.float), "right")) return .right;
     }
-    var visible: usize = 0;
-    for (block.content.text) |c| visible += @intFromBool(c != ' ' and c != '\n');
-    return if (covered == visible) side else null;
+    return null;
 }
 
-fn flowsAround(kind: md.BlockKind) bool {
-    return switch (kind) {
-        .paragraph, .h1, .h2, .h3, .h4, .h5, .h6 => true,
-        else => false,
+fn isFloat(im: md.Image) bool {
+    return im.float != .none;
+}
+
+/// `c` without its floated images, which are drawn on their own; the result stays valid until the next frame.
+fn withoutFloats(c: md.Inline) std.mem.Allocator.Error!md.Inline {
+    var any = false;
+    for (c.images) |im| any = any or isFloat(im);
+    if (!any) return c;
+    const a = sliceArena();
+    var cuts: std.ArrayList(md.Span) = .empty;
+    for (c.images) |im| if (isFloat(im)) try cuts.append(a, .{ im.start, im.len });
+    std.mem.sort(md.Span, cuts.items, {}, struct {
+        fn less(_: void, x: md.Span, y: md.Span) bool {
+            return x[0] < y[0];
+        }
+    }.less);
+    var text: std.ArrayList(u8) = .empty;
+    var pos: u32 = 0;
+    for (cuts.items) |cut| {
+        if (cut[0] < pos) continue;
+        try text.appendSlice(a, c.text[pos..cut[0]]);
+        pos = cut[0] + cut[1];
+    }
+    try text.appendSlice(a, c.text[pos..]);
+    const Map = struct {
+        cuts: []const md.Span,
+        fn at(m: @This(), p: u32) u32 {
+            var removed: u32 = 0;
+            for (m.cuts) |cut| {
+                if (p > cut[0]) removed += @min(cut[1], p - cut[0]);
+            }
+            return p - removed;
+        }
     };
+    const m: Map = .{ .cuts = cuts.items };
+    var out: md.Inline = .{ .text = text.items };
+    inline for (.{ "bold", "italic", "code", "strike", "emoji", "sup", "links", "styles" }) |name| {
+        @field(out, name) = try remap(a, @field(c, name), m);
+    }
+    var images: std.ArrayList(md.Image) = .empty;
+    for (c.images) |im| {
+        if (isFloat(im)) continue;
+        var copy = im;
+        copy.start = m.at(im.start);
+        try images.append(a, copy);
+    }
+    out.images = images.items;
+    return out;
+}
+
+fn remap(a: std.mem.Allocator, src: anytype, m: anytype) std.mem.Allocator.Error!@TypeOf(src) {
+    const T = std.meta.Child(@TypeOf(src));
+    var out: std.ArrayList(T) = .empty;
+    for (src) |item| {
+        var copy = item;
+        const span: md.Span = if (T == md.Span) item else if (@hasField(T, "span")) item.span else .{ item.start, item.len };
+        const s = m.at(span[0]);
+        const e = m.at(span[0] + span[1]);
+        if (e <= s) continue;
+        if (T == md.Span) {
+            copy = .{ s, e - s };
+        } else if (@hasField(T, "span")) {
+            copy.span = .{ s, e - s };
+        } else {
+            copy.start = s;
+            copy.len = e - s;
+        }
+        try out.append(a, copy);
+    }
+    return out.items;
+}
+
+/// `c` cut down to the one floated image `im`, drawn as an ordinary image.
+fn floatPiece(c: md.Inline, im: md.Image) std.mem.Allocator.Error!md.Inline {
+    const a = sliceArena();
+    var piece = try sliceInline(c, im.start, im.start + im.len);
+    const images = try a.dupe(md.Image, piece.images);
+    for (images) |*i| i.float = .none;
+    piece.images = images;
+    return piece;
+}
+
+/// Bold italic over the whole run, so a `dt` lays out the same way for hit testing.
+fn dtContent(c: md.Inline) std.mem.Allocator.Error!md.Inline {
+    const a = sliceArena();
+    const all = try a.dupe(md.Span, &.{.{ 0, @as(u32, @intCast(c.text.len)) }});
+    var out = c;
+    out.bold = all;
+    out.italic = all;
+    return out;
 }
 
 /// Lays `blocks` out `w0` wide from (`x0`, `y_start`) and returns the height, drawing as it goes when `draw` is set.
-/// The page itself is the top level, which also records where each block starts for anchor jumps.
-pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_start: f32, draw: bool, top_level: bool) f32 {
+/// The page itself is the top level, which also records where each block starts for anchor jumps; `measure` gets the
+/// widest line and the gap after the last block.
+pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_start: f32, draw: bool, top_level: bool, measure: ?*Measure) f32 {
     const vt_rt = g.vt_rt;
     const rt = g.rt;
     var y = y_start;
-    var band: ?Band = null;
+    var floats: Floats = .{};
+    var last_gap: f32 = 0;
     for (blocks) |*block| {
         if (top_level) app.noteBlock(y);
         if (hidden(block)) continue;
-        if (band) |b| if (y >= b.bottom) {
-            band = null;
-        };
         const inset = block.inset();
-        var x = x0 + inset;
-        var w = @max(w0 - inset, 60);
-        if (floatSide(block)) |side| {
-            const size = imagesSize(g, block, w);
-            if (draw) _ = win.textBlock(g, true, block.content, win.g_text_format.?, x, y, w, win.g_brush_text.?, .{ .alignment = if (side == .right) .right else .left });
-            const prior = if (band) |b| b.bottom else 0;
-            band = .{ .side = side, .width = size.w + md.float_gap, .bottom = @max(prior, y + size.h) };
-            continue;
-        }
-        if (band) |b| {
-            if (flowsAround(block.kind)) {
-                if (b.side == .left) x += b.width;
-                w = @max(w - b.width, 60);
-            } else {
-                y = @max(y, b.bottom);
-                band = null;
+        const bx = x0 + inset;
+        const bw = @max(w0 - inset, 60);
+        var content = block.content;
+        if (block.kind == .paragraph and block.role != .summary) {
+            const cleaned = withoutFloats(content) catch content;
+            if (cleaned.text.ptr != content.text.ptr or cleaned.text.len != content.text.len) {
+                for (content.images) |im| if (isFloat(im)) {
+                    const piece = floatPiece(app.images.flow(content), im) catch continue;
+                    placeFloat(g, draw, &floats, piece, if (im.float == .left) .left else .right, y, bx, bw);
+                };
+                content = cleaned;
+                if (std.mem.trim(u8, content.text, " \n").len == 0) continue;
             }
         }
+        if (block.kind == .table) if (tableFloat(block.table)) |side| {
+            var tw: f32 = 0;
+            const th = tables.renderTable(vt_rt, g.vt_dw, rt, g.dwf, block.table, bx, y, bw, false, &tw);
+            const at = floats.place(side, .{ .w = tw, .h = th }, y, bx, bw);
+            if (draw) _ = tables.renderTable(vt_rt, g.vt_dw, rt, g.dwf, block.table, at.x, at.y, tw, true, null);
+            continue;
+        };
+        y = floats.clear(y, bx, bw, 120);
+        const reg = floats.region(y, bx, bw);
+        const x = reg.x;
+        const w = reg.w;
+        const shift = x - bx;
         const top = y;
         var gap: f32 = 0;
+        var natural: f32 = 0;
         const text_brush = if (block.muted()) win.g_brush_quote.? else win.g_brush_text.?;
         const style = blockStyleOf(block);
-        if (draw) for (block.marks) |l| win.drawMarker(vt_rt, g.vt_dw, rt, g.dwf, l.mark, x0 + l.inset, y);
+        if (block.role == .dt) content = dtContent(content) catch content;
+        if (draw) for (block.marks) |l| win.drawMarker(vt_rt, g.vt_dw, rt, g.dwf, l.mark, x0 + l.inset + shift, y);
 
         switch (block.kind) {
             .h1 => {
                 y += 24;
-                y += win.textBlock(g, draw, block.content, win.g_text_format_h1.?, x, y, w, win.g_brush_heading.?, style);
+                y += win.textBlock(g, draw, content, win.g_text_format_h1.?, x, y, w, win.g_brush_heading.?, style);
+                natural = win.g_last_text_w;
                 y += 8;
                 if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, win.g_brush_hr.?);
                 y += 1;
@@ -146,7 +309,8 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             },
             .h2 => {
                 y += 20;
-                y += win.textBlock(g, draw, block.content, win.g_text_format_h2.?, x, y, w, win.g_brush_heading.?, style);
+                y += win.textBlock(g, draw, content, win.g_text_format_h2.?, x, y, w, win.g_brush_heading.?, style);
+                natural = win.g_last_text_w;
                 y += 6;
                 if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, win.g_brush_hr.?);
                 y += 1;
@@ -154,7 +318,8 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             },
             .h3 => {
                 y += 16;
-                y += win.textBlock(g, draw, block.content, win.g_text_format_h3.?, x, y, w, win.g_brush_heading.?, style);
+                y += win.textBlock(g, draw, content, win.g_text_format_h3.?, x, y, w, win.g_brush_heading.?, style);
+                natural = win.g_last_text_w;
                 gap = 12;
             },
             .h4, .h5, .h6 => {
@@ -165,40 +330,44 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
                     else => win.g_text_format_h6,
                 };
                 const brush = if (block.kind == .h6) win.g_brush_quote.? else win.g_brush_heading.?;
-                y += win.textBlock(g, draw, block.content, fmt.?, x, y, w, brush, style);
+                y += win.textBlock(g, draw, content, fmt.?, x, y, w, brush, style);
+                natural = win.g_last_text_w;
                 gap = 16;
             },
             .paragraph => if (block.role == .summary) {
                 gap = summaryBlock(g, draw, block, x, &y, w, text_brush);
+                natural = win.g_last_text_w + md.details_marker_inset;
             } else {
-                y += bandedParagraph(g, draw, block, x, y, w, text_brush, style, band, x0 + inset, @max(w0 - inset, 60));
+                y += flowParagraph(g, draw, content, bx, bw, y, text_brush, style, &floats, &natural);
                 gap = if (block.role == .dt) 0 else block.paragraphGap();
             },
             .alert_title => {
                 const alert = block.frames[block.frames.len - 1].alert;
                 y += 8;
                 if (draw) win.drawAlertIcon(vt_rt, rt, alert, x, y);
-                _ = win.textBlock(g, draw, block.content, win.g_text_format_h4.?, x + 24, y - 2, w - 24, win.g_alert_fg[@intFromEnum(alert) - 1].?, .{});
+                _ = win.textBlock(g, draw, content, win.g_text_format_h4.?, x + 24, y - 2, w - 24, win.g_alert_fg[@intFromEnum(alert) - 1].?, .{});
+                natural = win.g_last_text_w + 24;
                 y += 16;
                 gap = 16;
             },
             .error_box => {
-                y += win.renderErrorBox(vt_rt, g.vt_dw, rt, g.dwf, block.content, x, y, w, draw);
+                y += win.renderErrorBox(vt_rt, g.vt_dw, rt, g.dwf, content, x, y, w, draw);
                 gap = 16;
             },
             .code_block => {
-                y += win.renderCodeBlock(vt_rt, g.vt_dw, rt, g.dwf, block.content.text, block.tokens, x, y, w, draw);
+                y += win.renderCodeBlock(vt_rt, g.vt_dw, rt, g.dwf, content.text, block.tokens, x, y, w, draw);
+                natural = win.g_last_text_w;
                 gap = 16;
             },
             .table => {
-                y += tables.renderTable(vt_rt, g.vt_dw, rt, g.dwf, block.table, x, y, w, draw, null);
+                y += tables.renderTable(vt_rt, g.vt_dw, rt, g.dwf, block.table, x, y, w, draw, &natural);
                 gap = 16;
             },
             .hr => {
-                y += 12;
-                if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 2 }, win.g_brush_hr.?);
-                y += 2;
-                gap = 14;
+                y += @max(md.hr_margin - last_gap, 0);
+                if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + md.hr_height }, win.g_brush_hr.?);
+                y += md.hr_height;
+                gap = md.hr_margin;
             },
         }
 
@@ -206,13 +375,22 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             if (f.kind != .quote) continue;
             if (f.alert != .none and !f.open) y += 8;
             const brush = if (f.alert == .none) win.g_brush_bar.? else win.g_alert_border[@intFromEnum(f.alert) - 1].?;
-            const bar_x = x0 + block.insetBefore(i);
+            const bar_x = x0 + block.insetBefore(i) + shift;
             vt_rt.FillRectangle(rt, &.{ .left = bar_x, .top = top, .right = bar_x + md.quote_bar, .bottom = y + if (f.open) gap else 0 }, brush);
         };
+        if (measure) |m| m.width = @max(m.width, x - x0 + natural);
         y += gap;
+        last_gap = gap;
     }
-    if (band) |b| y = @max(y, b.bottom);
+    for (floats.items[0..floats.len]) |f| y = @max(y, f.bottom);
+    if (measure) |m| m.trailing = last_gap;
     return y - y_start;
+}
+
+fn placeFloat(g: win.Gfx, draw: bool, floats: *Floats, piece: md.Inline, side: Side, y: f32, bx: f32, bw: f32) void {
+    const size = pieceSize(g, piece, bw);
+    const at = floats.place(side, size, y, bx, bw);
+    if (draw) _ = win.textBlock(g, true, piece, win.g_text_format.?, at.x, at.y, size.w + 1, win.g_brush_text.?, .{});
 }
 
 /// A `summary` line: triangle, text shifted right of it, and the rectangle that toggles its details.
@@ -226,7 +404,7 @@ fn summaryBlock(g: win.Gfx, draw: bool, block: *const md.Block, x: f32, y: *f32,
         if (frame) |f| app.noteToggle(.{ .x = x, .y = y.*, .w = w, .h = row }, f);
     }
     y.* += row;
-    return if (open) 4 else 16;
+    return if (open) 0 else 16;
 }
 
 const disclosure_closed = [_]alerts.Op{ .{ .move = .{ 0, -5 } }, .{ .line = .{ 7, 0 } }, .{ .line = .{ 0, 5 } }, .close };
@@ -248,8 +426,8 @@ fn drawDisclosure(g: win.Gfx, x: f32, cy: f32, open: bool) void {
 
 const Extent = struct { w: f32, h: f32 };
 
-fn imagesSize(g: win.Gfx, block: *const md.Block, w: f32) Extent {
-    const lay = win.createLayout(g.vt_dw, g.dwf, app.images.flow(block.content), win.g_text_format.?, w) orelse return .{ .w = 0, .h = 0 };
+fn pieceSize(g: win.Gfx, content: md.Inline, w: f32) Extent {
+    const lay = win.createLayout(g.vt_dw, g.dwf, app.images.flow(content), win.g_text_format.?, w) orelse return .{ .w = 0, .h = 0 };
     defer _ = win.vtable(win.IDWriteTextLayout_VTable, lay).Release(lay);
     // SAFETY: written by GetMetrics
     var m: win.DWRITE_TEXT_METRICS = undefined;
@@ -258,6 +436,11 @@ fn imagesSize(g: win.Gfx, block: *const md.Block, w: f32) Extent {
 }
 
 var g_slices: ?std.heap.ArenaAllocator = null;
+
+fn sliceArena() std.mem.Allocator {
+    if (g_slices == null) g_slices = .init(app.gpa);
+    return g_slices.?.allocator();
+}
 
 pub fn resetSlices() void {
     if (g_slices) |*a| _ = a.reset(.free_all);
@@ -286,8 +469,7 @@ fn clipSpans(a: std.mem.Allocator, src: anytype, lo: u32, hi: u32) std.mem.Alloc
 }
 
 fn sliceInline(c: md.Inline, lo: u32, hi: u32) std.mem.Allocator.Error!md.Inline {
-    if (g_slices == null) g_slices = .init(app.gpa);
-    const a = g_slices.?.allocator();
+    const a = sliceArena();
     return .{
         .text = c.text[lo..hi],
         .bold = try clipSpans(a, c.bold, lo, hi),
@@ -326,17 +508,36 @@ fn lineSplit(g: win.Gfx, content: md.Inline, w: f32, limit: f32) ?u32 {
     return null;
 }
 
-/// A paragraph beside a float stays narrow only down to the float's bottom; the rest of it runs at full width.
-fn bandedParagraph(g: win.Gfx, draw: bool, block: *const md.Block, x: f32, y: f32, w: f32, brush: *anyopaque, style: win.BlockStyle, band: ?Band, full_x: f32, full_w: f32) f32 {
-    const b = band orelse return win.textBlock(g, draw, block.content, win.g_text_format.?, x, y, w, brush, style);
-    const content = app.images.flow(block.content);
-    const at = lineSplit(g, content, w, b.bottom - y) orelse return win.textBlock(g, draw, content, win.g_text_format.?, x, y, w, brush, style);
-    var tail_lo = at;
-    while (tail_lo < content.text.len and (content.text[tail_lo] == ' ' or content.text[tail_lo] == '\n')) tail_lo += 1;
-    const head = sliceInline(content, 0, at) catch return win.textBlock(g, draw, content, win.g_text_format.?, x, y, w, brush, style);
-    const tail = sliceInline(content, tail_lo, @intCast(content.text.len)) catch return win.textBlock(g, draw, content, win.g_text_format.?, x, y, w, brush, style);
-    const head_h = win.textBlock(g, draw, head, win.g_text_format.?, x, y, w, brush, style);
-    return head_h + win.textBlock(g, draw, tail, win.g_text_format.?, full_x, y + head_h, full_w, brush, style);
+/// A paragraph keeps clear of every float it meets: each stretch of lines is laid out in the room left at its top, and the
+/// rest of the text starts again where a float starts or ends.
+fn flowParagraph(g: win.Gfx, draw: bool, content_in: md.Inline, bx: f32, bw: f32, y0: f32, brush: *anyopaque, style: win.BlockStyle, floats: *const Floats, natural: *f32) f32 {
+    var content = app.images.flow(content_in);
+    var used: f32 = 0;
+    var rounds: u32 = 0;
+    while (true) : (rounds += 1) {
+        const y = y0 + used;
+        const reg = floats.region(y, bx, bw);
+        const next = if (rounds < 64) floats.change(y) else null;
+        const at = if (next) |n| lineSplit(g, content, reg.w, n - y) else null;
+        const cut = at orelse {
+            used += win.textBlock(g, draw, content, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+            natural.* = @max(natural.*, win.g_last_text_w);
+            return used;
+        };
+        var tail_lo = cut;
+        while (tail_lo < content.text.len and (content.text[tail_lo] == ' ' or content.text[tail_lo] == '\n')) tail_lo += 1;
+        const head = sliceInline(content, 0, cut) catch {
+            used += win.textBlock(g, draw, content, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+            return used;
+        };
+        const tail = sliceInline(content, tail_lo, @intCast(content.text.len)) catch {
+            used += win.textBlock(g, draw, content, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+            return used;
+        };
+        used += win.textBlock(g, draw, head, win.g_text_format.?, reg.x, y, reg.w, brush, style);
+        natural.* = @max(natural.*, win.g_last_text_w);
+        content = tail;
+    }
 }
 
 pub fn applyStyle(lay: *anyopaque, content: md.Inline, s: md.Styled, base: f32) void {
@@ -501,6 +702,7 @@ test "dt has no gap below it and dd is inset" {
     defer fx.deinit();
     win.render();
     try testing.expectEqual(@as(usize, 4), app.hits.items.len);
+    try testing.expectEqual(@as(usize, 1), app.hits.items[0].content.italic.len);
     try testing.expectEqual(@as(f32, 40 + md.dd_inset), app.hits.items[1].x);
     const term_step = app.block_y.items[1] - app.block_y.items[0];
     const plain_step = app.block_y.items[3] - app.block_y.items[2];
@@ -551,6 +753,7 @@ test "colspan and rowspan share track sizes and valign offsets the content" {
     try testing.expectEqual(@as(f32, 5), tables.valignOffset(.middle, 10));
     try testing.expectEqual(@as(f32, 10), tables.valignOffset(.bottom, 10));
     try testing.expectEqual(@as(f32, 0), tables.valignOffset(.top, 10));
+    try testing.expectEqual(@as(f32, 5), tables.valignOffset(.none, 10));
     try testing.expectEqual(@as(f32, 0), tables.valignOffset(.bottom, -4));
 }
 
@@ -614,7 +817,6 @@ test "text beside a floated image is narrowed and the lines below it run full wi
     defer fx.deinit();
     try app.images.injectReady("wide.png", 400, 200);
     win.render();
-    std.debug.print("float hits {d} side {any} content_h {d}\n", .{ app.hits.items.len, floatSide(&.{ .kind = .paragraph, .content = pic.content }), app.content_height });
     try testing.expectEqual(@as(usize, 2), app.hits.items.len);
     const head = app.hits.items[0];
     const tail = app.hits.items[1];
@@ -622,4 +824,118 @@ test "text beside a floated image is narrowed and the lines below it run full wi
     try testing.expectApproxEqAbs(@as(f32, 820), tail.w, 0.01);
     try testing.expectApproxEqAbs(head.y + head.h, tail.y, 0.01);
     try testing.expect(head.h >= 80);
+}
+
+fn floatImage(a: std.mem.Allocator, src: []const u8, side: @FieldType(md.Image, "float")) !md.Block {
+    var b = try paragraph(a, src);
+    const images = try a.dupe(md.Image, b.content.images);
+    images[0].width = 160;
+    images[0].float = side;
+    b.content.images = images;
+    return b;
+}
+
+fn longLink(a: std.mem.Allocator, words: usize) !md.Block {
+    var long: std.ArrayList(u8) = .empty;
+    try long.appendSlice(a, "[");
+    for (0..words) |_| try long.appendSlice(a, "word ");
+    try long.appendSlice(a, "end](http://x.org)");
+    return paragraph(a, long.items);
+}
+
+test "a float inside a paragraph with text takes room from the text and stays clickable" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const mixed = try floatImage(a, "[![r](wide.png \"tip\")](http://x.org) [some text after the picture](http://y.org)", .right);
+    var fx = try Fixture.init(&.{mixed});
+    defer fx.deinit();
+    try app.images.injectReady("wide.png", 400, 200);
+    win.render();
+    try testing.expectEqual(@as(usize, 2), app.hits.items.len);
+    var piece: ?app.Hit = null;
+    var text: ?app.Hit = null;
+    for (app.hits.items) |h| {
+        if (h.content.images.len > 0) piece = h else text = h;
+    }
+    try testing.expectApproxEqAbs(@as(f32, 40 + 820 - 160), piece.?.x, 2);
+    try testing.expect(piece.?.content.images[0].float == .none);
+    try testing.expectApproxEqAbs(@as(f32, 820 - 160 - md.float_gap), text.?.w, 1);
+}
+
+test "floats on both sides and blocks of every kind keep clear of them" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const left = try floatImage(a, "![l](wide.png)", .left);
+    const right = try floatImage(a, "![r](wide.png)", .right);
+    var item = try paragraph(a, "[item](http://x.org)");
+    item.frames = &.{.{ .kind = .list, .ordered = false }};
+    var quote = try paragraph(a, "[quote](http://x.org)");
+    quote.frames = &.{.{ .kind = .quote }};
+    var fx = try Fixture.init(&.{ left, right, item, quote });
+    defer fx.deinit();
+    try app.images.injectReady("wide.png", 400, 200);
+    win.render();
+    try testing.expectEqual(@as(usize, 2), app.hits.items.len);
+    const both = 2 * (160 + md.float_gap);
+    try testing.expectApproxEqAbs(@as(f32, 40 + 160 + md.float_gap + md.list_inset), app.hits.items[0].x, 1);
+    try testing.expectApproxEqAbs(@as(f32, 820 - both - md.list_inset), app.hits.items[0].w, 1);
+    try testing.expectApproxEqAbs(@as(f32, 40 + 160 + md.float_gap + md.quote_inset), app.hits.items[1].x, 1);
+}
+
+test "a float taller than the text keeps the page long enough and a later float stacks beside the first" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const one = try floatImage(a, "![l](wide.png)", .left);
+    const two = try floatImage(a, "![l](wide.png)", .left);
+    const text = try longLink(a, 4);
+    var fx = try Fixture.init(&.{ one, two, text });
+    defer fx.deinit();
+    try app.images.injectReady("wide.png", 400, 200);
+    win.render();
+    try testing.expectEqual(@as(usize, 1), app.hits.items.len);
+    try testing.expectApproxEqAbs(@as(f32, 40 + 2 * (160 + md.float_gap)), app.hits.items[0].x, 1);
+    try testing.expect(app.content_height >= 40 + 80 + 40);
+}
+
+test "an hr is 4px with 24px margins and a measure pass matches the drawn height" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const rule: md.Block = .{ .kind = .hr };
+    const after = try paragraph(a, "[after](http://x.org)");
+    var fx = try Fixture.init(&.{ rule, after });
+    defer fx.deinit();
+    win.render();
+    try testing.expectApproxEqAbs(md.hr_margin + md.hr_height + md.hr_margin, app.block_y.items[1] - app.block_y.items[0], 0.01);
+    const g = gfxOf();
+    const drawn = layoutBlocks(g, &.{ rule, after }, 40, 820, 40, true, false, null);
+    const measured = layoutBlocks(g, &.{ rule, after }, 40, 820, 40, false, false, null);
+    try testing.expectEqual(drawn, measured);
+}
+
+test "a cell with blocks draws them inside the cell and sizes the row to them" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const first = try paragraph(a, "[one](http://x.org)");
+    const second = try paragraph(a, "[two](http://x.org)");
+    var cells = [_]md.Inline{ .{}, .{ .text = "plain" } };
+    const t: md.Table = .{
+        .columns = 2,
+        .cells = &cells,
+        .header_row = false,
+        .ext = &.{ .cell_blocks = &.{ &.{ first, second }, &.{} } },
+    };
+    var fx = try Fixture.init(&.{.{ .kind = .table, .table = t }});
+    defer fx.deinit();
+    win.render();
+    try testing.expectEqual(@as(usize, 2), app.hits.items.len);
+    try testing.expectApproxEqAbs(@as(f32, 40 + tables.cell_pad_x), app.hits.items[0].x, 1);
+    try testing.expect(app.hits.items[1].y > app.hits.items[0].y + 15);
+    const g = gfxOf();
+    const h = tables.renderTable(g.vt_rt, g.vt_dw, g.rt, g.dwf, t, 0, 0, 800, false, null);
+    try testing.expect(h > 2 * 21 + 16 + 2 * tables.cell_pad_y);
 }

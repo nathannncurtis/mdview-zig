@@ -1,6 +1,7 @@
 const win = @import("../../win32.zig");
 const app = @import("../../main.zig");
 const md = app.md;
+const html = @import("html.zig");
 const table_layout = @import("../../table_layout.zig");
 
 pub const cell_pad_x: f32 = 13;
@@ -27,8 +28,8 @@ fn layoutHeight(lay: ?*anyopaque) f32 {
 
 pub fn valignOffset(v: md.VAlign, free: f32) f32 {
     return @max(switch (v) {
-        .none, .top => 0,
-        .middle => free / 2,
+        .top => 0,
+        .none, .middle => free / 2,
         .bottom => free,
     }, 0);
 }
@@ -53,6 +54,7 @@ pub fn renderTable(vt_rt: *const win.ID2D1RT_VTable, vt_dw: *const win.IDWriteFa
     };
     const sizes = cells[0 .. rows * cols];
     const content_h = cells[rows * cols ..];
+    const g: win.Gfx = .{ .vt_rt = vt_rt, .vt_dw = vt_dw, .rt = rt, .dwf = dwf };
 
     for (0..rows) |row| {
         for (0..cols) |col| {
@@ -60,7 +62,12 @@ pub fn renderTable(vt_rt: *const win.ID2D1RT_VTable, vt_dw: *const win.IDWriteFa
             sizes[i] = 0;
             if (table_layout.covered(t, row, col)) continue;
             var natural: f32 = 0;
-            if (t.nestedAt(row, col)) |nt| {
+            const blocks = t.cellBlocks(row, col);
+            if (blocks.len > 0) {
+                var m: html.Measure = .{};
+                _ = html.layoutBlocks(g, blocks, 0, 100000, 0, false, false, &m);
+                natural = m.width;
+            } else if (t.nestedAt(row, col)) |nt| {
                 _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, 100000, false, &natural);
             } else if (cellLayout(vt_dw, dwf, t, row, col, 100000)) |lay| {
                 defer _ = win.vtable(win.IDWriteTextLayout_VTable, lay).Release(lay);
@@ -83,7 +90,11 @@ pub fn renderTable(vt_rt: *const win.ID2D1RT_VTable, vt_dw: *const win.IDWriteFa
             content_h[i] = 0;
             if (table_layout.covered(t, row, col)) continue;
             const inner = table_layout.cellWidth(t, widths, row, col) - cell_pad_x * 2;
-            if (t.nestedAt(row, col)) |nt| {
+            const blocks = t.cellBlocks(row, col);
+            if (blocks.len > 0) {
+                var m: html.Measure = .{};
+                content_h[i] = html.layoutBlocks(g, blocks, 0, inner, 0, false, false, &m) - m.trailing;
+            } else if (t.nestedAt(row, col)) |nt| {
                 content_h[i] = renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, inner, false, null) + nested_margin;
             } else {
                 layouts[i] = cellLayout(vt_dw, dwf, t, row, col, inner);
@@ -116,7 +127,10 @@ pub fn renderTable(vt_rt: *const win.ID2D1RT_VTable, vt_dw: *const win.IDWriteFa
             const ch = table_layout.cellHeight(t, heights, row, col);
             const span = t.spanAt(row, col);
             const ty = row_y + cell_pad_y + valignOffset(t.valignAt(row, col), ch - cell_pad_y * 2 - content_h[i]);
-            if (t.nestedAt(row, col)) |nt| {
+            const blocks = t.cellBlocks(row, col);
+            if (blocks.len > 0) {
+                _ = html.layoutBlocks(g, blocks, cx + cell_pad_x, cw - cell_pad_x * 2, ty, true, false, null);
+            } else if (t.nestedAt(row, col)) |nt| {
                 _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, ty, cw - cell_pad_x * 2, true, null);
             } else if (layouts[i]) |l| {
                 const content = app.images.flow(t.cell(row, col));
