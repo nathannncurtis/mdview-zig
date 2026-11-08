@@ -47,7 +47,11 @@ The comparison is on premultiplied channels. A fixture passes when the mean abso
 | `cssfilters.svg` | CSS filter functions: blur, drop-shadow, grayscale, contrast, hue-rotate, saturate, sepia, brightness, invert, opacity |
 | `tile.svg`, `feimage.svg` | `feImage` from an element with `feTile`, `feImage` from an element |
 | `diffuse.svg`, `specular.svg` | diffuse lighting with a distant light, specular lighting with a point light |
+| `marks.svg` | accented Latin and Vietnamese: precomposed and decomposed text, GPOS mark-to-base and mark-to-mark placement, `ccmp` (font embedded as a data URI through `@font-face`) |
+| `indic.svg` | Devanagari: syllable clustering, reph, pre-base matra, conjuncts and half forms (font embedded the same way) |
 | `nested.svg` | `viewBox` with `slice`, nested viewport with `meet`, rotated and scaled groups, group opacity |
 | `card.svg` | a stats-card style SVG with CSS `animation` and `fill-mode: forwards` |
 
 Text is drawn from the shared font layer in `src/font`: installed fonts resolved like a browser does, with the bundled Liberation Sans subset as the last resort.
+
+`marks.svg` and `indic.svg` carry subsets of Noto Sans and Noto Sans Devanagari (SIL Open Font License 1.1, `LICENSE-noto-ofl.txt`) as `data:` fonts, so the reference and the renderer shape the same font on every OS. Both keep the full GSUB, GPOS and GDEF tables.
