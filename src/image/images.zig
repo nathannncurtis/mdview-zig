@@ -1,10 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const image = @import("image/image.zig");
-const svg = @import("image/svg.zig");
-const links = @import("links.zig");
+const image = @import("image.zig");
+const svg = @import("svg.zig");
+const links = @import("../markdown/links.zig");
 const scale = @import("scale.zig");
-const md = @import("markdown.zig");
+const md = @import("../markdown/markdown.zig");
 
 pub const max_download: usize = 20 * 1024 * 1024;
 pub const max_local: usize = 128 * 1024 * 1024;
@@ -511,7 +511,7 @@ fn sizedWork(e: *Entry, w: u32, h: u32, clock: u32) void {
 }
 
 // Chromium's IDR_BROKENIMAGE (third_party/blink/public/default_{100,200}_percent/blink/broken_image.png), BSD licence in image/chromium/LICENSE.
-const icon_files = [2][]const u8{ @embedFile("image/chromium/broken_image_100.png"), @embedFile("image/chromium/broken_image_200.png") };
+const icon_files = [2][]const u8{ @embedFile("chromium/broken_image_100.png"), @embedFile("chromium/broken_image_200.png") };
 var icon_pics: [2]?*Picture = .{ null, null };
 var icon_failed: [2]bool = .{ false, false };
 

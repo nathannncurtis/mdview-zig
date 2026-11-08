@@ -33,7 +33,7 @@ var data_dir: ?[]const u8 = null;
 var scroll_path: ?[]const u8 = null;
 
 const links = @import("markdown/links.zig");
-pub const images = @import("images.zig");
+pub const images = @import("image/images.zig");
 
 pub const Font = enum { body, h1, h2, h3, h4, h5, h6 };
 

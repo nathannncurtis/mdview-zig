@@ -941,8 +941,6 @@ const testing = std.testing;
 
 test {
     _ = inl;
-    _ = @import("images.zig");
-    _ = @import("scale.zig");
     _ = highlight;
     _ = links;
     _ = @import("unicode_test.zig");
