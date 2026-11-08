@@ -77,7 +77,6 @@ pub const Bands = struct {
 
 pub var sizing_float = false;
 pub var measuring = false;
-pub var block_italic = false;
 pub var nested: u32 = 0;
 pub var extent: f32 = 0;
 pub var splits: ?std.heap.ArenaAllocator = null;
@@ -1023,32 +1022,13 @@ test "a centred summary toggles everywhere except where its link is drawn" {
     try std.testing.expect(app.isOpen(frames[0]));
 }
 
-test "a dt block hits as italic, and the hit is laid out italic" {
-    app.gpa = std.heap.page_allocator;
-    defer app.hits.clearAndFree(app.gpa);
-    defer app.block_y.clearAndFree(app.gpa);
-    defer resetBoxes();
-    const link: md.Link = .{ .start = 0, .len = 4, .target = "x" };
-    const blocks = [_]md.Block{
-        .{ .kind = .paragraph, .role = .dt, .content = .{ .text = "term", .links = &.{link} } },
-        .{ .kind = .paragraph, .content = .{ .text = "text", .links = &.{link} } },
-    };
-    const p = try Probe.init(800, 800);
-    defer p.deinit();
-    app.hits.clearRetainingCapacity();
-    _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 500, 0);
-    try std.testing.expectEqual(@as(usize, 2), app.hits.items.len);
-    try std.testing.expect(app.hits.items[0].italic);
-    try std.testing.expect(!app.hits.items[1].italic);
-}
-
 test "dt text is semibold on its own range" {
     app.gpa = std.heap.page_allocator;
     defer resetBoxes();
     const content: md.Inline = .{ .text = "a term b", .styles = &.{.{ .span = .{ 2, 4 }, .kind = .semibold }} };
     const p = try Probe.init(400, 100);
     defer p.deinit();
-    setInline(p.layout, content, 400, "Sans Italic 12");
+    setInline(p.layout, content, 400, "Sans 12");
     const weight: *c.PangoAttrInt = @ptrCast(@alignCast(attrAt(p.layout, 3, c.PANGO_ATTR_WEIGHT) orelse return error.TestUnexpectedResult));
     try std.testing.expectEqual(@as(c_int, c.PANGO_WEIGHT_SEMIBOLD), weight.value);
     try std.testing.expect(attrAt(p.layout, 0, c.PANGO_ATTR_WEIGHT) == null);
