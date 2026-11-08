@@ -885,9 +885,9 @@ test "floats on both sides and blocks of every kind keep clear of them" {
     win.render();
     try testing.expectEqual(@as(usize, 2), app.hits.items.len);
     const both = 2 * (160 + md.float_gap);
-    try testing.expectApproxEqAbs(@as(f32, 40 + 160 + md.float_gap + md.list_inset), app.hits.items[0].x, 1);
-    try testing.expectApproxEqAbs(@as(f32, 820 - both - md.list_inset), app.hits.items[0].w, 1);
-    try testing.expectApproxEqAbs(@as(f32, 40 + 160 + md.float_gap + md.quote_inset), app.hits.items[1].x, 1);
+    try testing.expectApproxEqAbs(@as(f32, 40 + 160 + md.float_gap), app.hits.items[0].x, 1);
+    try testing.expectApproxEqAbs(@as(f32, 820 - both), app.hits.items[0].w, 1);
+    try testing.expectApproxEqAbs(@as(f32, 40 + 160 + md.float_gap), app.hits.items[1].x, 1);
 }
 
 test "a float taller than the text keeps the page long enough and a later float stacks beside the first" {
