@@ -962,3 +962,28 @@ test "an empty block has no height and is followed by the usual 16px gap" {
     try std.testing.expectEqual(@as(usize, 2), app.block_y.items.len);
     try std.testing.expectApproxEqAbs(@as(f32, 16), app.block_y.items[1] - app.block_y.items[0], 0.01);
 }
+
+test "a table with align right floats and the text beside it is narrower" {
+    app.gpa = std.heap.page_allocator;
+    defer app.hits.clearAndFree(app.gpa);
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const cells = [_]md.Inline{ .{ .text = "one" }, .{ .text = "two" } };
+    const table: md.Table = .{ .columns = 2, .aligns = &.{ .none, .none }, .cells = &cells, .header_row = false, .float = .right };
+    const link: md.Link = .{ .start = 0, .len = 4, .target = "x" };
+    const blocks = [_]md.Block{
+        .{ .kind = .table, .table = table },
+        .{ .kind = .paragraph, .content = .{ .text = "text beside", .links = &.{link} } },
+    };
+    const p = try Probe.init(800, 800);
+    defer p.deinit();
+    app.hits.clearRetainingCapacity();
+    app.block_y.clearRetainingCapacity();
+    var table_w: f32 = 0;
+    _ = renderTable(p.cr, p.layout, table, 0, 0, 600, false, &table_w);
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 600, 0);
+    try std.testing.expectEqual(@as(f32, 0), app.block_y.items[1]);
+    try std.testing.expectEqual(@as(usize, 1), app.hits.items.len);
+    try std.testing.expectEqual(@as(f32, 0), app.hits.items[0].x);
+    try std.testing.expectApproxEqAbs(600 - table_w - md.float_gap, app.hits.items[0].w, 0.01);
+}
