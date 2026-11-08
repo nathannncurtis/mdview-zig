@@ -77,6 +77,17 @@ fn isColorText(s: []const u8) bool {
     return sty.parseColor(t) != null;
 }
 
+fn valueDistance(arena: Allocator, p: []const u8, q: []const u8) f64 {
+    const tp = tokenize(arena, p) catch return 1;
+    const tq = tokenize(arena, q) catch return 1;
+    if (!sameSkeleton(tp, tq)) return 1;
+    var sum: f64 = 0;
+    for (tp, tq) |x, y| if (x.num) {
+        sum += (x.v - y.v) * (x.v - y.v);
+    };
+    return @sqrt(sum);
+}
+
 pub fn lerpStr(arena: Allocator, a: []const u8, b: []const u8, t: f64) Error![]const u8 {
     if (isColorText(a) and isColorText(b)) {
         const ca = sty.parseColor(a).?;
@@ -489,6 +500,19 @@ fn animValue(c: *Ctx, a: *const Anim, st: State, base: ?[]const u8) Error!?[]con
     if (vals.len > 1) {
         var kt = try numList(arena, n.attr("keyTimes"));
         const discrete = std.mem.eql(u8, mode, "discrete");
+        if (std.mem.eql(u8, mode, "paced") and vals.len > 1) {
+            const tmp = try arena.alloc(f64, vals.len);
+            tmp[0] = 0;
+            var total: f64 = 0;
+            for (1..vals.len) |i| {
+                total += valueDistance(arena, vals[i - 1], vals[i]);
+                tmp[i] = total;
+            }
+            if (total > 0) {
+                for (tmp) |*x| x.* /= total;
+                kt = tmp;
+            } else kt = &.{};
+        }
         if (kt.len != vals.len or kt[0] != 0) {
             const tmp = try arena.alloc(f64, vals.len);
             for (tmp, 0..) |*x, i| {
@@ -623,7 +647,8 @@ fn motionString(c: *Ctx, a: *const Anim, st: State) Error!?[]const u8 {
     } else {
         const tmp = try arena.create(Node);
         tmp.* = .{ .tag = "animate" };
-        for ([_][]const u8{ "values", "from", "to", "by", "keyTimes", "calcMode", "keySplines" }) |nm| if (n.attr(nm)) |v| try tmp.attrs.append(arena, .{ .name = nm, .value = v });
+        for ([_][]const u8{ "values", "from", "to", "by", "keyTimes", "keySplines" }) |nm| if (n.attr(nm)) |v| try tmp.attrs.append(arena, .{ .name = nm, .value = v });
+        try tmp.attrs.append(arena, .{ .name = "calcMode", .value = n.attr("calcMode") orelse "paced" });
         var f2 = a.*;
         f2.node = tmp;
         const v = (try animValue(c, &f2, .{ .frac = frac, .iter = 0, .ended = st.ended }, null)) orelse return null;

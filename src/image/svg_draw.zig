@@ -440,6 +440,31 @@ fn langOk(n: *const Node) bool {
     return false;
 }
 
+threadlocal var current: ?*Renderer = null;
+
+pub fn setCurrent(r: ?*Renderer) ?*Renderer {
+    const prev = current;
+    current = r;
+    return prev;
+}
+
+/// SVG2 geometry properties set through CSS win over the attribute of the same name.
+pub fn attrOf(n: *const Node, name: []const u8) ?[]const u8 {
+    if (current) |r| if (r.geo.get(n)) |list| {
+        var i = list.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, list[i].name, name)) return list[i].value;
+        }
+    };
+    return n.attr(name);
+}
+
+fn isGeometryName(name: []const u8) bool {
+    inline for (.{ "x", "y", "width", "height", "r", "rx", "ry", "cx", "cy", "d" }) |g| if (std.mem.eql(u8, name, g)) return true;
+    return false;
+}
+
 pub const Renderer = struct {
     gpa: std.mem.Allocator,
     arena: std.mem.Allocator,
@@ -463,6 +488,7 @@ pub const Renderer = struct {
     nest: u32 = 0,
     renderNested: ?*const fn (std.mem.Allocator, []const u8, u32, u32, u32, f64) Error!image.Image = null,
     time_ms: f64 = 0,
+    geo: std.AutoHashMapUnmanaged(*const Node, []const sty.Var) = .empty,
     root_vw: f64 = 100,
     root_vh: f64 = 100,
 
@@ -538,6 +564,22 @@ pub const Renderer = struct {
             try vars.append(r.arena, .{ .name = d.name, .value = val });
         }
         if (have_vars) s.vars = vars.items;
+        var geo: std.ArrayList(sty.Var) = .empty;
+        for (decls.items) |d| {
+            if (!isGeometryName(d.name)) continue;
+            var val = (try sty.resolveValue(r.arena, d.value, s.vars, lc, 0)) orelse continue;
+            if (std.mem.eql(u8, d.name, "d")) {
+                if (std.mem.eql(u8, val, "none")) continue;
+                if (std.mem.startsWith(u8, val, "path(")) {
+                    const open = std.mem.indexOfAny(u8, val, "\"'") orelse continue;
+                    const close = std.mem.lastIndexOfAny(u8, val, "\"'") orelse continue;
+                    if (close <= open) continue;
+                    val = val[open + 1 .. close];
+                }
+            }
+            try geo.append(r.arena, .{ .name = d.name, .value = val });
+        }
+        if (geo.items.len > 0) try r.geo.put(r.arena, node, geo.items);
         for ([_]bool{ true, false }) |font_pass| {
             for (decls.items) |d| {
                 if (std.mem.startsWith(u8, d.name, "--")) continue;
@@ -581,7 +623,7 @@ pub const Renderer = struct {
     }
 
     fn lenA(n: *const Node, name: []const u8, axis: sty.Axis, c: sty.LenCtx, def: f64) f64 {
-        return sty.lenOr(n.attr(name), axis, c, def);
+        return sty.lenOr(attrOf(n, name), axis, c, def);
     }
 
     pub fn drawNode(r: *Renderer, node: *Node, parent: *const State) Error!void {
@@ -685,7 +727,24 @@ pub const Renderer = struct {
             }
             return r.drawContent(node, st);
         }
-        const need = st.target.w * st.target.h * 4;
+        var ox: i64 = 0;
+        var oy: i64 = 0;
+        var bw: usize = st.target.w;
+        var bh: usize = st.target.h;
+        if (has_filter) if (try r.filterBounds(st, node)) |fb| {
+            const nx0 = @min(0, fb[0]);
+            const ny0 = @min(0, fb[1]);
+            const nx1 = @max(@as(i64, @intCast(st.target.w)), fb[2]);
+            const ny1 = @max(@as(i64, @intCast(st.target.h)), fb[3]);
+            const px_total: u64 = @as(u64, @intCast(nx1 - nx0)) * @as(u64, @intCast(ny1 - ny0));
+            if (px_total <= image.max_pixels) {
+                ox = nx0;
+                oy = ny0;
+                bw = @intCast(nx1 - nx0);
+                bh = @intCast(ny1 - ny0);
+            }
+        };
+        const need = bw * bh * 4;
         if (r.layer_depth >= max_layer_depth or r.layer_bytes + need > max_layer_bytes) return r.drawContent(node, st);
         r.layer_depth += 1;
         r.layer_bytes += need;
@@ -693,14 +752,44 @@ pub const Renderer = struct {
             r.layer_depth -= 1;
             r.layer_bytes -= need;
         }
-        try r.charge(@as(u64, st.target.w) * st.target.h * 2);
-        var layer = try Layer.init(r.gpa, st.target.w, st.target.h);
+        try r.charge(@as(u64, bw) * bh * 2);
+        var layer = try Layer.init(r.gpa, bw, bh);
         defer layer.deinit(r.gpa);
         var inner = st.*;
         inner.target = &layer;
         inner.clip = null;
+        const shifted = Mat.translate(@floatFromInt(-ox), @floatFromInt(-oy)).mul(st.ctm);
+        const saved_w = r.w;
+        const saved_h = r.h;
+        if (ox != 0 or oy != 0 or bw != st.target.w or bh != st.target.h) {
+            inner.ctm = shifted;
+            r.w = bw;
+            r.h = bh;
+        }
+        defer {
+            r.w = saved_w;
+            r.h = saved_h;
+        }
         try r.drawContent(node, &inner);
-        if (has_filter) try r.applyFilterList(&layer, st, node);
+        if (has_filter) {
+            var fst = st.*;
+            fst.ctm = inner.ctm;
+            try r.applyFilterList(&layer, &fst, node);
+        }
+        r.w = saved_w;
+        r.h = saved_h;
+        if (bw != st.target.w or bh != st.target.h) {
+            var vis = try Layer.init(r.gpa, st.target.w, st.target.h);
+            for (0..st.target.h) |row| {
+                const sy: i64 = @as(i64, @intCast(row)) - oy;
+                if (sy < 0 or sy >= bh) continue;
+                const sx0: i64 = -ox;
+                const n = st.target.w;
+                @memcpy(vis.px[row * st.target.w * 4 ..][0 .. n * 4], layer.px[(@as(usize, @intCast(sy)) * bw + @as(usize, @intCast(sx0))) * 4 ..][0 .. n * 4]);
+            }
+            layer.deinit(r.gpa);
+            layer = vis;
+        }
         var masks: [3][]const u8 = undefined;
         var n: usize = 0;
         if (st.clip) |c| {
@@ -724,6 +813,32 @@ pub const Renderer = struct {
         if (s.blend != .normal) {
             blendLayer(st.target, &layer, s.opacity, masks[0..n], s.blend);
         } else compositeLayer(st.target, &layer, s.opacity, masks[0..n]);
+    }
+
+    fn filterBounds(r: *Renderer, st: *const State, node: *Node) Error!?[4]i64 {
+        var depth: u32 = 0;
+        var start: usize = 0;
+        const v = st.style.filter;
+        var i: usize = 0;
+        while (i <= v.len) : (i += 1) {
+            const c: u8 = if (i < v.len) v[i] else ' ';
+            if (c == '(') depth += 1;
+            if (c == ')' and depth > 0) depth -= 1;
+            if (std.ascii.isWhitespace(c) and depth == 0) {
+                const tok = v[start..i];
+                start = i + 1;
+                if (sty.parseUrlRef(tok)) |u| if (r.findTag(u.id, "filter")) |fnode| {
+                    const reg = (try @import("svg_filter_apply.zig").region(r, fnode, st, node)) orelse return null;
+                    return .{
+                        @intFromFloat(std.math.clamp(@floor(reg.x0), -1e7, 1e7)),
+                        @intFromFloat(std.math.clamp(@floor(reg.y0), -1e7, 1e7)),
+                        @intFromFloat(std.math.clamp(@ceil(reg.x1), -1e7, 1e7)),
+                        @intFromFloat(std.math.clamp(@ceil(reg.y1), -1e7, 1e7)),
+                    };
+                };
+            }
+        }
+        return null;
     }
 
     fn hasFilter(r: *Renderer, v: []const u8) bool {
@@ -828,8 +943,8 @@ pub const Renderer = struct {
         s2.via_use = true;
         s2.ov_w = null;
         s2.ov_h = null;
-        if (sty.parseLen(node.attr("width") orelse "")) |l| s2.ov_w = sty.resolveLen(l, .x, c);
-        if (sty.parseLen(node.attr("height") orelse "")) |l| s2.ov_h = sty.resolveLen(l, .y, c);
+        if (sty.parseLen(attrOf(node, "width") orelse "")) |l| s2.ov_w = sty.resolveLen(l, .x, c);
+        if (sty.parseLen(attrOf(node, "height") orelse "")) |l| s2.ov_h = sty.resolveLen(l, .y, c);
         if (std.mem.eql(u8, ref.tag, "symbol") or std.mem.eql(u8, ref.tag, "svg")) {
             if (s2.ov_w == null) s2.ov_w = if (std.mem.eql(u8, ref.tag, "svg")) null else st.vw;
             if (s2.ov_h == null) s2.ov_h = if (std.mem.eql(u8, ref.tag, "svg")) null else st.vh;
@@ -860,7 +975,7 @@ pub const Renderer = struct {
         const a = r.gpa;
         const tag = node.tag;
         if (std.mem.eql(u8, tag, "path")) {
-            try raster.parsePathData(a, node.attr("d") orelse return, path);
+            try raster.parsePathData(a, attrOf(node, "d") orelse return, path);
         } else if (std.mem.eql(u8, tag, "rect")) {
             const x = lenA(node, "x", .x, c, 0);
             const y = lenA(node, "y", .y, c, 0);

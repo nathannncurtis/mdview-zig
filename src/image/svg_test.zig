@@ -292,3 +292,41 @@ test "tile, image, lighting and displacement primitives render" {
     defer img.deinit(a);
     try std.testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, &pix(img, 24, 9, 9));
 }
+
+test "CSS geometry properties override attributes" {
+    const a = std.testing.allocator;
+    var r = try svg.render(a, "<svg width='10' height='4'><style>rect{width:calc(100% - 4px);height:4px;x:2px}</style><rect width='1' height='1'/></svg>", 10, 4);
+    defer r.deinit(a);
+    try std.testing.expectEqual(@as(u8, 0), pix(r, 10, 1, 1)[3]);
+    try std.testing.expectEqual(@as(u8, 255), pix(r, 10, 5, 1)[3]);
+    try std.testing.expectEqual(@as(u8, 0), pix(r, 10, 9, 1)[3]);
+    var c = try svg.render(a, "<svg width='10' height='10'><style>circle{cx:5px;cy:5px;r:4px} path{d:path(\"M0 0H3V3H0z\")}</style><circle/><path d='M9 9h1v1z'/></svg>", 10, 10);
+    defer c.deinit(a);
+    try std.testing.expectEqual(@as(u8, 255), pix(c, 10, 5, 5)[3]);
+    try std.testing.expectEqual(@as(u8, 255), pix(c, 10, 1, 1)[3]);
+    try std.testing.expectEqual(@as(u8, 0), pix(c, 10, 9, 9)[3]);
+}
+
+test "filters see content past the image edge" {
+    const a = std.testing.allocator;
+    var img = try svg.render(a, "<svg width='10' height='10'><filter id='f' filterUnits='userSpaceOnUse' x='-20' y='-20' width='60' height='60'><feOffset dx='10' dy='0'/></filter><rect x='-8' y='2' width='6' height='4' fill='#000' filter='url(#f)'/></svg>", 10, 10);
+    defer img.deinit(a);
+    try std.testing.expectEqual(@as(u8, 255), pix(img, 10, 5, 3)[3]);
+    try std.testing.expectEqual(@as(u8, 0), pix(img, 10, 0, 3)[3]);
+}
+
+test "paced animation spends time by distance" {
+    const a = std.testing.allocator;
+    const src = "<svg width='12' height='2'><rect width='0' height='2'><animate attributeName='width' values='0;10;12' dur='10s' calcMode='paced'/></rect></svg>";
+    var img = try svg.renderAt(a, src, 12, 2, 5000);
+    defer img.deinit(a);
+    try std.testing.expectEqual(@as(u8, 255), pix(img, 12, 5, 1)[3]);
+    try std.testing.expectEqual(@as(u8, 0), pix(img, 12, 7, 1)[3]);
+}
+
+test "event based begins stay idle in an image" {
+    const a = std.testing.allocator;
+    var img = try svg.renderAt(a, "<svg width='4' height='2'><rect width='0' height='2'><animate attributeName='width' to='4' dur='1s' begin='click' fill='freeze'/></rect></svg>", 4, 2, 5000);
+    defer img.deinit(a);
+    try std.testing.expectEqual(@as(u8, 0), pix(img, 4, 1, 1)[3]);
+}

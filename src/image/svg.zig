@@ -74,6 +74,8 @@ fn renderNested(alloc: std.mem.Allocator, bytes: []const u8, width: u32, height:
     try anim.applySmil(arena, root, time_ms);
     var r = draw.Renderer.init(alloc, arena);
     defer r.deinit();
+    const prev_current = draw.setCurrent(&r);
+    defer _ = draw.setCurrent(prev_current);
     r.nest = nest;
     r.renderNested = renderNested;
     r.time_ms = time_ms;

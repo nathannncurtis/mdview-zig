@@ -225,17 +225,15 @@ fn transferOf(r: *draw.Renderer, f: *const Node) Error!filt.Transfer {
     return t;
 }
 
-pub fn apply(r: *draw.Renderer, fnode: *Node, layer: *draw.Layer, st: *const draw.State, target: *Node) Error!void {
-    const gpa = r.gpa;
+pub const Region = struct { fx: f64, fy: f64, fw: f64, fh: f64, x0: f64, y0: f64, x1: f64, y1: f64, bb: ?draw.BBox };
+
+pub fn region(r: *draw.Renderer, fnode: *Node, st: *const draw.State, target: *Node) Error!?Region {
     const fu_bbox = !std.mem.eql(u8, fnode.attr("filterUnits") orelse "", "userSpaceOnUse");
     const pu_bbox = std.mem.eql(u8, fnode.attr("primitiveUnits") orelse "", "objectBoundingBox");
     var bb: ?draw.BBox = null;
     if (fu_bbox or pu_bbox) {
         bb = try r.bboxOfNode(target, st, raster.Mat.identity, false);
-        if (bb == null or !(bb.?.w() > 0 and bb.?.h() > 0)) {
-            @memset(layer.px, 0);
-            return;
-        }
+        if (bb == null or !(bb.?.w() > 0 and bb.?.h() > 0)) return null;
     }
     const lcx: sty.LenCtx = .{ .font_size = st.style.font_size, .vw = st.vw, .vh = st.vh };
     const fnum = struct {
@@ -256,10 +254,7 @@ pub fn apply(r: *draw.Renderer, fnode: *Node, layer: *draw.Layer, st: *const dra
         fw *= b.w();
         fh *= b.h();
     }
-    if (!(fw > 0 and fh > 0)) {
-        @memset(layer.px, 0);
-        return;
-    }
+    if (!(fw > 0 and fh > 0)) return null;
     var x0: f64 = std.math.inf(f64);
     var y0: f64 = std.math.inf(f64);
     var x1: f64 = -std.math.inf(f64);
@@ -271,12 +266,28 @@ pub fn apply(r: *draw.Renderer, fnode: *Node, layer: *draw.Layer, st: *const dra
         x1 = @max(x1, q.x);
         y1 = @max(y1, q.y);
     }
+    return .{ .fx = fx, .fy = fy, .fw = fw, .fh = fh, .x0 = x0, .y0 = y0, .x1 = x1, .y1 = y1, .bb = bb };
+}
+
+pub fn apply(r: *draw.Renderer, fnode: *Node, layer: *draw.Layer, st: *const draw.State, target: *Node) Error!void {
+    const gpa = r.gpa;
+    const pu_bbox = std.mem.eql(u8, fnode.attr("primitiveUnits") orelse "", "objectBoundingBox");
+    const reg = (try region(r, fnode, st, target)) orelse {
+        @memset(layer.px, 0);
+        return;
+    };
+    const bb = reg.bb;
+    const fx = reg.fx;
+    const fy = reg.fy;
+    const fw = reg.fw;
+    const fh = reg.fh;
+    const lcx: sty.LenCtx = .{ .font_size = st.style.font_size, .vw = st.vw, .vh = st.vh };
     const lw: f64 = @floatFromInt(layer.w);
     const lh: f64 = @floatFromInt(layer.h);
-    const ix0 = @max(@floor(x0), 0);
-    const iy0 = @max(@floor(y0), 0);
-    const ix1 = @min(@ceil(x1), lw);
-    const iy1 = @min(@ceil(y1), lh);
+    const ix0 = @max(@floor(reg.x0), 0);
+    const iy0 = @max(@floor(reg.y0), 0);
+    const ix1 = @min(@ceil(reg.x1), lw);
+    const iy1 = @min(@ceil(reg.y1), lh);
     if (!(ix0 < ix1 and iy0 < iy1)) {
         @memset(layer.px, 0);
         return;
@@ -285,7 +296,6 @@ pub fn apply(r: *draw.Renderer, fnode: *Node, layer: *draw.Layer, st: *const dra
     const ry: usize = @intFromFloat(iy0);
     const rw: usize = @as(usize, @intFromFloat(ix1)) - rx;
     const rh: usize = @as(usize, @intFromFloat(iy1)) - ry;
-    if (rw * rh > 6_000_000) return;
     try r.charge(@as(u64, rw) * rh * 40);
 
     var source = try filt.Img.init(gpa, rw, rh);
