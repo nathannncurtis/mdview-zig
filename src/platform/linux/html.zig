@@ -791,6 +791,13 @@ pub fn kbdBox(r: StyleRect) [2]f32 {
 }
 
 pub const kbd_box_h: f32 = 20;
+pub const break_line_h: f32 = 24;
+
+/// A block of only line breaks is one 24px line per break.
+pub fn breakLinesHeight(content: md.Inline) f32 {
+    return break_line_h * @as(f32, @floatFromInt(std.mem.count(u8, content.text, "
+")));
+}
 
 test "a cell holds blocks laid out inside it and not noted as top-level blocks" {
     app.gpa = std.heap.page_allocator;
@@ -922,4 +929,40 @@ test "a rule is 4px with 24px margins that collapse into the paragraph gap" {
     _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 500, 0);
     try std.testing.expectEqual(@as(usize, 3), app.block_y.items.len);
     try std.testing.expectApproxEqAbs(md.hr_margin - 16 + md.hr_height + md.hr_margin, app.block_y.items[2] - app.block_y.items[1], 0.01);
+}
+
+test "a block of line breaks is one 24px line per break with no gap after" {
+    app.gpa = std.heap.page_allocator;
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const blocks = [_]md.Block{
+        .{ .kind = .paragraph, .content = .{ .text = "above" } },
+        .{ .kind = .paragraph, .role = .break_lines, .content = .{ .text = "
+
+
+" } },
+        .{ .kind = .paragraph, .content = .{ .text = "below" } },
+    };
+    const p = try Probe.init(600, 600);
+    defer p.deinit();
+    app.block_y.clearRetainingCapacity();
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 500, 0);
+    try std.testing.expectEqual(@as(usize, 3), app.block_y.items.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 72), app.block_y.items[2] - app.block_y.items[1], 0.01);
+}
+
+test "an empty block has no height and is followed by the usual 16px gap" {
+    app.gpa = std.heap.page_allocator;
+    defer app.block_y.clearAndFree(app.gpa);
+    defer resetBoxes();
+    const blocks = [_]md.Block{
+        .{ .kind = .paragraph, .role = .empty },
+        .{ .kind = .paragraph, .content = .{ .text = "after" } },
+    };
+    const p = try Probe.init(600, 600);
+    defer p.deinit();
+    app.block_y.clearRetainingCapacity();
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 0, 500, 0);
+    try std.testing.expectEqual(@as(usize, 2), app.block_y.items.len);
+    try std.testing.expectApproxEqAbs(@as(f32, 16), app.block_y.items[1] - app.block_y.items[0], 0.01);
 }

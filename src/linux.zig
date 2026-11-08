@@ -468,7 +468,11 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
                 y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, if (block.kind == .h6) col_quote else col_text, font);
                 gap = 16;
             },
-            .paragraph => if (!floatOnly(block.content)) {
+            .paragraph => if (block.role == .empty) {
+                gap = block.paragraphGap();
+            } else if (block.role == .break_lines) {
+                y += html.breakLinesHeight(block.content);
+            } else if (!floatOnly(block.content)) {
                 const font: [*:0]const u8 = if (block.role == .dt) "Sans Bold Italic 12" else "Sans 12";
                 const before = y;
                 y += renderBeside(cr, pango_layout, block.content, x, y, cw, text_col, font, beside);
