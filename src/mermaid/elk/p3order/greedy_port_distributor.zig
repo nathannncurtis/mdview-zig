@@ -7,13 +7,17 @@ const BetweenLayerEdgeTwoNodeCrossingsCounter = @import("../intermediate/greedys
 
 pub const GreedyPortDistributor = struct {
     a: std.mem.Allocator,
-    crossings_counter: CrossingsCounter = undefined,
+    crossings_counter: CrossingsCounter,
     n_ports: i32 = 0,
     hierarchical_crossings_counter: ?*BetweenLayerEdgeTwoNodeCrossingsCounter = null,
 
     pub fn create(a: std.mem.Allocator) lg.Error!*GreedyPortDistributor {
         const self = try a.create(GreedyPortDistributor);
-        self.* = .{ .a = a };
+        self.* = .{
+            .a = a,
+            // SAFETY: initialize sets it before any use
+            .crossings_counter = undefined,
+        };
         return self;
     }
 

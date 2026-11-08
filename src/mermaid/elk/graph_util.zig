@@ -10,6 +10,7 @@ pub fn placeNodesHorizontally(layer: *lg.Layer, xoffset: f64) void {
         max_right_margin = @import("util.zig").javaMax(max_right_margin, node.margin.right);
     }
     for (layer.nodes.items) |node| {
+        // SAFETY: set in every switch branch before it is read
         var ratio: f64 = undefined;
         switch (node.p.alignment) {
             .left => ratio = 0.0,
@@ -158,6 +159,7 @@ fn centerPoint(point: *lg.Vec, boundary: lg.Vec, side: lg.PortSide) void {
 
 // LGraphUtil.provideCollectorPort
 pub fn provideCollectorPort(node: *lg.LNode, port_type: lg.PortType, side: lg.PortSide) lg.Error!?*lg.LPort {
+    // SAFETY: set on every path before it is read
     var port: *lg.LPort = undefined;
     switch (port_type) {
         .input => {
@@ -280,6 +282,7 @@ pub fn createExternalPortDummy(holder: *lg.Props, port_constraints: lg.PortConst
         final_side = if (net_flow >= 0) lg.PortSide.fromDirection(layout_direction) else lg.PortSide.fromDirection(layout_direction).opposed();
         holder.port_side = final_side;
     }
+    // SAFETY: set on every path before it is read
     var anchor: lg.Vec = undefined;
     var explicit_anchor = false;
     if (holder.port_anchor) |pa| {

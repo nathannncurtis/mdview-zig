@@ -68,12 +68,12 @@ const tables: Tables = blk: {
         .vertical = @splat(@splat(null)),
         .horizontal = @splat(@splat(null)),
     };
-    const N = @intFromEnum(lg.NodeType.normal);
-    const LE = @intFromEnum(lg.NodeType.long_edge);
-    const NS = @intFromEnum(lg.NodeType.north_south_port);
-    const EP = @intFromEnum(lg.NodeType.external_port);
-    const LA = @intFromEnum(lg.NodeType.label);
-    const BP = @intFromEnum(lg.NodeType.breaking_point);
+    const N = @backingInt(lg.NodeType.normal);
+    const LE = @backingInt(lg.NodeType.long_edge);
+    const NS = @backingInt(lg.NodeType.north_south_port);
+    const EP = @backingInt(lg.NodeType.external_port);
+    const LA = @backingInt(lg.NodeType.label);
+    const BP = @backingInt(lg.NodeType.breaking_point);
     const Rule = struct { usize, usize, Opt, ?Opt };
     const rules = [_]Rule{
         .{ N, N, .node_node, .node_node_between_layers },
@@ -110,7 +110,7 @@ const tables: Tables = blk: {
 // Spacings.getLocalSpacing(LNode, LNode): max of both nodes' graph values (spacing.individual is never set).
 // An unmapped pair is a NullPointerException in Java; it never occurs for the node types layered creates.
 fn localSpacing(n1: *const lg.LNode, n2: *const lg.LNode, t: *const Table) f64 {
-    const o = t[@intFromEnum(n1.type)][@intFromEnum(n2.type)] orelse return 0;
+    const o = t[@backingInt(n1.type)][@backingInt(n2.type)] orelse return 0;
     return @max(o.of(&n1.graph.?.p.spacing), o.of(&n2.graph.?.p.spacing));
 }
 
@@ -123,12 +123,12 @@ pub fn getHorizontalSpacing(n1: *const lg.LNode, n2: *const lg.LNode) f64 {
 }
 
 pub fn getVerticalSpacingOfTypes(g: *const lg.LGraph, t1: lg.NodeType, t2: lg.NodeType) f64 {
-    const o = tables.vertical[@intFromEnum(t1)][@intFromEnum(t2)] orelse return 0;
+    const o = tables.vertical[@backingInt(t1)][@backingInt(t2)] orelse return 0;
     return o.of(&g.p.spacing);
 }
 
 pub fn getHorizontalSpacingOfTypes(g: *const lg.LGraph, t1: lg.NodeType, t2: lg.NodeType) f64 {
-    const o = tables.horizontal[@intFromEnum(t1)][@intFromEnum(t2)] orelse return 0;
+    const o = tables.horizontal[@backingInt(t1)][@backingInt(t2)] orelse return 0;
     return o.of(&g.p.spacing);
 }
 

@@ -14,7 +14,7 @@ pub const SwitchDecider = struct {
     north_south_counter: NorthSouthEdgeNeighbouringNodeCrossingsCounter = .{},
     crossing_matrix_filler: CrossingMatrixFiller,
     graph_data: *GraphInfoHolder,
-    parent_cross_counter: CrossingsCounter = undefined,
+    parent_cross_counter: CrossingsCounter,
     count_crossings_caused_by_port_switch: bool = false,
 
     pub fn create(a: std.mem.Allocator, free_layer_index: usize, graph: [][]*lg.LNode, filler: CrossingMatrixFiller, port_positions: []i32, graph_data: *GraphInfoHolder, one_sided: bool) lg.Error!*SwitchDecider {
@@ -26,6 +26,8 @@ pub const SwitchDecider = struct {
             .right_in_layer_counter = CrossingsCounter.init(a, port_positions),
             .crossing_matrix_filler = filler,
             .graph_data = graph_data,
+            // SAFETY: only read when count_crossings_caused_by_port_switch, which initParentCrossingsCounters sets first
+            .parent_cross_counter = undefined,
         };
         _ = try self.left_in_layer_counter.initPortPositionsForInLayerCrossings(free_layer, .west);
         _ = try self.right_in_layer_counter.initPortPositionsForInLayerCrossings(free_layer, .east);

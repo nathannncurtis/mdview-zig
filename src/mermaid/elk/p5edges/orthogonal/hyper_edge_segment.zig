@@ -116,8 +116,8 @@ pub const HyperEdgeSegment = struct {
         try partner.incoming_connection_coordinates.append(self.a, split_position);
         self.recomputeExtent();
         partner.recomputeExtent();
-        while (self.incoming_segment_dependencies.items.len != 0) self.incoming_segment_dependencies.items[0].remove();
-        while (self.outgoing_segment_dependencies.items.len != 0) self.outgoing_segment_dependencies.items[0].remove();
+        while (self.incoming_segment_dependencies.items.len != 0) try self.incoming_segment_dependencies.items[0].remove();
+        while (self.outgoing_segment_dependencies.items.len != 0) try self.outgoing_segment_dependencies.items[0].remove();
         return partner;
     }
 };

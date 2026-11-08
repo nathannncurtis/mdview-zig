@@ -155,6 +155,7 @@ const Pre = struct {
         } else if (port_type == .output and orig.target.?.owner.? == parent_node) {
             parent_end = orig.target.?;
         }
+        // SAFETY: set on every path before it is read
         var ext: *ExternalPort = undefined;
         if (default_ext == null or !merge or parent_end != null) {
             var side: lg.PortSide = .undefined;
@@ -219,6 +220,7 @@ const Pre = struct {
     }
 
     fn createExternalPortDummy(self: *Pre, g: *lg.LGraph, parent_node: *lg.LNode, port_type: lg.PortType, side: lg.PortSide, e: *lg.LEdge) lg.Error!*lg.LNode {
+        // SAFETY: set on every path before it is read
         var dummy: *lg.LNode = undefined;
         const outside = if (port_type == .input) e.source.? else e.target.?;
         const dir = gu.getDirection(g);

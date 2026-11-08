@@ -96,10 +96,10 @@ pub const GraphInfoHolder = struct {
     has_parent: bool,
     parent_graph_data: ?*GraphInfoHolder,
     parent: ?*lg.LNode,
-    layer_sweep_type_decider: *LayerSweepTypeDecider = undefined,
-    cross_minimizer: ICrossingMinimizationHeuristic = undefined,
-    port_distributor: ISweepPortDistributor = undefined,
-    crossings_counter: *AllCrossingsCounter = undefined,
+    layer_sweep_type_decider: *LayerSweepTypeDecider,
+    cross_minimizer: ICrossingMinimizationHeuristic,
+    port_distributor: ISweepPortDistributor,
+    crossings_counter: *AllCrossingsCounter,
     n_ports: i32 = 0,
 
     pub fn create(a: std.mem.Allocator, graph: *lg.LGraph, cmt: CrossMinType, graphs: []*GraphInfoHolder) lg.Error!*GraphInfoHolder {
@@ -113,6 +113,11 @@ pub const GraphInfoHolder = struct {
             .has_parent = parent != null,
             .parent_graph_data = if (parent) |p| graphs[@intCast(p.graph.?.id)] else null,
             .has_external_ports = graph.p.graph_properties.external_ports,
+            // SAFETY: create assigns the first four below; cross_minimizer is assigned before the sweeps run
+            .layer_sweep_type_decider = undefined,
+            .cross_minimizer = undefined,
+            .port_distributor = undefined,
+            .crossings_counter = undefined,
         };
         const order = self.current_node_order;
         self.crossings_counter = try AllCrossingsCounter.create(a, order);

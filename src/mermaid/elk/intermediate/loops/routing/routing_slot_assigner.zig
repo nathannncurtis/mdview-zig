@@ -106,7 +106,7 @@ pub fn assignRoutingSlots(h: *sl.SelfLoopHolder) lg.Error!void {
     for (loops, 0..) |loop, li| {
         const slot = segments[li].routing_slot;
         for (loop.occupied_port_sides, 0..) |occ, si| {
-            if (occ) loop.setRoutingSlot(@enumFromInt(si), slot);
+            if (occ) loop.setRoutingSlot(@fromBackingInt(@intCast(si)), slot);
         }
     }
     const next_free = try a.alloc(i32, port_count);

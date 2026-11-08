@@ -21,7 +21,7 @@ fn processNode(node: *lg.LNode) void {
 pub fn setPortSide(port: *lg.LPort) void {
     if (port.p.port_dummy) |dummy| {
         port.setSide(dummy.p.ext_port_side);
-    } else if (port.netFlow() > 0) {
+    } else if (port.netFlow() < 0) {
         port.setSide(.east);
     } else {
         port.setSide(.west);

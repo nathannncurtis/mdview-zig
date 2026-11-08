@@ -9,14 +9,20 @@ pub const GreedySwitchHeuristic = struct {
     a: std.mem.Allocator,
     greedy_switch_type: CrossMinType,
     current_node_order: [][]*lg.LNode = &.{},
-    switch_decider: *SwitchDecider = undefined,
+    switch_decider: *SwitchDecider,
     port_positions: []i32 = &.{},
     graph_data: *GraphInfoHolder,
     n_ports: i32 = 0,
 
     pub fn create(a: std.mem.Allocator, greedy_type: CrossMinType, graph_data: *GraphInfoHolder) lg.Error!*GreedySwitchHeuristic {
         const self = try a.create(GreedySwitchHeuristic);
-        self.* = .{ .a = a, .greedy_switch_type = greedy_type, .graph_data = graph_data };
+        self.* = .{
+            .a = a,
+            .greedy_switch_type = greedy_type,
+            .graph_data = graph_data,
+            // SAFETY: setUp assigns it before any use
+            .switch_decider = undefined,
+        };
         return self;
     }
 

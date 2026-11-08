@@ -6,16 +6,22 @@ const HyperedgeCrossingsCounter = @import("hyperedge_crossings_counter.zig").Hyp
 // AllCrossingsCounter; north/south port dummies never occur, so countNorthSouthPortCrossingsInLayer is left out
 pub const AllCrossingsCounter = struct {
     a: std.mem.Allocator,
-    crossing_counter: CrossingsCounter = undefined,
+    crossing_counter: CrossingsCounter,
     has_hyper_edges_east_of_index: []bool,
-    hyperedge_crossings_counter: HyperedgeCrossingsCounter = undefined,
+    hyperedge_crossings_counter: HyperedgeCrossingsCounter,
     n_ports: i32 = 0,
 
     pub fn create(a: std.mem.Allocator, graph: [][]*lg.LNode) lg.Error!*AllCrossingsCounter {
         const self = try a.create(AllCrossingsCounter);
         const hyper = try a.alloc(bool, graph.len);
         @memset(hyper, false);
-        self.* = .{ .a = a, .has_hyper_edges_east_of_index = hyper };
+        self.* = .{
+            .a = a,
+            .has_hyper_edges_east_of_index = hyper,
+            // SAFETY: initialize sets both counters before any counting
+            .crossing_counter = undefined,
+            .hyperedge_crossings_counter = undefined,
+        };
         return self;
     }
 

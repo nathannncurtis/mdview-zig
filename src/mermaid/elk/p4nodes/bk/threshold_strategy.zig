@@ -21,8 +21,8 @@ const Postprocessable = struct {
 pub const ThresholdStrategy = struct {
     a: std.mem.Allocator,
     simple: bool,
-    bal: *BKAlignedLayout = undefined,
-    ni: *const NeighborhoodInformation = undefined,
+    bal: *BKAlignedLayout,
+    ni: *const NeighborhoodInformation,
     block_finished: []bool = &.{},
     queue: std.ArrayList(*Postprocessable) = .empty,
     queue_head: usize = 0,

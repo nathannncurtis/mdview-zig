@@ -13,8 +13,10 @@ pub const BarycenterState = struct {
 };
 
 // RANDOM_AMOUNT = 0.07f and RANDOM_AMOUNT / 2 as the float literals elkjs emits in double precision
-const random_amount: f64 = @as(f32, 0.07);
-const half_random_amount: f64 = @as(f32, 0.035);
+const random_amount_f32: f32 = 0.07;
+const random_amount: f64 = random_amount_f32;
+const half_random_amount_f32: f32 = 0.035;
+const half_random_amount: f64 = half_random_amount_f32;
 
 // BarycenterHeuristic. ModelOrderBarycenterHeuristic is only built when crossingMinimization.forceNodeModelOrder is
 // true, which Mermaid never sets, so it is not ported.

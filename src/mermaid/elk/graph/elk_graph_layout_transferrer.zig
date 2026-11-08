@@ -70,6 +70,7 @@ fn applyEdgeLayout(imp: *const Importer, le: *lg.LEdge, offset: lg.Vec) lg.Error
     edge_offset.add(calculateHierarchicalOffset(le));
 
     var chain: std.ArrayList(lg.Vec) = .empty;
+    // SAFETY: set on every path before it is read
     var source_point: lg.Vec = undefined;
     if (gu.isDescendant(le.target.?.owner.?, le.source.?.owner.?)) {
         const sp = le.source.?;

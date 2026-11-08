@@ -27,9 +27,9 @@ pub const HyperEdgeSegmentDependency = struct {
         return create(.critical, source, target, critical_dependency_weight);
     }
 
-    pub fn remove(self: *HyperEdgeSegmentDependency) void {
-        self.setSource(null) catch unreachable;
-        self.setTarget(null) catch unreachable;
+    pub fn remove(self: *HyperEdgeSegmentDependency) lg.Error!void {
+        try self.setSource(null);
+        try self.setTarget(null);
     }
 
     pub fn reverse(self: *HyperEdgeSegmentDependency) lg.Error!void {

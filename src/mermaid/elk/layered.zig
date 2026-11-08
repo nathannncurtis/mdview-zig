@@ -127,10 +127,10 @@ const Config = struct {
     slots: [6]std.EnumSet(Strategy) = @splat(.empty),
 
     fn before(c: *Config, ph: Phase, s: Strategy) void {
-        c.slots[@intFromEnum(ph)].insert(s);
+        c.slots[@backingInt(ph)].insert(s);
     }
     fn after(c: *Config, ph: Phase, s: Strategy) void {
-        c.slots[@intFromEnum(ph) + 1].insert(s);
+        c.slots[@backingInt(ph) + 1].insert(s);
     }
 };
 
@@ -243,7 +243,7 @@ pub fn buildProcessors(g: *const lg.LGraph) lg.Error![]Processor {
     for (0..6) |i| {
         var it = c.slots[i].iterator();
         while (it.next()) |s| try out.append(g.a, .{ .strategy = s });
-        if (i < 5) try out.append(g.a, .{ .phase = @enumFromInt(i) });
+        if (i < 5) try out.append(g.a, .{ .phase = @fromBackingInt(@intCast(i)) });
     }
     return out.items;
 }

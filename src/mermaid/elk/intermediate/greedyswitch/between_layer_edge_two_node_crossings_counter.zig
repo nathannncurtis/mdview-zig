@@ -55,8 +55,8 @@ pub const BetweenLayerEdgeTwoNodeCrossingsCounter = struct {
     a: std.mem.Allocator,
     upper_lower_crossings: i32 = 0,
     lower_upper_crossings: i32 = 0,
-    upper: *AdjacencyList = undefined,
-    lower: *AdjacencyList = undefined,
+    upper: *AdjacencyList,
+    lower: *AdjacencyList,
     current_node_order: [][]*lg.LNode,
     free_layer_index: usize,
     port_positions: std.AutoHashMapUnmanaged(*lg.LPort, i32) = .empty,
@@ -65,7 +65,14 @@ pub const BetweenLayerEdgeTwoNodeCrossingsCounter = struct {
 
     pub fn create(a: std.mem.Allocator, order: [][]*lg.LNode, free_layer_index: usize) lg.Error!*BetweenLayerEdgeTwoNodeCrossingsCounter {
         const self = try a.create(BetweenLayerEdgeTwoNodeCrossingsCounter);
-        self.* = .{ .a = a, .current_node_order = order, .free_layer_index = free_layer_index };
+        self.* = .{
+            .a = a,
+            .current_node_order = order,
+            .free_layer_index = free_layer_index,
+            // SAFETY: assigned before each count
+            .upper = undefined,
+            .lower = undefined,
+        };
         if (free_layer_index > 0) try self.setPortPositionsForLayer(free_layer_index - 1, .east);
         if (free_layer_index + 1 < order.len) try self.setPortPositionsForLayer(free_layer_index + 1, .west);
         return self;

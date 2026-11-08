@@ -99,7 +99,7 @@ pub const NodeLabelLocation = enum {
     }
 
     pub fn isInsideLocation(self: NodeLabelLocation) bool {
-        return @intFromEnum(self) >= @intFromEnum(NodeLabelLocation.in_t_l) and self != .undefined;
+        return @backingInt(self) >= @backingInt(NodeLabelLocation.in_t_l) and self != .undefined;
     }
 
     pub fn outsideSide(self: NodeLabelLocation) lg.PortSide {

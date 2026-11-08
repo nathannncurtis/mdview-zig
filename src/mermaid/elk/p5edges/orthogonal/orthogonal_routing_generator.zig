@@ -194,7 +194,7 @@ pub const OrthogonalRoutingGenerator = struct {
         const cycle_dependencies = try cycle_detector.detectCycles(a, edge_segments, false, random);
         for (cycle_dependencies) |dep| {
             if (dep.weight == 0) {
-                dep.remove();
+                try dep.remove();
             } else {
                 try dep.reverse();
             }

@@ -102,6 +102,7 @@ fn processNorthSouth(g: *lg.LGraph) lg.Error!void {
     }
     for (new_dummies.items, 0..) |list, i| {
         if (list.items.len == 0) continue;
+        // SAFETY: set on every path before it is read
         var layer: *lg.Layer = undefined;
         if (i == 0) {
             layer = try g.newLayer();

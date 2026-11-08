@@ -39,7 +39,8 @@ pub const BKCompactor = struct {
         return .{
             .a = a,
             .layered_graph = layered_graph,
-            .thresh_strategy = .{ .a = a, .simple = layered_graph.p.bk_edge_straightening },
+            // SAFETY: ThresholdStrategy.init sets bal and ni before use
+            .thresh_strategy = .{ .a = a, .simple = layered_graph.p.bk_edge_straightening, .bal = undefined, .ni = undefined },
             .ni = ni,
             .sink_node_of = map,
         };

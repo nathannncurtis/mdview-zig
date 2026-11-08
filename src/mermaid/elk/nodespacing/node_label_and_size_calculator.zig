@@ -9,7 +9,7 @@ const n_locations = std.enums.values(NodeLabelLocation).len;
 const sides = [4]lg.PortSide{ .north, .east, .south, .west };
 
 fn si(s: lg.PortSide) usize {
-    return @intFromEnum(s);
+    return @backingInt(s);
 }
 
 // What the Java adapters read from the node's parent graph: spacings and node label padding through
@@ -56,8 +56,8 @@ pub const NodeContext = struct {
     port_contexts: [5]std.ArrayList(*PortContext) = @splat(.empty),
     node_container: *Cell,
     node_container_middle_row: *Cell,
-    inside_node_label_container: *Cell = undefined,
-    inside_port_label_cells: [5]*Cell = undefined,
+    inside_node_label_container: *Cell,
+    inside_port_label_cells: [5]*Cell,
     outside_node_label_containers: [5]?*Cell = @splat(null),
     node_label_cells: [n_locations]?*Cell = @splat(null),
 
@@ -86,6 +86,9 @@ pub const NodeContext = struct {
             .surrounding_port_margins = env.spacing.ports_surrounding,
             .node_container = node_container,
             .node_container_middle_row = middle_row,
+            // SAFETY: both are assigned before any read
+            .inside_node_label_container = undefined,
+            .inside_port_label_cells = undefined,
         };
     }
 
@@ -184,27 +187,27 @@ fn createNodeLabelCells(nc: *NodeContext) lg.Error!void {
 }
 
 fn retrieveNodeLabelCell(nc: *NodeContext, location: NodeLabelLocation) lg.Error!*Cell {
-    if (nc.node_label_cells[@intFromEnum(location)]) |c| return c;
+    if (nc.node_label_cells[@backingInt(location)]) |c| return c;
     const cell = try Cell.create(nc.a, .{ .label = .{
         .gap = nc.label_label_spacing,
         .horizontal_layout_mode = nc.env.horizontal_layout_mode,
         .horizontal_alignment = location.horizontalAlignment(),
         .vertical_alignment = location.verticalAlignment(),
     } });
-    nc.node_label_cells[@intFromEnum(location)] = cell;
+    nc.node_label_cells[@backingInt(location)] = cell;
     if (location.isInsideLocation()) {
-        nc.inside_node_label_container.kind.grid.cells[@intFromEnum(location.containerRow())][@intFromEnum(location.containerColumn())] = cell;
+        nc.inside_node_label_container.kind.grid.cells[@backingInt(location.containerRow())][@backingInt(location.containerColumn())] = cell;
     } else {
         const outside_side = location.outsideSide();
         const container = nc.outsideNodeLabelContainer(outside_side);
         switch (outside_side) {
             .north, .south => {
                 cell.contributes_to_minimum_height = true;
-                container.kind.strip.cells[@intFromEnum(location.containerColumn())] = cell;
+                container.kind.strip.cells[@backingInt(location.containerColumn())] = cell;
             },
             .west, .east => {
                 cell.contributes_to_minimum_width = true;
-                container.kind.strip.cells[@intFromEnum(location.containerRow())] = cell;
+                container.kind.strip.cells[@backingInt(location.containerRow())] = cell;
             },
             .undefined => {},
         }
@@ -391,7 +394,7 @@ fn configureCellSystemSizeContributions(nc: *NodeContext) void {
         nc.node_container_middle_row.contributes_to_minimum_width = true;
         const overhang = nc.size_options.outside_node_labels_overhang;
         for (std.enums.values(NodeLabelLocation)) |location| {
-            const label_cell = nc.node_label_cells[@intFromEnum(location)] orelse continue;
+            const label_cell = nc.node_label_cells[@backingInt(location)] orelse continue;
             if (location.isInsideLocation()) {
                 label_cell.contributes_to_minimum_height = true;
                 label_cell.contributes_to_minimum_width = true;
@@ -429,6 +432,7 @@ fn updateVerticalInsidePortLabelCellPadding(nc: *NodeContext) void {
 
 // NodeSizeCalculator
 fn setNodeWidth(nc: *NodeContext) void {
+    // SAFETY: set on every path before it is read
     var width: f64 = undefined;
     if (areSizeConstraintsFixed(nc)) {
         width = nc.node_size.x;
@@ -447,6 +451,7 @@ fn setNodeWidth(nc: *NodeContext) void {
 }
 
 fn setNodeHeight(nc: *NodeContext) void {
+    // SAFETY: set on every path before it is read
     var height: f64 = undefined;
     if (areSizeConstraintsFixed(nc)) {
         height = nc.node_size.y;

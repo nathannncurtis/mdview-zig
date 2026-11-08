@@ -82,6 +82,7 @@ fn updateNewNodeMargins(node_size: lg.Vec, m: *lg.Margin, bp: lg.Vec) void {
 }
 
 fn computeRoutingSlotPositions(h: *sl.SelfLoopHolder, edge_edge: f64, edge_label: f64, node_sl: f64) lg.Error!Positions {
+    // SAFETY: filled in before it is read
     var positions: Positions = undefined;
     for (0..sl.side_count) |i| {
         positions[i] = try h.a.alloc(f64, @intCast(h.routing_slot_count[i]));

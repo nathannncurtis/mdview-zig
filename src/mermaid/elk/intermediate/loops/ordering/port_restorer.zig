@@ -12,7 +12,7 @@ const Restorer = struct {
     target_areas: [sl.side_count][3]PortList = @splat(@splat(.empty)),
 
     fn area(self: *Restorer, side: lg.PortSide, ar: Area) *PortList {
-        return &self.target_areas[sl.ord(side)][@intFromEnum(ar)];
+        return &self.target_areas[sl.ord(side)][@backingInt(ar)];
     }
 
     fn addPorts(self: *Restorer, ports: []const *sl.SelfLoopPort, side: lg.PortSide, ar: Area, mode: AddMode) lg.Error!void {
@@ -104,7 +104,7 @@ pub fn sortedTwoSideLoopPortSides(loop: *const sl.SelfHyperLoop) [2]lg.PortSide 
     var n: usize = 0;
     for (0..sl.side_count) |i| {
         if (loop.ports_by_side[i].items.len > 0) {
-            sides[n] = @enumFromInt(i);
+            sides[n] = @fromBackingInt(@intCast(i));
             n += 1;
         }
     }

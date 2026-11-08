@@ -1,5 +1,4 @@
 // LayerConstraintPostprocessor. Props: layer_constraint (nodes), hidden_nodes (graph), original_opposite_port (edges).
-const std = @import("std");
 const lg = @import("../lgraph.zig");
 
 pub fn process(g: *lg.LGraph) lg.Error!void {

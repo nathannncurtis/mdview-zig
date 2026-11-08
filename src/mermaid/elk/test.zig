@@ -49,7 +49,7 @@ const Cmp = struct {
 
     fn report(self: *Cmp, comptime fmt: []const u8, args: anytype) void {
         self.errors += 1;
-        if (self.errors <= 4) std.debug.print("  {s}: " ++ fmt ++ "\n", .{self.name} ++ args);
+        if (self.errors <= 12) std.debug.print("  {s}: " ++ fmt ++ "\n", .{self.name} ++ args);
     }
 
     fn collectEdges(self: *Cmp, out: Value) !void {

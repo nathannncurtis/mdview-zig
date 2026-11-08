@@ -16,7 +16,7 @@ pub fn split(g: *lg.LGraph) lg.Error![]*lg.LGraph {
             ng.padding = g.padding;
             ng.p.node_size_minimum = .{};
             try dfs(n, ng);
-            result.append(a, ng) catch |e| return e;
+            try result.append(a, ng);
         }
     } else {
         try result.append(a, g);

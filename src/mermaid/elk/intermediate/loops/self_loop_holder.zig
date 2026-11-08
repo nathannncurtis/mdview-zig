@@ -8,7 +8,7 @@ const Allocator = std.mem.Allocator;
 pub const side_count = 5;
 
 pub fn ord(s: lg.PortSide) usize {
-    return @intFromEnum(s);
+    return @backingInt(s);
 }
 
 pub const SelfLoopType = enum {
@@ -189,7 +189,7 @@ pub const SelfHyperLoop = struct {
     }
 
     pub fn firstOccupiedSide(self: *const SelfHyperLoop) lg.PortSide {
-        for (self.occupied_port_sides, 0..) |b, i| if (b) return @enumFromInt(i);
+        for (self.occupied_port_sides, 0..) |b, i| if (b) return @fromBackingInt(@intCast(i));
         unreachable;
     }
 };

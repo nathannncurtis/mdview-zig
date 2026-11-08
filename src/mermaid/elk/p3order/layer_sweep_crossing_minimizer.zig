@@ -26,6 +26,7 @@ pub fn run(g: *lg.LGraph, cmt: CrossMinType) lg.Error!void {
     const single_node = g.layers.items.len == 1 and g.layers.items[0].nodes.items.len == 1;
     const hierarchical = g.p.hierarchy_handling == .include_children;
     if (empty_graph or (single_node and !hierarchical)) return;
+    // SAFETY: processGraph assigns random before use
     var m: LayerSweepCrossingMinimizer = .{ .a = g.a, .cross_min_type = cmt, .random = undefined };
     try m.processGraph(g);
 }
@@ -116,6 +117,7 @@ pub const LayerSweepCrossingMinimizer = struct {
             p.second_try_with_initial_order = true;
         }
         var crossings = try self.countCurrentNumberOfCrossings(gd);
+        // SAFETY: assigned in the loop before it is read
         var old: i32 = undefined;
         while (true) {
             try self.setCurrentlyBestNodeOrders();
