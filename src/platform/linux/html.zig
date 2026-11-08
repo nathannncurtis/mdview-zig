@@ -891,13 +891,13 @@ test "a link in a summary keeps its click and the rest of the row toggles" {
     const p = try Probe.init(600, 600);
     defer p.deinit();
     app.hits.clearRetainingCapacity();
-    _ = layoutBlocks(p.cr, p.layout, &blocks, 40, 500, 10);
+    _ = layoutBlocks(p.cr, p.layout, &blocks, 40, 500, 300);
 
-    try std.testing.expect(app.mouseDown(45, 18));
+    try std.testing.expect(app.mouseDown(45, 308));
     try std.testing.expect(!app.isOpen(frames[0]));
-    try std.testing.expect(app.mouseDown(400, 18));
+    try std.testing.expect(app.mouseDown(400, 308));
     try std.testing.expect(app.isOpen(frames[0]));
-    try std.testing.expect(app.mouseDown(30, 18));
+    try std.testing.expect(app.mouseDown(30, 308));
     try std.testing.expect(!app.isOpen(frames[0]));
 }
 
