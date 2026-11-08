@@ -209,7 +209,7 @@ pub const Props = struct {
     node_labels_placement: NodeLabelPlacement = .{},
     node_labels_padding: Margin = .{ .top = 5, .left = 5, .bottom = 5, .right = 5 },
     content_alignment: ContentAlignment = .{ .h_left = true, .v_top = true },
-    port_alignment_default: PortAlignment = .justified,
+    port_alignment_default: PortAlignment = .distributed,
     edge_labels_placement: EdgeLabelPlacement = .center,
     edge_labels_inline: bool = false,
     edge_labels_side_selection: EdgeLabelSideSelection = .smart_down,
