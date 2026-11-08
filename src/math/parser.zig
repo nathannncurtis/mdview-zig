@@ -131,7 +131,7 @@ pub const Parser = struct {
         return .{ .negate = try p.alloc(n) };
     }
 
-    fn subParse(p: *Parser, toks: []const Token) Error![]const Node {
+    noinline fn subParse(p: *Parser, toks: []const Token) Error![]const Node {
         try p.enter();
         defer p.leave();
         var sub: Parser = .{ .sh = p.sh, .a = p.a, .ex = try macros.Expander.init(p.sh, toks), .depth = p.depth };
@@ -433,7 +433,7 @@ pub const Parser = struct {
         return try p.subParse(toks);
     }
 
-    fn rawText(p: *Parser, cmd: []const u8) Error![]const u8 {
+    noinline fn rawText(p: *Parser, cmd: []const u8) Error![]const u8 {
         return macros.textOf(p.a, try p.ex.readArg(cmd));
     }
 
@@ -456,7 +456,7 @@ pub const Parser = struct {
         return p.delimiterIn(t, cmd);
     }
 
-    fn dimen(p: *Parser, cmd: []const u8) Error!f32 {
+    noinline fn dimen(p: *Parser, cmd: []const u8) Error!f32 {
         p.ex.skipSpaces();
         const first = try p.ex.next();
         if (first.kind == .open) {
@@ -661,7 +661,7 @@ pub const Parser = struct {
         return null;
     }
 
-    fn textCmd(p: *Parser, st: *State, cmd: []const u8, font: Font, box: bool) Error!void {
+    noinline fn textCmd(p: *Parser, st: *State, cmd: []const u8, font: Font, box: bool) Error!void {
         const raw = try p.rawText(cmd);
         const nodes = try p.internalMath(raw, font);
         if (box) {
@@ -1055,14 +1055,14 @@ pub const Parser = struct {
         return null;
     }
 
-    fn readEndName(p: *Parser, cmd: []const u8) Error![]const u8 {
+    noinline fn readEndName(p: *Parser, cmd: []const u8) Error![]const u8 {
         const name = std.mem.trim(u8, try p.rawText(cmd), " ");
         if (std.mem.indexOfScalar(u8, name, '\\') != null) return p.failFmt("Invalid environment name '{s}'", .{name});
         if (tables.envs.get(name) == null and !p.sh.userenvs.contains(name)) return p.failFmt("Unknown environment '{s}'", .{name});
         return name;
     }
 
-    fn nextBox(p: *Parser, cmd: []const u8) Error![]const Node {
+    noinline fn nextBox(p: *Parser, cmd: []const u8) Error![]const Node {
         p.ex.skipSpaces();
         const t = try p.ex.next();
         switch (t.kind) {
@@ -1088,13 +1088,13 @@ pub const Parser = struct {
         return out;
     }
 
-    fn xarrow(p: *Parser, st: *State, cmd: []const u8, cp: u21) Error!void {
+    noinline fn xarrow(p: *Parser, st: *State, cmd: []const u8, cp: u21) Error!void {
         const under = try p.optArg(cmd);
         const over = try p.arg(cmd);
         try p.add(st, .{ .xarrow = .{ .cp = cp, .over = over, .under = under } });
     }
 
-    fn rootShift(p: *Parser, cmd: []const u8, up: bool) Error!void {
+    noinline fn rootShift(p: *Parser, cmd: []const u8, up: bool) Error!void {
         if (!p.sh.in_root) return p.failFmt("{s} can appear only within a root", .{cmd});
         const slot = if (up) &p.sh.root_up else &p.sh.root_left;
         if (slot.* != null) return p.failFmt("Multiple use of {s}", .{cmd});
@@ -1114,7 +1114,7 @@ pub const Parser = struct {
         return p.failFmt("The argument to {s} must be an integer", .{cmd});
     }
 
-    fn sqrtIndex(p: *Parser, index: ?[]const Node, body: []const Node) tree.Sqrt {
+    noinline fn sqrtIndex(p: *Parser, index: ?[]const Node, body: []const Node) tree.Sqrt {
         const out: tree.Sqrt = .{ .body = body, .index = index, .up = p.sh.root_up orelse 0, .left = p.sh.root_left orelse 0 };
         p.sh.root_up = null;
         p.sh.root_left = null;
@@ -1909,7 +1909,7 @@ pub const Parser = struct {
         return r.value;
     }
 
-    fn upTo(p: *Parser, cmd: []const u8, stop_name: []const u8) Error![]const Token {
+    noinline fn upTo(p: *Parser, cmd: []const u8, stop_name: []const u8) Error![]const Token {
         var out: std.ArrayList(Token) = .empty;
         var depth: u32 = 0;
         p.ex.skipSpaces();
@@ -1928,7 +1928,7 @@ pub const Parser = struct {
         return p.failFmt("Could not find \\{s} for {s}", .{ stop_name, cmd });
     }
 
-    fn sqrt(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn sqrt(p: *Parser, st: *State, cmd: []const u8) Error!void {
         p.sh.root_up = null;
         p.sh.root_left = null;
         const saved_root = p.sh.in_root;
@@ -1952,7 +1952,7 @@ pub const Parser = struct {
         try p.add(st, .{ .sqrt = p.sqrtIndex(index, try p.arg(cmd)) });
     }
 
-    fn fenced(p: *Parser, st: *State) Error!void {
+    noinline fn fenced(p: *Parser, st: *State) Error!void {
         const open = try p.readDelimiter("\\left", false);
         try p.enter();
         defer p.leave();
@@ -1977,7 +1977,7 @@ pub const Parser = struct {
         try p.add(st, .{ .fenced = .{ .open = open, .close = close, .body = body.items } });
     }
 
-    fn setLimits(p: *Parser, st: *State, cmd: []const u8, above: bool) Error!void {
+    noinline fn setLimits(p: *Parser, st: *State, cmd: []const u8, above: bool) Error!void {
         if (st.list.items.len <= st.floor()) return p.failFmt("{s} is allowed only on operators", .{cmd});
         const last = &st.list.items[st.list.items.len - 1];
         const mode: Limits = if (above) .above else .side;
@@ -1995,7 +1995,7 @@ pub const Parser = struct {
         }
     }
 
-    fn operatorName(p: *Parser, st: *State, cmd: []const u8) Error!void {
+    noinline fn operatorName(p: *Parser, st: *State, cmd: []const u8) Error!void {
         p.ex.skipSpaces();
         var star = false;
         if (p.ex.peekRaw()) |n| if (n.isChar('*')) {
@@ -2015,7 +2015,7 @@ pub const Parser = struct {
         try p.add(st, .{ .op = .{ .body = body, .limits = if (star) .display else .side, .large = false } });
     }
 
-    fn colorFrom(p: *Parser, model_raw: []const u8, spec_raw: []const u8) Error!tree.Color {
+    noinline fn colorFrom(p: *Parser, model_raw: []const u8, spec_raw: []const u8) Error!tree.Color {
         const model = std.mem.trim(u8, model_raw, " ");
         const spec_t = std.mem.trim(u8, spec_raw, " ");
         if (model.len == 0 or std.mem.eql(u8, model, "named")) {
@@ -2059,7 +2059,7 @@ pub const Parser = struct {
         return .{ .name = try std.fmt.allocPrint(p.a, "#{x:0>6}", .{rgb}), .rgb = rgb };
     }
 
-    fn begin(p: *Parser, st: *State) Error!void {
+    noinline fn begin(p: *Parser, st: *State) Error!void {
         const cmd = "\\begin";
         const name = std.mem.trim(u8, try p.rawText(cmd), " ");
         if (std.mem.indexOfScalar(u8, name, '\\') != null) return p.failFmt("Invalid environment name '{s}'", .{name});
