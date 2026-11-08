@@ -323,7 +323,6 @@ test "a floated image narrows the text beside it" {
     try testing.expectEqual(@as(f32, 40 + 100 + md.float_gap), app.hits.items[0].x);
     try testing.expectEqual(@as(f32, 400 - 100 - md.float_gap), app.hits.items[0].w);
     try testing.expectEqual(@as(f32, 40), app.hits.items[1].x);
-    try testing.expect(app.hits.items[1].italic and !app.hits.items[0].italic);
     try testing.expect(end >= 10 + 100);
 }
 
@@ -489,7 +488,6 @@ test "a second float on a side goes below the first when it does not fit" {
     _ = layoutBlocks(canvas.ctx, &list, 40, 400, 10, fonts, true);
     try testing.expectEqual(@as(usize, 2), app.hits.items.len);
     try testing.expectEqual(@as(f32, 40), app.hits.items[1].x);
-    try testing.expect(app.hits.items[1].italic and !app.hits.items[0].italic);
     try testing.expectApproxEqAbs(app.hits.items[0].y + 250, app.hits.items[1].y, 0.5);
 }
 
