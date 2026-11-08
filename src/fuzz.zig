@@ -1,5 +1,6 @@
 const std = @import("std");
 const markdown = @import("markdown.zig");
+const html = @import("html.zig");
 
 const max_input = 8192;
 
@@ -72,4 +73,48 @@ fn parseOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz markdown.parse" {
     try std.testing.fuzz({}, parseOne, .{ .corpus = &corpus });
+}
+
+const html_corpus = [_][]const u8{
+    seed("<p align=\"center\"><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"a.png\"><img src=\"b.png\" width=\"10\"></picture></p>"),
+    seed(rep("<", 2000)),
+    seed(rep("</", 2000)),
+    seed(rep("<a ", 1500)),
+    seed(rep("<a href=\"", 800)),
+    seed(rep("<!-- ", 1000)),
+    seed(rep("<div>", 1600)),
+    seed(rep("<b><i><p>", 900)),
+    seed(rep("<table>", 1000)),
+    seed("<table><tr><td>a<td>b<tr><th>c</table>x<table><caption>c<col><colgroup><col>"),
+    seed(rep("<details><summary>", 400) ++ "x"),
+    seed(rep("&amp;&#x41;&#0;&#xD800;&#99999999999;&bogus;&", 150)),
+    seed("<ul><li>a<li>b<ol><li>c</ul></ol><dl><dt>t<dd>d<dt>u</dl>"),
+    seed("<b>1<p>2</b>3</p><a href=x><a href=y></a></a><nobr><nobr>x"),
+    seed("<svg><circle/></svg><center>x</center><script>alert(1)</script><style>x"),
+    seed("<a href=\"javascript:alert(1)\">x</a><img src=\"data:x\"><a href=\" \tjavascript:1\">"),
+    seed("<div id=" ++ rep("x", 4096) ++ ">" ++ rep(" a=b", 1000)),
+    seed("<?php echo '>'; ?><![CDATA[x]]><!DOCTYPE html><!--->x<!-->y"),
+};
+
+fn buildOne(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [max_input]u8 = undefined;
+    const input = buf[0..smith.slice(&buf)];
+    var b = try html.Builder.init(std.testing.allocator, .{});
+    defer b.deinit();
+    var rest: []const u8 = input;
+    while (rest.len > 0) {
+        const cut = @min(rest.len, 1 + rest[0] % 64);
+        try b.feedBlock(rest[0..cut]);
+        const kind: html.MarkdownKind = std.enums.values(html.MarkdownKind)[rest[0] % std.enums.values(html.MarkdownKind).len];
+        try b.openMarkdown(kind);
+        try b.markdownText();
+        _ = b.ancestors();
+        try b.closeMarkdown(kind);
+        b.clearEvents();
+        rest = rest[cut..];
+    }
+}
+
+test "fuzz html.Builder" {
+    try std.testing.fuzz({}, buildOne, .{ .corpus = &html_corpus });
 }
