@@ -91,16 +91,18 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    flowchart_tests.root_module.addImport("yaml", b.createModule(.{
+    const yaml_api = b.createModule(.{
         .root_source_file = b.path("src/yaml_api.zig"),
         .target = target,
         .optimize = optimize,
-    }));
-    flowchart_tests.root_module.addImport("html", b.createModule(.{
+    });
+    const html_api = b.createModule(.{
         .root_source_file = b.path("src/html_api.zig"),
         .target = target,
         .optimize = optimize,
-    }));
+    });
+    flowchart_tests.root_module.addImport("yaml", yaml_api);
+    flowchart_tests.root_module.addImport("html", html_api);
     flowchart_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(flowchart_tests).step);
     const flow_grammar = addTools(b, test_step, testdata);
@@ -165,7 +167,23 @@ pub fn build(b: *std.Build) void {
     fuzz_tests.root_module.addImport("testdata", testdata);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
-    b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
+    const mermaid_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    mermaid_fuzz.root_module.addImport("testdata", testdata);
+    mermaid_fuzz.root_module.addImport("yaml", yaml_api);
+    mermaid_fuzz.root_module.addImport("html", html_api);
+    mermaid_fuzz.root_module.addImport("flow_grammar", flow_grammar);
+    const run_mermaid_fuzz = b.addRunArtifact(mermaid_fuzz);
+    test_step.dependOn(&run_mermaid_fuzz.step);
+    const fuzz_step = b.step("fuzz", "Fuzz the parsers (zig build fuzz --fuzz=N)");
+    fuzz_step.dependOn(&run_fuzz.step);
+    fuzz_step.dependOn(&run_mermaid_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
