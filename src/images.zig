@@ -5,7 +5,6 @@ const svg = @import("image/svg.zig");
 const links = @import("links.zig");
 const scale = @import("scale.zig");
 const md = @import("markdown.zig");
-const inl = @import("inline.zig");
 
 pub const max_download: usize = 20 * 1024 * 1024;
 pub const max_local: usize = 128 * 1024 * 1024;
@@ -178,6 +177,21 @@ pub fn fit(size: Size, avail: f32) Size {
     if (avail <= 0) return .{ .w = 0, .h = 0 };
     if (size.w <= avail) return size;
     return .{ .w = avail, .h = size.h * avail / size.w };
+}
+
+/// The size an `<img>` with `width` and `height` attributes takes (zero means unset): one attribute scales the other by the
+/// aspect ratio, both are used as given, and the result is capped to `avail` with its own aspect ratio. Upscaling is allowed.
+pub fn requested(natural: Size, width: f32, height: f32, avail: f32) Size {
+    if (natural.w <= 0 or natural.h <= 0 or avail <= 0) return .{ .w = 0, .h = 0 };
+    var s = natural;
+    if (width > 0 and height > 0) {
+        s = .{ .w = width, .h = height };
+    } else if (width > 0) {
+        s = .{ .w = width, .h = natural.h * width / natural.w };
+    } else if (height > 0) {
+        s = .{ .w = natural.w * height / natural.h, .h = height };
+    }
+    return fit(s, avail);
 }
 
 const Status = enum { pending, ready, missing };
@@ -771,6 +785,28 @@ test "images scale down to the width and never up" {
     try testing.expectEqual(@as(f32, 100), small.w);
     try testing.expectEqual(@as(f32, 50), small.h);
     try testing.expectEqual(@as(f32, 0), fit(.{ .w = 0, .h = 5 }, 400).w);
+}
+
+test "requested sizes follow the CSS rules for width and height attributes" {
+    const nat: Size = .{ .w = 200, .h = 100 };
+    const w_only = requested(nat, 400, 0, 1000);
+    try testing.expectEqual(@as(f32, 400), w_only.w);
+    try testing.expectEqual(@as(f32, 200), w_only.h);
+    const h_only = requested(nat, 0, 50, 1000);
+    try testing.expectEqual(@as(f32, 100), h_only.w);
+    try testing.expectEqual(@as(f32, 50), h_only.h);
+    const both = requested(nat, 30, 90, 1000);
+    try testing.expectEqual(@as(f32, 30), both.w);
+    try testing.expectEqual(@as(f32, 90), both.h);
+    const capped = requested(nat, 400, 0, 100);
+    try testing.expectEqual(@as(f32, 100), capped.w);
+    try testing.expectEqual(@as(f32, 50), capped.h);
+    const capped_both = requested(nat, 400, 100, 200);
+    try testing.expectEqual(@as(f32, 200), capped_both.w);
+    try testing.expectEqual(@as(f32, 50), capped_both.h);
+    const unset = requested(nat, 0, 0, 1000);
+    try testing.expectEqual(@as(f32, 200), unset.w);
+    try testing.expectEqual(@as(f32, 0), requested(.{ .w = 0, .h = 0 }, 10, 10, 100).w);
 }
 
 test "animation frames follow their delays and loop count" {

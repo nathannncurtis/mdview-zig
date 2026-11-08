@@ -376,7 +376,11 @@ fn drawStrikes(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame
     }
 }
 
-const ImageKind = enum { pending, picture, alt };
+const ImageKind = enum { pending, picture, broken };
+
+/// Width of the broken image glyph with its gap to the alt text that follows, and its height.
+const broken_w: CGFloat = 18;
+const broken_h: CGFloat = 16;
 
 /// One image in a layout; CoreText reads its size through the run delegate and the drawing pass finds it again by the same pointer.
 const ImageBox = struct { w: CGFloat, h: CGFloat, kind: ImageKind, image: *const md.Image, link: bool };
@@ -438,10 +442,9 @@ fn imageBox(im: *const md.Image, avail: CGFloat, link: bool) ?*ImageBox {
             box.kind = if (s.w > 0) .picture else .pending;
         },
         .missing => if (im.alt.len > 0) {
-            const size = altSize(im.alt, avail);
-            box.w = size[0];
-            box.h = size[1];
-            box.kind = .alt;
+            box.w = broken_w;
+            box.h = broken_h;
+            box.kind = .broken;
         },
     }
     return box;
@@ -476,10 +479,18 @@ fn drawImages(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame_
                     c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
                     c.CGContextDrawImage(ctx, cgRect(x, base, box.w, box.h), @ptrCast(bm.native));
                 },
-                .alt => {
-                    const font = createFont("Helvetica Neue", font_size_body, false, false);
-                    defer c.CFRelease(font);
-                    _ = drawPlainText(ctx, box.image.alt, x, base + box.h, box.w, font, if (box.link) link_color else text_color);
+                .broken => {
+                    const path = c.CGPathCreateMutable();
+                    defer c.CGPathRelease(path);
+                    for (alerts.brokenImage()) |op| switch (op) {
+                        .move => |p| c.CGPathMoveToPoint(path, null, x + p[0], base + box.h - p[1]),
+                        .line => |p| c.CGPathAddLineToPoint(path, null, x + p[0], base + box.h - p[1]),
+                        .cubic => |q| c.CGPathAddCurveToPoint(path, null, x + q[0], base + box.h - q[1], x + q[2], base + box.h - q[3], x + q[4], base + box.h - q[5]),
+                        .close => c.CGPathCloseSubpath(path),
+                    };
+                    c.CGContextSetRGBFillColor(ctx, blockquote_color.r, blockquote_color.g, blockquote_color.b, 1.0);
+                    c.CGContextAddPath(ctx, path);
+                    c.CGContextFillPath(ctx);
                 },
             }
         }
@@ -570,7 +581,8 @@ fn drawPlainText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloa
     return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
 }
 
-fn drawRichText(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color, font: app.Font) CGFloat {
+fn drawRichText(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color, font: app.Font) CGFloat {
+    const content = app.images.flow(content_in);
     if (content.text.len == 0) return 0;
     const attr_str = createRichAttrStr(content, base_font, base_color, max_width) orelse return 0;
     defer c.CFRelease(attr_str);
@@ -779,7 +791,7 @@ fn suggestSize(attr_str: c.CFAttributedStringRef, max_width: CGFloat) CGSize {
 }
 
 fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef, header_font: c.CTFontRef, avail: CGFloat) c.CFMutableAttributedStringRef {
-    return createAlignedAttrStr(t.cell(row, col), t.aligns[col], if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) header_font else body_font, avail);
+    return createAlignedAttrStr(app.images.flow(t.cell(row, col)), t.aligns[col], if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) header_font else body_font, avail);
 }
 
 fn createAlignedAttrStr(content: md.Inline, alignment_kind: md.Align, font: c.CTFontRef, avail: CGFloat) c.CFMutableAttributedStringRef {
@@ -866,7 +878,7 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
                 } else if (cell) |attr_str| {
                     const cell_h = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2);
                     const header = (row == 0 and t.header_row) or (col == 0 and t.header_col);
-                    noteHit(t.cell(row, col), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2, cell_h, .body, header, t.aligns[col]);
+                    noteHit(app.images.flow(t.cell(row, col)), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2, cell_h, .body, header, t.aligns[col]);
                 }
             }
             if (cell) |attr_str| c.CFRelease(attr_str);
@@ -1081,7 +1093,8 @@ fn drawAlertIcon(ctx: c.CGContextRef, alert: md.Alert, x: CGFloat, cg_top: CGFlo
     c.CGContextFillPath(ctx);
 }
 
-fn drawErrorBox(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, cg_y: CGFloat, w: CGFloat, font: c.CTFontRef) CGFloat {
+fn drawErrorBox(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, cg_y: CGFloat, w: CGFloat, font: c.CTFontRef) CGFloat {
+    const content = app.images.flow(content_in);
     const attr_str = createRichAttrStr(content, font, text_color, @max(w - 34, 20)) orelse return 0;
     defer c.CFRelease(attr_str);
     const h = suggestSize(@ptrCast(attr_str), @max(w - 34, 20)).height + 32;
