@@ -117,12 +117,12 @@ pub fn Lexer(comptime G: type) type {
         gpa: Allocator,
         arena: std.heap.ArenaAllocator,
         diag: *Diag,
-        input: []const u16,
+        rest: []const u16,
+        matched: std.ArrayList(u16) = .empty,
+        match: []const u16 = &.{},
         regexes: []const regex.Regex,
         matcher: regex.Matcher,
         cond_stack: std.ArrayList(u16) = .empty,
-        offset: usize = 0,
-        match_len: usize = 0,
         yytext: []const u16 = &.{},
         yylineno: usize = 0,
         yylloc: Loc = .{},
@@ -163,13 +163,14 @@ pub fn Lexer(comptime G: type) type {
             const regexes = try Shared.get();
             var arena = std.heap.ArenaAllocator.init(gpa);
             errdefer arena.deinit();
-            var self: Self = .{ .gpa = gpa, .arena = arena, .diag = diag, .input = input, .regexes = regexes, .matcher = regex.Matcher.init(gpa) };
+            var self: Self = .{ .gpa = gpa, .arena = arena, .diag = diag, .rest = input, .regexes = regexes, .matcher = regex.Matcher.init(gpa) };
             try self.cond_stack.append(gpa, @intCast(G.lex_conditions.len - 1));
             return self;
         }
 
         pub fn deinit(self: *Self) void {
             self.matcher.deinit();
+            self.matched.deinit(self.gpa);
             self.cond_stack.deinit(self.gpa);
             self.arena.deinit();
         }
@@ -195,7 +196,7 @@ pub fn Lexer(comptime G: type) type {
         }
 
         pub fn pastInput(self: *const Self, gpa: Allocator) Allocator.Error![]u16 {
-            const past = self.input[0 .. self.offset - self.match_len];
+            const past = self.matched.items[0 .. self.matched.items.len - self.match.len];
             var out: std.ArrayList(u16) = .empty;
             errdefer out.deinit(gpa);
             if (past.len > 20) try out.appendSlice(gpa, &.{ '.', '.', '.' });
@@ -204,10 +205,11 @@ pub fn Lexer(comptime G: type) type {
         }
 
         pub fn upcomingInput(self: *const Self, gpa: Allocator) Allocator.Error![]u16 {
-            const start = self.offset - self.match_len;
-            var take = self.match_len;
-            if (take < 20) take = @min(20, self.input.len - start);
-            const upcoming = self.input[start .. start + take];
+            var next_text: std.ArrayList(u16) = .empty;
+            defer next_text.deinit(gpa);
+            try next_text.appendSlice(gpa, self.match);
+            if (next_text.items.len < 20) try next_text.appendSlice(gpa, self.rest[0..@min(20 - next_text.items.len, self.rest.len)]);
+            const upcoming = next_text.items;
             var out: std.ArrayList(u16) = .empty;
             errdefer out.deinit(gpa);
             for (upcoming[0..@min(upcoming.len, 20)]) |c| if (c != '\n') try out.append(gpa, c);
@@ -236,8 +238,36 @@ pub fn Lexer(comptime G: type) type {
             return error.Syntax;
         }
 
+        // jison's unput: puts text back in front of the input; match and matched lose one unit, not the text's length
+        pub fn unput(self: *Self, ch: []const u16) Error!void {
+            const a = self.arena.allocator();
+            const old_lines = try splitLineLengths(a, self.match);
+            const lines = try splitLineLengths(a, ch);
+            const joined = try a.alloc(u16, ch.len + self.rest.len);
+            @memcpy(joined[0..ch.len], ch);
+            @memcpy(joined[ch.len..], self.rest);
+            self.rest = joined;
+            self.yytext = self.yytext[0..self.yytext.len -| ch.len];
+            self.match = self.match[0..self.match.len -| 1];
+            self.matched.shrinkRetainingCapacity(self.matched.items.len -| 1);
+            self.yylineno -|= lines.len - 1;
+            const idx = @as(isize, @intCast(old_lines.len)) - @as(isize, @intCast(lines.len));
+            if (idx < 0) return self.diag.fail(self.gpa, "Cannot read properties of undefined (reading 'length')", .{});
+            const base = if (lines.len == old_lines.len) self.yylloc.first_column else 0;
+            self.yylloc = .{
+                .first_line = self.yylloc.first_line,
+                .last_line = self.yylineno + 1,
+                .first_column = self.yylloc.first_column,
+                .last_column = (base + old_lines[@intCast(idx)]) -| lines[0],
+            };
+        }
+
+        pub fn less(self: *Self, n: usize) Error!void {
+            try self.unput(self.match[@min(n, self.match.len)..]);
+        }
+
         fn testMatch(self: *Self, len: usize, rule: u16, actions: anytype) Error!?u16 {
-            const m = self.input[self.offset..][0..len];
+            const m = self.rest[0..len];
             const nl = countLines(m);
             self.yylineno += nl;
             const last_col = if (lastTerminatorLoc(m)) |t| blk: {
@@ -247,37 +277,37 @@ pub fn Lexer(comptime G: type) type {
             } else self.yylloc.last_column + len;
             self.yylloc = .{ .first_line = self.yylloc.last_line, .last_line = self.yylineno + 1, .first_column = self.yylloc.last_column, .last_column = last_col };
             self.yytext = m;
-            self.match_len = len;
-            self.offset += len;
+            self.match = m;
+            self.rest = self.rest[len..];
+            try self.matched.appendSlice(self.gpa, m);
             const token = try actions.lexAction(self, rule);
-            if (self.done and self.offset < self.input.len) self.done = false;
+            if (self.done and self.rest.len > 0) self.done = false;
             return token;
         }
 
         fn next(self: *Self, actions: anytype) Error!?u16 {
             if (self.done) return eof_symbol;
-            if (self.offset >= self.input.len) self.done = true;
+            if (self.rest.len == 0) self.done = true;
             self.yytext = &.{};
-            self.match_len = 0;
-            const rest = self.input[self.offset..];
+            self.match = &.{};
             for (G.lex_conditions[self.topState()].rules) |rule| {
-                const m = self.matcher.matchPrefix(&self.regexes[rule], rest) catch |e| switch (e) {
+                const m = self.matcher.matchPrefix(&self.regexes[rule], self.rest) catch |e| switch (e) {
                     error.StepLimit => return self.diag.fail(self.gpa, "Lexer step limit exceeded", .{}),
                     error.OutOfMemory => return error.OutOfMemory,
                     error.BadPattern => unreachable,
                 };
                 if (m) |len| return self.testMatch(len, rule, actions);
             }
-            if (rest.len == 0) return eof_symbol;
+            if (self.rest.len == 0) return eof_symbol;
             return self.lexicalError();
         }
 
         pub fn lex(self: *Self, actions: anytype) Error!u16 {
             var idle: usize = 0;
             while (true) {
-                const before = self.offset;
+                const before = self.rest.len;
                 if (try self.next(actions)) |t| return t;
-                idle = if (self.offset == before) idle + 1 else 0;
+                idle = if (self.rest.len == before) idle + 1 else 0;
                 if (idle > 10_000) return self.diag.fail(self.gpa, "Maximum call stack size exceeded", .{});
             }
         }
@@ -409,4 +439,87 @@ pub fn trim(s: []const u16) []const u16 {
 
 fn isJsSpace(c: u16) bool {
     return (c >= 9 and c <= 13) or c == 0x20 or c == 0xA0 or c == 0x1680 or (c >= 0x2000 and c <= 0x200A) or c == 0x2028 or c == 0x2029 or c == 0x202F or c == 0x205F or c == 0x3000 or c == 0xFEFF;
+}
+
+fn splitLineLengths(a: Allocator, s: []const u16) Allocator.Error![]usize {
+    var out: std.ArrayList(usize) = .empty;
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i < s.len) {
+        if (s[i] == '\n' or s[i] == '\r') {
+            try out.append(a, i - start);
+            if (s[i] == '\r' and i + 1 < s.len and s[i + 1] == '\n') i += 1;
+            start = i + 1;
+        }
+        i += 1;
+    }
+    try out.append(a, s.len - start);
+    return out.items;
+}
+
+const UnputG = struct {
+    pub const lex_ignore_case = false;
+    pub const lex_patterns = [_][]const u8{ "[}]", "[a-z]+", "ns\\b", "[}]", "\\s+", "u[a-z]", "$" };
+    pub const lex_conditions = [_]struct { rules: []const u16 }{
+        .{ .rules = &.{ 0, 1 } },
+        .{ .rules = &.{ 2, 3, 4, 5, 6 } },
+    };
+};
+
+const UnputActions = struct {
+    pub fn lexAction(_: *UnputActions, lx: *Lexer(UnputG), rule: u16) Error!?u16 {
+        switch (rule) {
+            0 => {
+                lx.popState();
+                try lx.less(0);
+                return null;
+            },
+            1 => return 4,
+            2 => {
+                try lx.begin(0);
+                return 3;
+            },
+            3 => return 5,
+            5 => {
+                try lx.begin(0);
+                try lx.unput(lx.yytext);
+                return null;
+            },
+            6 => return 6,
+            else => return null,
+        }
+    }
+};
+
+// Expected values come from jison-lex 0.3.4 running the same rules.
+test "unput and less behave as in jison-lex" {
+    const gpa = std.testing.allocator;
+    const cases = [_]struct { input: []const u8, tokens: []const u16, message: []const u8 }{
+        .{ .input = "ns} ?", .tokens = &.{ 3, 5 }, .message = "Lexical error on line 1. Unrecognized text.\nns} ?\n----^" },
+        .{ .input = "ns}\n }\n?", .tokens = &.{ 3, 5, 5 }, .message = "Lexical error on line 3. Unrecognized text.\nns} }?\n-----^" },
+        .{ .input = "ns ab}\n\n  ??", .tokens = &.{3}, .message = "Lexical error on line 1. Unrecognized text.\nns ab}  ??\n--^" },
+        .{ .input = "ux}\n? ", .tokens = &.{ 4, 5 }, .message = "Lexical error on line 2. Unrecognized text.\nuux}? \n----^" },
+        .{ .input = "ns\n}", .tokens = &.{3}, .message = "Lexical error on line 1. Unrecognized text.\nns}\n--^" },
+    };
+    for (cases) |c| {
+        const input = try toUtf16(gpa, c.input);
+        defer gpa.free(input);
+        var diag: Diag = .{};
+        defer diag.deinit(gpa);
+        var lx = try Lexer(UnputG).init(gpa, input, &diag);
+        defer lx.deinit();
+        var actions: UnputActions = .{};
+        var got: std.ArrayList(u16) = .empty;
+        defer got.deinit(gpa);
+        while (true) {
+            const t = lx.lex(&actions) catch |e| {
+                try std.testing.expectEqual(error.Syntax, e);
+                break;
+            };
+            try got.append(gpa, t);
+            try std.testing.expect(got.items.len < 20);
+        }
+        try std.testing.expectEqualSlices(u16, c.tokens, got.items);
+        try std.testing.expectEqualStrings(c.message, diag.message);
+    }
 }

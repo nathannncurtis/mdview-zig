@@ -1,4 +1,8 @@
 [
+ {"input":"flowchart TD\nA  \t B","message":"Parse error on line 2:\nflowchart TDA  \t B\n-----------------^\nExpecting 'SEMI', 'NEWLINE', 'EOF', 'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'NODE_STRING'"},
+ {"input":"flowchart TD\nA -->   \n  ","message":"Parse error on line 4:\n...hart TDA -->     \n--------------------^\nExpecting 'AMP', 'COLON', 'PIPE', 'TESTSTR', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'EOF'"},
+ {"input":"flowchart TD\nA   [x","message":"Parse error on line 2:\nflowchart TDA   [x\n----------------^\nExpecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'AMP', 'COLON', 'START_LINK', 'LINK', 'LINK_ID', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'SQS'"},
+ {"input":"flowchart TD\nA   --> B\n　C","message":null},
  {"input":"flowchart TD\nA-->","message":"Parse error on line 3:\nflowchart TDA-->\n----------------^\nExpecting 'AMP', 'COLON', 'PIPE', 'TESTSTR', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'EOF'"},
  {"input":"graph TD\nA[x","message":"Parse error on line 3:\ngraph TDA[x\n-----------^\nExpecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'"},
  {"input":"flowchart LR\nA --> B ~ C","message":"Lexical error on line 2. Unrecognized text.\n...lowchart LRA --> B ~ C\n----------------------^"},

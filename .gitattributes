@@ -2,3 +2,4 @@
 *.in text eol=lf
 src/spec_links.txt text eol=lf
 src/mermaid/jison/testdata/* text eol=lf
+testdata/mermaid/jison/* text eol=lf
