@@ -108,7 +108,9 @@ pub const Deadline = struct {
 };
 
 pub const Options = struct {
-    // working memory that is dropped when each phase ends, so it never piles up in the caller's arena
+    // working memory is freed when each phase ends; its live total may not pass this many bytes
+    temp_limit: usize = 256 << 20,
+    // set by layout from temp_limit
     temp: std.mem.Allocator = std.heap.page_allocator,
     deadline: ?Deadline = null,
     pivot_cap: ?usize = null,
@@ -119,3 +121,48 @@ pub const Error = std.mem.Allocator.Error || graph.ParentError || error{ Disconn
 pub fn checkDeadline(opts: Options) error{Deadline}!void {
     if (opts.deadline) |d| if (d.expired(d.ctx)) return error.Deadline;
 }
+
+pub const max_nesting = 64;
+pub const max_nodes = 20000;
+
+// page_allocator that refuses to hold more than `limit` live bytes
+pub const Limited = struct {
+    limit: usize,
+    live: usize = 0,
+
+    fn alloc(ctx: *anyopaque, len: usize, al: std.mem.Alignment, ra: usize) ?[*]u8 {
+        const self: *Limited = @ptrCast(@alignCast(ctx));
+        if (len > self.limit - self.live) return null;
+        const p = std.heap.page_allocator.rawAlloc(len, al, ra) orelse return null;
+        self.live += len;
+        return p;
+    }
+
+    fn resize(ctx: *anyopaque, m: []u8, al: std.mem.Alignment, n: usize, ra: usize) bool {
+        const self: *Limited = @ptrCast(@alignCast(ctx));
+        if (n > m.len and n - m.len > self.limit - self.live) return false;
+        if (!std.heap.page_allocator.rawResize(m, al, n, ra)) return false;
+        self.live = self.live - m.len + n;
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, m: []u8, al: std.mem.Alignment, n: usize, ra: usize) ?[*]u8 {
+        const self: *Limited = @ptrCast(@alignCast(ctx));
+        if (n > m.len and n - m.len > self.limit - self.live) return null;
+        const p = std.heap.page_allocator.rawRemap(m, al, n, ra) orelse return null;
+        self.live = self.live - m.len + n;
+        return p;
+    }
+
+    fn free(ctx: *anyopaque, m: []u8, al: std.mem.Alignment, ra: usize) void {
+        const self: *Limited = @ptrCast(@alignCast(ctx));
+        std.heap.page_allocator.rawFree(m, al, ra);
+        self.live -= m.len;
+    }
+
+    const vtable: std.mem.Allocator.VTable = .{ .alloc = alloc, .resize = resize, .remap = remap, .free = free };
+
+    pub fn allocator(self: *Limited) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+};

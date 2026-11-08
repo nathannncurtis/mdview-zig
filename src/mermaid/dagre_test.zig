@@ -283,3 +283,31 @@ test "dagre parity summary" {
         .{ stats.graphs, stats.nodes, stats.max_node, stats.edge_points, stats.max_point, stats.max_size, stats.peak_arena / 1024 },
     );
 }
+
+test "dagre: nesting deeper than the cap is refused" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var g = try layout_mod.newGraph(a, .{});
+    var prev: ?[]const u8 = null;
+    for (0..1000) |i| {
+        const id = try std.fmt.allocPrint(a, "s{d}", .{i});
+        try g.setNode(id, try layout_mod.newNode(a, 10, 10));
+        if (prev) |p| try g.setParent(id, p);
+        prev = id;
+    }
+    try std.testing.expectError(error.LayoutFailed, layout_mod.layout(a, &g, .{}));
+}
+
+test "dagre: working memory is limited" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var g = try layout_mod.newGraph(a, .{});
+    for (0..200) |i| {
+        const id = try std.fmt.allocPrint(a, "n{d}", .{i});
+        try g.setNode(id, try layout_mod.newNode(a, 10, 10));
+        if (i > 0) try g.setEdge(.{ .v = try std.fmt.allocPrint(a, "n{d}", .{i / 2}), .w = id }, try layout_mod.newEdge(a, .{}));
+    }
+    try std.testing.expectError(error.OutOfMemory, layout_mod.layout(a, &g, .{ .temp_limit = 1024 }));
+}

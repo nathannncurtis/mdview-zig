@@ -398,6 +398,16 @@ fn countOk(x: f64) bool {
 }
 
 fn validate(input: *const Graph) types.Error!void {
+    if (input.nodeCount() > types.max_nodes) return error.LayoutFailed;
+    // deep recursion would overflow a small worker stack
+    for (input.nodes()) |v| {
+        var depth: usize = 0;
+        var p = input.parent(v);
+        while (p) |x| : (p = input.parent(x)) {
+            depth += 1;
+            if (depth > types.max_nesting) return error.LayoutFailed;
+        }
+    }
     const gl = input.label;
     for ([_]f64{ gl.ranksep, gl.edgesep, gl.nodesep, gl.marginx, gl.marginy }) |x| if (!finite(x)) return error.InvalidInput;
     for (input.nodes()) |v| {
@@ -413,8 +423,11 @@ fn validate(input: *const Graph) types.Error!void {
 
 pub fn layout(a: Allocator, input: *Graph, opts: types.Options) types.Error!void {
     try validate(input);
+    var limited: types.Limited = .{ .limit = opts.temp_limit };
+    var o = opts;
+    o.temp = limited.allocator();
     var g = try buildLayoutGraph(a, input);
-    try runLayout(a, &g, opts);
+    try runLayout(a, &g, o);
     updateInputGraph(input, &g);
 }
 
