@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
 
     const resolved = target.result;
     var linux_c: ?*std.Build.Step.TranslateC = null;
+    var macos_c: ?*std.Build.Step.TranslateC = null;
     if (resolved.os.tag == .windows) {
         exe_mod.linkSystemLibrary("d2d1", .{});
         exe_mod.linkSystemLibrary("dwrite", .{});
@@ -39,6 +40,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
+        macos_c = c;
         exe_mod.addImport("c", c.createModule());
         exe_mod.linkFramework("Cocoa", .{});
         exe_mod.linkFramework("CoreText", .{});
@@ -97,6 +99,19 @@ pub fn build(b: *std.Build) void {
         for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        test_step.dependOn(&b.addRunArtifact(layout_tests).step);
+    }
+
+    if (macos_c) |c| {
+        const layout_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/platform/macos/macos.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        layout_tests.root_module.addImport("c", c.createModule());
+        for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
