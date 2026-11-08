@@ -58,7 +58,7 @@ pub const GlyphCache = struct {
             .y1 = bb.y1,
             .ic = face.italicCorrection(gid),
         };
-        c.map.put(c.alloc, key, m) catch {};
+        c.map.put(c.alloc, key, m) catch return m;
         return m;
     }
 };
