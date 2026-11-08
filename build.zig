@@ -105,6 +105,11 @@ pub fn build(b: *std.Build) void {
     });
     dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
+    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
+    const math_mod = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = target, .optimize = optimize });
+    math_mod.addImport("font", font_mod);
+    const math_tests = b.addTest(.{ .root_module = math_mod });
+    test_step.dependOn(&b.addRunArtifact(math_tests).step);
     addTools(b, test_step, testdata);
 
     if (linux_c) |c| {
@@ -313,6 +318,13 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
     });
     addStubs(b, compare_tests.root_module);
     test_step.dependOn(&b.addRunArtifact(compare_tests).step);
+    const dump = toolExe(b, "math-dump", "tools/gen/math_dump.zig");
+    const dump_font = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = b.graph.host });
+    const dump_math = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = b.graph.host });
+    dump_math.addImport("font", dump_font);
+    dump.root_module.addImport("font", dump_font);
+    dump.root_module.addImport("math", dump_math);
+    _ = toolStep(b, "math-dump", "Render sample formulas to PNG and SVG: <math font file or - for the system font> <face index> <out dir> [samples] [--constants]", dump);
 
     const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen/gen_growth.zig"));
     const growth_dir = growth.addOutputDirectoryArg("growth");
