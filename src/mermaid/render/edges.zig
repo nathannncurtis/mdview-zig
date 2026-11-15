@@ -495,11 +495,11 @@ fn strokeColorOf(s: []const u8) ?[]const u8 {
     return rest[0..end];
 }
 
-pub fn insertEdge(ctx: *const Ctx, elem: *El, edge: *EdgeData, cluster_db: ClusterDb, diagram_type: []const u8, start_node: *const NodeData, end_node: *const NodeData, diagram_id: []const u8) !Paths {
+pub fn insertEdge(ctx: *const Ctx, elem: *El, edge: *EdgeData, cluster_db: ClusterDb, diagram_type: []const u8, start_node: *const NodeData, end_node: *const NodeData, diagram_id: []const u8, skip_intersect: bool) !Paths {
     const a = ctx.a;
     var points: []Point = try a.dupe(Point, edge.points);
     var changed = false;
-    if (start_node.intersect != null and end_node.intersect != null and edge.points.len > 2) {
+    if (!skip_intersect and start_node.intersect != null and end_node.intersect != null and edge.points.len > 2) {
         const inner = edge.points[1 .. edge.points.len - 1];
         const np = try a.alloc(Point, inner.len + 2);
         @memcpy(np[1 .. inner.len + 1], inner);
@@ -620,7 +620,7 @@ test "straight edge between two rect nodes" {
     const a_node: NodeData = .{ .id = "A", .x = 50, .y = 20, .width = 100, .height = 40, .intersect = .rect };
     const b_node: NodeData = .{ .id = "B", .x = 50, .y = 100, .width = 100, .height = 40, .intersect = .rect };
     const db: ClusterDb = .{ .ctx = &dummy, .getFn = fake.none };
-    const res = try insertEdge(&ctx, paths_g, &edge, db, "flowchart-v2", &a_node, &b_node, "d");
+    const res = try insertEdge(&ctx, paths_g, &edge, db, "flowchart-v2", &a_node, &b_node, "d", false);
     const p = res.path_el.?;
     try std.testing.expectEqualStrings("d-L_A_B_0", p.getAttr("id").?);
     try std.testing.expectEqualStrings(" edge-thickness-normal edge-pattern-solid", p.getAttr("class").?);
