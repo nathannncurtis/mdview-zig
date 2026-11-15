@@ -10,17 +10,22 @@ const images = @import("../image/images.zig");
 /// GitHub pads every formula 2px on each side, and a display formula 6px above and below.
 pub const pad_x: f32 = 2;
 pub const pad_y: f32 = 6;
-/// Widest bitmap in device pixels; a wider formula is clipped here and scrolls in its block.
+/// Widest bitmap in device pixels; a wider formula is drawn as tiles this wide.
 pub const max_px: u32 = 4096;
+pub const max_tiles = 16;
 
 const text_families = "\"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif";
 
 /// Where a formula sits in the line: `ascent` above the baseline and `descent` below, in layout units; `w` includes the side padding.
 pub const Look = struct { w: f32, ascent: f32, descent: f32 };
 
-pub const Bitmap = struct { native: *anyopaque, w: u32, h: u32 };
+/// One tile of a formula's bitmap: `x` and `w` place it, in layout units, from the left edge of the bitmap (which is `pad_x` in from the box).
+pub const Piece = struct { native: *anyopaque, px_w: u32, px_h: u32, x: f32, w: f32 };
 
-const Raster = struct { rgb: u24, native: ?*anyopaque, w: u32, h: u32 };
+const Raster = struct { rgb: u24, tile: u8, native: ?*anyopaque, w: u32, h: u32 };
+
+var raster_fn: *const fn (std.mem.Allocator, []const u8, u32, u32) image.Error!image.Image = svg.render;
+var errors: std.StringHashMapUnmanaged(void) = .empty;
 
 const Entry = struct {
     arena: std.heap.ArenaAllocator,
@@ -51,6 +56,14 @@ pub fn reset() void {
         arena.deinit();
     }
     cache.clearAndFree(images.gpa);
+    var bad = errors.keyIterator();
+    while (bad.next()) |k| images.gpa.free(k.*);
+    errors.clearAndFree(images.gpa);
+}
+
+/// True when `src` is a TeX error, which MathJax shows as its message; the source is the tooltip.
+pub fn failed(src: []const u8) bool {
+    return errors.contains(src);
 }
 
 fn fonts() layout.TextFonts {
@@ -77,6 +90,9 @@ fn build(src: []const u8, display: bool, size: f32) ?*Entry {
         arena.deinit();
         return null;
     };
+    if (tree.err != null and !errors.contains(src)) {
+        if (images.gpa.dupe(u8, src)) |own| errors.put(images.gpa, own, {}) catch images.gpa.free(own) else |_| {}
+    }
     const f = font.mathFont(images.io, home);
     const box = layout.layout(a, &tree, f, .{ .size = size * images.dpi_scale, .display = display, .text_fonts = fonts() }) catch {
         arena.deinit();
@@ -128,39 +144,53 @@ pub fn look(src: []const u8, display: bool, size: f32) ?Look {
     return (entry(src, display, size) orelse return null).look;
 }
 
-fn clipHeader(a: std.mem.Allocator, bytes: []const u8, w: u32, h: u32) std.mem.Allocator.Error![]u8 {
+fn clipHeader(a: std.mem.Allocator, bytes: []const u8, x0: u32, w: u32, h: u32) std.mem.Allocator.Error![]u8 {
     const body = std.mem.indexOf(u8, bytes, "<g fill=") orelse return a.dupe(u8, bytes);
-    return std.fmt.allocPrint(a, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{d}\" height=\"{d}\" viewBox=\"0 0 {d} {d}\">{s}", .{ w, h, w, h, bytes[body..] });
+    return std.fmt.allocPrint(a, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{d}\" height=\"{d}\" viewBox=\"{d} 0 {d} {d}\">{s}", .{ w, h, x0, w, h, bytes[body..] });
 }
 
-fn rasterize(e: *Entry, rgb: u24) ?Raster {
+fn rasterize(e: *Entry, rgb: u24, tile: u8) ?Raster {
     const a = images.gpa;
+    const w: u32 = @intFromFloat(@ceil(e.px_w));
+    const full_h: u32 = @intFromFloat(@ceil(e.px_h));
+    const h = @min(full_h, max_px);
+    const x0 = @as(u32, tile) * max_px;
+    if (x0 >= w) return null;
+    const cw = @min(max_px, w - x0);
     const bytes = scene.toSvg(a, e.box, rgb) catch return null;
     defer a.free(bytes);
-    const w: u32 = @intFromFloat(@ceil(e.px_w));
-    const h: u32 = @intFromFloat(@ceil(e.px_h));
-    const cw = @min(w, max_px);
-    const ch = @min(h, max_px);
-    const doc = if (cw < w or ch < h) clipHeader(a, bytes, cw, ch) catch return null else bytes;
-    defer if (cw < w or ch < h) a.free(doc);
-    var img = svg.render(a, doc, cw, ch) catch return null;
+    const whole = x0 == 0 and cw == w and h == full_h;
+    const doc = if (whole) bytes else clipHeader(a, bytes, x0, cw, h) catch return null;
+    defer if (!whole) a.free(doc);
+    var img = raster_fn(a, doc, cw, h) catch return null;
     defer img.deinit(a);
     const create = images.create_native orelse return null;
     const native = create(img.frames[0].rgba, img.width, img.height) orelse return null;
-    return .{ .rgb = rgb, .native = native, .w = img.width, .h = img.height };
+    return .{ .rgb = rgb, .tile = tile, .native = native, .w = img.width, .h = img.height };
 }
 
-/// The bitmap of the formula drawn in `rgb`, at device size; null when it did not render. It is drawn at `pad_x` from the left edge of its box.
-pub fn bitmap(src: []const u8, display: bool, size: f32, rgb: u24) ?Bitmap {
-    const e = entry(src, display, size) orelse return null;
-    for (e.rasters.items) |r| if (r.rgb == rgb) {
-        const n = r.native orelse return null;
-        return .{ .native = n, .w = r.w, .h = r.h };
-    };
-    const r = rasterize(e, rgb) orelse Raster{ .rgb = rgb, .native = null, .w = 0, .h = 0 };
-    e.rasters.append(images.gpa, r) catch return null;
-    const n = r.native orelse return null;
-    return .{ .native = n, .w = r.w, .h = r.h };
+/// The tiles of the formula drawn in `rgb` that overlap `from..to` (layout units from the left edge of its bitmap), at device size.
+pub fn pieces(src: []const u8, display: bool, size: f32, rgb: u24, from: f32, to: f32, out: *[max_tiles]Piece) []const Piece {
+    const e = entry(src, display, size) orelse return out[0..0];
+    const w: u32 = @intFromFloat(@ceil(e.px_w));
+    const per_px = (e.box.w / images.dpi_scale) / @as(f32, @floatFromInt(w));
+    const tiles = @min((w + max_px - 1) / max_px, max_tiles);
+    var n: usize = 0;
+    for (0..tiles) |t| {
+        const x = @as(f32, @floatFromInt(t * max_px)) * per_px;
+        const tw = @as(f32, @floatFromInt(@min(max_px, w - @as(u32, @intCast(t)) * max_px))) * per_px;
+        if (x + tw <= from or x >= to) continue;
+        const r = for (e.rasters.items) |r| {
+            if (r.rgb == rgb and r.tile == t) break r;
+        } else blk: {
+            const fresh = rasterize(e, rgb, @intCast(t)) orelse Raster{ .rgb = rgb, .tile = @intCast(t), .native = null, .w = 0, .h = 0 };
+            e.rasters.append(images.gpa, fresh) catch continue;
+            break :blk fresh;
+        };
+        out[n] = .{ .native = r.native orelse continue, .px_w = r.w, .px_h = r.h, .x = x, .w = tw };
+        n += 1;
+    }
+    return out[0..n];
 }
 
 /// The left edge of a display formula `w` wide in a column `col` wide: centred, or pinned by `scroll` when it is wider.
@@ -264,21 +294,71 @@ fn fakeFree(_: ?*anyopaque) void {
     freed += 1;
 }
 
-test "bitmaps are cached per colour and freed on reset" {
-    setup();
-    defer teardown();
-    made = 0;
-    freed = 0;
+fn fakeRaster(a: std.mem.Allocator, _: []const u8, w: u32, h: u32) image.Error!image.Image {
+    const frames = try a.alloc(image.Frame, 1);
+    errdefer a.free(frames);
+    frames[0] = .{ .rgba = try a.alloc(u8, w * h * 4), .delay_ms = 0 };
+    return .{ .width = w, .height = h, .frames = frames, .loop_count = 0 };
+}
+
+fn fakes() void {
     images.create_native = fakeCreate;
     images.free_native = fakeFree;
-    defer images.create_native = null;
-    defer images.free_native = null;
-    const first = bitmap("x^2", false, 16, 0xffffff) orelse return error.SkipZigTest;
-    const again = bitmap("x^2", false, 16, 0xffffff).?;
-    try testing.expectEqual(first.native, again.native);
+    raster_fn = fakeRaster;
+    made = 0;
+    freed = 0;
+}
+
+fn unfake() void {
+    images.create_native = null;
+    images.free_native = null;
+    raster_fn = svg.render;
+}
+
+test "tiles are cached per colour and freed on reset" {
+    setup();
+    defer teardown();
+    fakes();
+    defer unfake();
+    var out: [max_tiles]Piece = undefined;
+    const first = pieces("x^2", false, 16, 0xffffff, 0, 1000, &out);
+    try testing.expectEqual(@as(usize, 1), first.len);
+    const native = first[0].native;
+    try testing.expectEqual(native, pieces("x^2", false, 16, 0xffffff, 0, 1000, &out)[0].native);
     try testing.expectEqual(@as(u32, 1), made);
-    _ = bitmap("x^2", false, 16, 0x8b949e).?;
+    _ = pieces("x^2", false, 16, 0x8b949e, 0, 1000, &out);
     try testing.expectEqual(@as(u32, 2), made);
     reset();
     try testing.expectEqual(@as(u32, 2), freed);
+}
+
+test "a formula wider than a tile is drawn in tiles, only those in view" {
+    setup();
+    defer teardown();
+    fakes();
+    defer unfake();
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(testing.allocator);
+    for (0..1500) |_| try src.appendSlice(testing.allocator, "x+");
+    try src.append(testing.allocator, 'x');
+    const l = look(src.items, false, 16).?;
+    try testing.expect(l.w > @as(f32, max_px) * 2);
+    var out: [max_tiles]Piece = undefined;
+    const all = pieces(src.items, false, 16, 0xffffff, 0, l.w, &out);
+    try testing.expect(all.len >= 3);
+    for (all[0 .. all.len - 1], all[1..]) |a, b| try testing.expectApproxEqAbs(a.x + a.w, b.x, 0.01);
+    try testing.expect(all[0].px_w == max_px);
+    const made_all = made;
+    const one = pieces(src.items, false, 16, 0xffffff, 10, 50, &out);
+    try testing.expectEqual(@as(usize, 1), one.len);
+    try testing.expectEqual(made_all, made);
+}
+
+test "a broken formula is listed as failed, a good one is not" {
+    setup();
+    defer teardown();
+    _ = look("\\frac{1", false, 16);
+    _ = look("x", false, 16);
+    try testing.expect(failed("\\frac{1"));
+    try testing.expect(!failed("x"));
 }

@@ -218,13 +218,13 @@ test "inline math is a run delegate with its depth below the baseline" {
     defer doc.deinit();
     const content = doc.blocks[0].content;
     try testing.expectEqual(@as(usize, 2), content.math.len);
-    const frac = mac.mathBox(&content.math[0], 16, text_color) orelse return error.NoBox;
+    const frac = mac.mathBox(&content.math[0], 16, text_color, 1000) orelse return error.NoBox;
     try testing.expect(frac.descent > 1);
     try testing.expectApproxEqAbs(frac.h, mac.delegateAscent(frac) + mac.delegateDescent(frac), 0.001);
     try testing.expect(mac.delegateAscent(frac) < frac.h - 1);
     try testing.expectEqual(frac.descent, mac.delegateDescent(frac));
     try testing.expect(frac.w > 2 * app.math.pad_x);
-    const x = mac.mathBox(&content.math[1], 16, text_color) orelse return error.NoBox;
+    const x = mac.mathBox(&content.math[1], 16, text_color, 1000) orelse return error.NoBox;
     try testing.expect(x.descent < 0.5);
 }
 

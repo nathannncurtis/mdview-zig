@@ -822,6 +822,8 @@ pub const ImageBox = struct {
     ascent: f32 = 0,
     math: ?*const md.MathSpan = null,
     size: f32 = 0,
+    /// Full width of a formula wider than the line, which scrolls inside `w`.
+    math_w: f32 = 0,
 };
 
 pub var boxes: ?std.heap.ArenaAllocator = null;
@@ -861,11 +863,11 @@ pub fn imageBox(im: *const md.Image, avail: f32) ?*ImageBox {
     return box;
 }
 
-fn mathBox(m: *const md.MathSpan, size: f32) ?*ImageBox {
+fn mathBox(m: *const md.MathSpan, size: f32, max_width: f32) ?*ImageBox {
     if (boxes == null) boxes = .init(app.gpa);
     const look = app.math.look(m.src, m.display, size) orelse return null;
     const box = boxes.?.allocator().create(ImageBox) catch return null;
-    box.* = .{ .w = look.w, .h = look.ascent + look.descent, .kind = .math, .image = null, .ascent = look.ascent, .math = m, .size = size };
+    box.* = .{ .w = @min(look.w, max_width), .h = look.ascent + look.descent, .kind = .math, .image = null, .ascent = look.ascent, .math = m, .size = size, .math_w = look.w };
     return box;
 }
 
@@ -913,8 +915,11 @@ pub fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: 
             const m = box.math orelse return;
             var rgba: [4]f64 = .{ 0, 0, 0, 1 };
             _ = c.cairo_pattern_get_rgba(c.cairo_get_source(ctx), &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
-            const bm = app.math.bitmap(m.src, m.display, box.size, packRgb(.{ .r = rgba[0], .g = rgba[1], .b = rgba[2] })) orelse return;
-            blit(ctx, bm.native, bm.w, bm.h, x + app.math.pad_x, top, box.w - 2 * app.math.pad_x, box.h);
+            const key = @intFromPtr(m.src.ptr);
+            const max = box.math_w - box.w;
+            const fx: f32 = @floatCast(x);
+            if (max > 0 and !html.measuring) app.noteMathBlock(.{ .x = fx, .y = @as(f32, @floatCast(top)) + app.scroll_y, .w = box.w, .h = box.h }, key, max);
+            drawMathPieces(ctx, m.src, m.display, box.size, packRgb(.{ .r = rgba[0], .g = rgba[1], .b = rgba[2] }), fx, fx + box.w, fx - app.mathOffset(key) + app.math.pad_x, @floatCast(top), box.h);
         },
         .broken => {
             if (app.images.brokenIcon()) |icon| {
@@ -1062,7 +1067,7 @@ pub fn setInline(pango_layout: *c.PangoLayout, content_in: md.Inline, max_width:
 
     const size_px = @as(f32, @floatFromInt(c.pango_font_description_get_size(desc))) / @as(f32, c.PANGO_SCALE) * 96.0 / 72.0;
     for (content.math) |*m| {
-        const box = mathBox(m, size_px) orelse continue;
+        const box = mathBox(m, size_px, max_width orelse 100000) orelse continue;
         addImageShape(attr_list, box, mapStart(spans, m.start), mapEnd(spans, m.start + m.len));
     }
 
@@ -1224,14 +1229,25 @@ fn renderMathBlock(cr: *c.cairo_t, src: []const u8, color: Color, x: f32, y: f32
     const key = @intFromPtr(src.ptr);
     app.noteMathBlock(.{ .x = x, .y = y + app.scroll_y, .w = w, .h = h }, key, app.math.maxScroll(w, look.w));
     if (y + h < 0 or y > app.window_height) return h;
-    const bm = app.math.bitmap(src, true, 16, packRgb(color)) orelse return h;
-    c.cairo_save(cr);
-    c.cairo_rectangle(cr, x, y, w, h);
-    c.cairo_clip(cr);
     const left = x + app.math.displayX(w, look.w, app.mathOffset(key)) + app.math.pad_x;
-    blit(cr, bm.native, bm.w, bm.h, left, y + app.math.pad_y, look.w - 2 * app.math.pad_x, look.ascent + look.descent);
-    c.cairo_restore(cr);
+    drawMathPieces(cr, src, true, 16, packRgb(color), x, x + w, left, y + app.math.pad_y, look.ascent + look.descent);
     return h;
+}
+
+/// Draws the tiles of a formula whose bitmap starts at `left`, showing only `vl..vr`.
+fn drawMathPieces(cr: *c.cairo_t, src: []const u8, block: bool, size: f32, rgb: u24, vl: f32, vr: f32, left: f32, top: f32, h: f32) void {
+    var out: [app.math.max_tiles]app.math.Piece = undefined;
+    for (app.math.pieces(src, block, size, rgb, vl - left, vr - left, &out)) |p| {
+        const at = left + p.x;
+        const l = @max(vl, at);
+        const r = @min(vr, at + p.w);
+        if (r <= l) continue;
+        c.cairo_save(cr);
+        c.cairo_rectangle(cr, l, top, r - l, h);
+        c.cairo_clip(cr);
+        blit(cr, p.native, p.px_w, p.px_h, at, top, p.w, h);
+        c.cairo_restore(cr);
+    }
 }
 
 fn renderCodeBlock(

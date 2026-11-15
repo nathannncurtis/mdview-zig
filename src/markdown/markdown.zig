@@ -2086,6 +2086,7 @@ fn mathSegs(a: Allocator, parsed: inl.Parsed) Allocator.Error![]const detect.Seg
     var out: std.ArrayList(detect.Seg) = .empty;
     var open: std.ArrayList(inl.Kind) = .empty;
     var blocked: u32 = 0;
+    var tags: std.ArrayList([]const u8) = .empty;
     var in_code = false;
     var pos: u32 = 0;
     for (parsed.events) |ev| {
@@ -2107,11 +2108,40 @@ fn mathSegs(a: Allocator, parsed: inl.Parsed) Allocator.Error![]const detect.Seg
                 else => {},
             },
             .hard => pos += 1,
+            .html => {
+                const raw = ev.raw;
+                const closing = raw.len > 2 and raw[1] == '/';
+                const name = tagName(raw[@min(raw.len, @as(usize, if (closing) 2 else 1))..]);
+                if (name.len == 0 or raw[raw.len - 1] != '>') continue;
+                const hides = !std.ascii.eqlIgnoreCase(name, "sup");
+                if (closing) {
+                    var i = tags.items.len;
+                    while (i > 0) : (i -= 1) if (std.ascii.eqlIgnoreCase(tags.items[i - 1], name)) {
+                        _ = tags.orderedRemove(i - 1);
+                        if (hides) blocked -|= 1;
+                        break;
+                    };
+                } else if (raw[raw.len - 2] != '/' and !isVoidTag(name)) {
+                    try tags.append(a, name);
+                    if (hides) blocked += 1;
+                }
+            },
             else => {},
         }
     }
     if (parsed.text.len > pos) try out.append(a, .{ .start = pos, .end = @intCast(parsed.text.len), .code = in_code, .scan = blocked == 0 });
     return out.items;
+}
+
+fn tagName(s: []const u8) []const u8 {
+    var n: usize = 0;
+    while (n < s.len and std.ascii.isAlphanumeric(s[n])) n += 1;
+    return s[0..n];
+}
+
+fn isVoidTag(name: []const u8) bool {
+    for ([_][]const u8{ "br", "img", "hr", "wbr", "input", "source", "area", "base", "col", "embed", "link", "meta", "param", "track" }) |v| if (std.ascii.eqlIgnoreCase(name, v)) return true;
+    return false;
 }
 
 fn linkHook(h: *const inl.Hooks, a: Allocator, src: []const u8, text_start: usize, close: usize, image: bool) Allocator.Error!?inl.LinkMatch {
@@ -3300,6 +3330,8 @@ test "math: emphasis and links hide math, strong and strike do not" {
     try expectMath("~~$c$~~", &.{"c"});
     try expectMath("[l $m$](url) <https://example.org/$x$>", &.{});
     try expectMath("<sup>$j$</sup>", &.{"j"});
+    try expectMath("<b>bold $i$</b> <em>$e$</em> <span>$s$</span> after $k$", &.{"k"});
+    try expectMath("<br> $a$ <img src=\"x.png\"> $b$", &.{ "a", "b" });
     try expectMath("<div>$h$</div>", &.{});
 }
 

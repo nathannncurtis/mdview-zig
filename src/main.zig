@@ -129,7 +129,7 @@ pub fn noteBlock(y: f32) void {
 }
 
 pub fn noteHit(h: Hit) void {
-    if (h.content.links.len > 0 or hasTitledImage(h.content)) hits.append(gpa, h) catch return;
+    if (h.content.links.len > 0 or h.content.math.len > 0 or hasTitledImage(h.content)) hits.append(gpa, h) catch return;
 }
 
 fn hasTitledImage(c: md.Inline) bool {
@@ -148,6 +148,7 @@ fn titleAt(px: f32, py: f32) ?[]const u8 {
         const index = platform.textIndexAt(h, px - h.x, y - h.y) orelse continue;
         if (h.content.imageAt(index)) |im| if (im.title.len > 0) return im.title;
         if (h.content.linkAt(index)) |l| if (l.title.len > 0) return l.title;
+        if (h.content.mathAt(index)) |m| if (math.failed(m.src)) return m.src;
     }
     return null;
 }

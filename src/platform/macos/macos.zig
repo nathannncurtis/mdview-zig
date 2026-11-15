@@ -402,6 +402,8 @@ pub const ImageBox = struct {
     math: ?*const md.MathSpan = null,
     size: CGFloat = 0,
     rgb: u24 = 0,
+    /// Full width of a formula wider than the line, which scrolls inside `w`.
+    math_w: CGFloat = 0,
 };
 
 
@@ -481,11 +483,11 @@ fn packRgb(col: Color) u24 {
     return r << 16 | g << 8 | b;
 }
 
-pub fn mathBox(m: *const md.MathSpan, size: CGFloat, color: Color) ?*ImageBox {
+pub fn mathBox(m: *const md.MathSpan, size: CGFloat, color: Color, max_width: CGFloat) ?*ImageBox {
     if (g_boxes == null) g_boxes = .init(app.gpa);
     const look = app.math.look(m.src, m.display, @floatCast(size)) orelse return null;
     const box = g_boxes.?.allocator().create(ImageBox) catch return null;
-    box.* = .{ .w = look.w, .h = look.ascent + look.descent, .kind = .math, .image = null, .link = false, .descent = look.descent, .math = m, .size = size, .rgb = packRgb(color) };
+    box.* = .{ .w = @min(look.w, max_width), .h = look.ascent + look.descent, .kind = .math, .image = null, .link = false, .descent = look.descent, .math = m, .size = size, .rgb = packRgb(color), .math_w = look.w };
     return box;
 }
 
@@ -528,9 +530,10 @@ pub fn drawImageBox(ctx: c.CGContextRef, box: *const ImageBox, x: CGFloat, base:
         },
         .math => {
             const m = box.math orelse return;
-            const bm = app.math.bitmap(m.src, m.display, @floatCast(box.size), box.rgb) orelse return;
-            c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
-            c.CGContextDrawImage(ctx, cgRect(x + app.math.pad_x, base, box.w - 2 * app.math.pad_x, box.h), @ptrCast(bm.native));
+            const key = @intFromPtr(m.src.ptr);
+            const max = box.math_w - box.w;
+            if (max > 0) app.noteMathBlock(.{ .x = @floatCast(x), .y = @floatCast(g_height - (base + box.h) + app.scroll_y), .w = @floatCast(box.w), .h = @floatCast(box.h) }, key, @floatCast(max));
+            drawMathPieces(ctx, m.src, m.display, @floatCast(box.size), box.rgb, x, x + box.w, x - app.mathOffset(key) + app.math.pad_x, base, box.h);
         },
         .broken => {
             if (app.images.brokenIcon()) |icon| {
@@ -815,7 +818,7 @@ pub fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color:
     }
 
     for (content.math) |*m| {
-        const box = mathBox(m, c.CTFontGetSize(base_font), base_color) orelse continue;
+        const box = mathBox(m, c.CTFontGetSize(base_font), base_color, avail) orelse continue;
         const delegate = c.CTRunDelegateCreate(&delegate_callbacks, box) orelse continue;
         defer c.CFRelease(delegate);
         c.CFAttributedStringSetAttribute(attr_str, cfRange(text, .{ m.start, m.len }), c.kCTRunDelegateAttributeName, @ptrCast(delegate));
@@ -911,15 +914,26 @@ fn drawMathBlock(ctx: c.CGContextRef, src: []const u8, color: Color, x: CGFloat,
     const key = @intFromPtr(src.ptr);
     if (note) app.noteMathBlock(.{ .x = @floatCast(x), .y = @floatCast(doc_y), .w = @floatCast(w), .h = @floatCast(h) }, key, app.math.maxScroll(@floatCast(w), look.w));
     if (y_cg - h > g_height or y_cg < 0) return h;
-    const bm = app.math.bitmap(src, true, 16, packRgb(color)) orelse return h;
     const draw_h: CGFloat = look.ascent + look.descent;
     const left = x + app.math.displayX(@floatCast(w), look.w, app.mathOffset(key)) + app.math.pad_x;
-    c.CGContextSaveGState(ctx);
-    c.CGContextClipToRect(ctx, cgRect(x, y_cg - h, w, h));
-    c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
-    c.CGContextDrawImage(ctx, cgRect(left, y_cg - app.math.pad_y - draw_h, look.w - 2 * app.math.pad_x, draw_h), @ptrCast(bm.native));
-    c.CGContextRestoreGState(ctx);
+    drawMathPieces(ctx, src, true, 16, packRgb(color), x, x + w, left, y_cg - app.math.pad_y - draw_h, draw_h);
     return h;
+}
+
+/// Draws the tiles of a formula whose bitmap starts at `left` with its bottom edge at CG y `low`, showing only `vl..vr`.
+fn drawMathPieces(ctx: c.CGContextRef, src: []const u8, block: bool, size: f32, rgb: u24, vl: CGFloat, vr: CGFloat, left: CGFloat, low: CGFloat, h: CGFloat) void {
+    var out: [app.math.max_tiles]app.math.Piece = undefined;
+    for (app.math.pieces(src, block, size, rgb, @floatCast(vl - left), @floatCast(vr - left), &out)) |p| {
+        const at = left + p.x;
+        const l = @max(vl, at);
+        const r = @min(vr, at + p.w);
+        if (r <= l) continue;
+        c.CGContextSaveGState(ctx);
+        c.CGContextClipToRect(ctx, cgRect(l, low, r - l, h));
+        c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
+        c.CGContextDrawImage(ctx, cgRect(at, low, p.w, h), @ptrCast(p.native));
+        c.CGContextRestoreGState(ctx);
+    }
 }
 
 fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, toks: []const hl.Token, x: CGFloat, y_cg: CGFloat, max_width: CGFloat) CGFloat {

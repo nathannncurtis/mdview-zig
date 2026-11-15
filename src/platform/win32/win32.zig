@@ -463,6 +463,8 @@ const ImageObject = extern struct {
     baseline: f32 = 0,
     math: ?*const md.MathSpan = null,
     size: f32 = 0,
+    /// Full width of a formula wider than the line, which scrolls inside `w`.
+    math_w: f32 = 0,
 };
 
 var g_objects: ?std.heap.ArenaAllocator = null;
@@ -520,11 +522,11 @@ fn imageObject(im: *const md.Image, max_width: f32) ?*ImageObject {
     return obj;
 }
 
-fn mathObject(m: *const md.MathSpan, size: f32) ?*ImageObject {
+fn mathObject(m: *const md.MathSpan, size: f32, max_width: f32) ?*ImageObject {
     if (g_objects == null) g_objects = .init(app.gpa);
     const look = app.math.look(m.src, m.display, size) orelse return null;
     const obj = g_objects.?.allocator().create(ImageObject) catch return null;
-    obj.* = .{ .w = look.w, .h = look.ascent + look.descent, .kind = .math, .image = null, .baseline = look.ascent, .math = m, .size = size };
+    obj.* = .{ .w = @min(look.w, max_width), .h = look.ascent + look.descent, .kind = .math, .image = null, .baseline = look.ascent, .math = m, .size = size, .math_w = look.w };
     return obj;
 }
 
@@ -556,8 +558,10 @@ fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f
         },
         .math => {
             const m = obj.math orelse return;
-            const bm = app.math.bitmap(m.src, m.display, obj.size, brushRgb(dc.brush)) orelse return;
-            vt_rt.DrawBitmap(dc.rt, bm.native, &.{ .left = x + app.math.pad_x, .top = y, .right = x + obj.w - app.math.pad_x, .bottom = y + obj.h }, 1, 1, null);
+            const key = @intFromPtr(m.src.ptr);
+            const max = obj.math_w - obj.w;
+            if (max > 0) app.noteMathBlock(.{ .x = x, .y = y, .w = obj.w, .h = obj.h }, key, max);
+            drawMathPieces(vt_rt, dc.rt, m.src, m.display, obj.size, brushRgb(dc.brush), x, x + obj.w, x - app.mathOffset(key) + app.math.pad_x, y, obj.h);
         },
         .broken => {
             if (app.images.brokenIcon()) |icon| {
@@ -1225,7 +1229,7 @@ pub fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, conten
         _ = vt_layout.SetInlineObject(lay, obj, wideRange(content.text, .{ im.start, im.len }));
     }
     for (content.math) |*m| {
-        const obj = mathObject(m, baseFontSize(text_format)) orelse continue;
+        const obj = mathObject(m, baseFontSize(text_format), max_width) orelse continue;
         _ = vt_layout.SetInlineObject(lay, obj, wideRange(content.text, .{ m.start, m.len }));
     }
     return lay;
@@ -1261,20 +1265,27 @@ pub fn renderMathBlock(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, src: []cons
     const max = app.math.maxScroll(w, look.w);
     app.noteMathBlock(.{ .x = x, .y = y, .w = w, .h = h }, key, max);
     if (y + h - app.scroll_y < 0 or y - app.scroll_y > app.window_height) return h;
-    const bm = app.math.bitmap(src, true, 16, rgb) orelse return h;
     const left = x + app.math.displayX(w, look.w, app.mathOffset(key)) + app.math.pad_x;
-    const right = left + look.w - 2 * app.math.pad_x;
-    const vl = @max(left, x);
-    const vr = @min(right, x + w);
-    if (vr <= vl) return h;
-    const ratio = @as(f32, @floatFromInt(bm.w)) / (right - left);
-    vt_rt.DrawBitmap(rt, bm.native, &.{ .left = vl, .top = y + app.math.pad_y, .right = vr, .bottom = y + app.math.pad_y + look.ascent + look.descent }, 1, 1, &.{
-        .left = (vl - left) * ratio,
-        .top = 0,
-        .right = (vr - left) * ratio,
-        .bottom = @floatFromInt(bm.h),
-    });
+    drawMathPieces(vt_rt, rt, src, true, 16, rgb, x, x + w, left, y + app.math.pad_y, look.ascent + look.descent);
     return h;
+}
+
+/// Draws the tiles of a formula whose bitmap starts at `left`, showing only `vl..vr`.
+fn drawMathPieces(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, src: []const u8, display: bool, size: f32, rgb: u24, vl: f32, vr: f32, left: f32, top: f32, h: f32) void {
+    var out: [app.math.max_tiles]app.math.Piece = undefined;
+    for (app.math.pieces(src, display, size, rgb, vl - left, vr - left, &out)) |p| {
+        const at = left + p.x;
+        const l = @max(vl, at);
+        const r = @min(vr, at + p.w);
+        if (r <= l) continue;
+        const k = @as(f32, @floatFromInt(p.px_w)) / p.w;
+        vt_rt.DrawBitmap(rt, p.native, &.{ .left = l, .top = top, .right = r, .bottom = top + h }, 1, 1, &.{
+            .left = (l - at) * k,
+            .top = 0,
+            .right = (r - at) * k,
+            .bottom = @floatFromInt(p.px_h),
+        });
+    }
 }
 
 pub fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, text: []const u8, toks: []const hl.Token, x: f32, y: f32, max_width: f32, draw: bool) f32 {
@@ -1780,6 +1791,23 @@ test "inline math sits on the text baseline with its depth below it" {
     const plain = try mathLine("a $x$ b");
     try testing.expect(plain.look.descent < 0.5);
     try testing.expect(r.line.height > plain.line.height);
+}
+
+test "an inline formula wider than the line is cut to the line and scrolls" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.dpi_scale = 1;
+    defer app.math.reset();
+    defer resetObjects();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    var doc = try md.parse(testing.allocator, "$x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x$");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    const look = app.math.look(content.math[0].src, false, 16).?;
+    try testing.expect(look.w > 300);
+    try testing.expect(layoutSize(content, 200).width <= 200.5);
+    try testing.expect(layoutSize(content, 2000).width >= look.w - 0.5);
 }
 
 test "a display formula takes its height plus 6px above and below" {
