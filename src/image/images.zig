@@ -802,13 +802,18 @@ fn measureText(_: ?*anyopaque, text: []const u8, f: mermaid.text.Font) mermaid.t
 }
 
 threadlocal var probe_waits: std.ArrayList(u8) = .empty;
+threadlocal var probe_oom: bool = false;
 
 fn imageProbe(href: []const u8) mermaid.ImageProbe {
     return switch (probe_adapter.probe(href)) {
         .size => |sz| .{ .size = .{ .w = sz.w, .h = sz.h } },
         .pending => blk: {
-            probe_waits.appendSlice(gpa, href) catch {};
-            probe_waits.append(gpa, 0x0a) catch {};
+            probe_waits.appendSlice(gpa, href) catch {
+                probe_oom = true;
+            };
+            probe_waits.append(gpa, 0x0a) catch {
+                probe_oom = true;
+            };
             break :blk .pending;
         },
         .failed => .failed,
@@ -829,11 +834,16 @@ fn clockNs() i64 {
 }
 
 fn loadDiagram(e: *Entry) !void {
+    probe_oom = false;
     defer {
         if (probe_waits.items.len > 0) e.mm_wait = gpa.dupe(u8, probe_waits.items) catch null;
         probe_waits.clearAndFree(gpa);
     }
     const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText }, .clock = clockNs, .image_probe = imageProbe });
+    if (probe_oom) {
+        mermaid.free(gpa, r);
+        return error.OutOfMemory;
+    }
     switch (r) {
         .svg => |i| {
             e.svg_bytes = @constCast(i.bytes);
