@@ -13,10 +13,18 @@ const pre = basic.pre;
 
 pub fn outer(ctx: *const model.Ctx, p: basic.Pre, node: *NodeData, pts: []const Point, class: []const u8, transform: ?[]const u8) Error!*El {
     const a = ctx.a;
-    const g = try u.insertOuterPath(p.h.shape, try u.createPathFromPoints(a, pts), class, p.st.node);
+    const g = try u.insertOuterPath(ctx, p.h.shape, try u.createPathFromPoints(a, pts), class, p.st.node);
     if (transform) |t| try g.setAttr("transform", t);
     u.updateNodeBounds(node, g);
     node.intersect = .{ .polygon = .{ .points = try u.dupePoints(a, pts) } };
+    return g;
+}
+
+pub fn outerPoly(ctx: *const model.Ctx, p: basic.Pre, node: *NodeData, pts: []const Point, class: []const u8, transform: ?[]const u8) Error!*El {
+    const g = try u.insertOuterPolygon(ctx, p.h.shape, pts, class, p.st.node);
+    if (transform) |t| try g.setAttr("transform", t);
+    u.updateNodeBounds(node, g);
+    node.intersect = .{ .polygon = .{ .points = try u.dupePoints(ctx.a, pts) } };
     return g;
 }
 
@@ -92,7 +100,7 @@ pub fn lightningBolt(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opt
         .{ .x = w, .y = 0 },       .{ .x = 0, .y = h + gap / 2 }, .{ .x = w - 2 * gap, .y = h + gap / 2 },
         .{ .x = 0, .y = 2 * h },   .{ .x = w, .y = h - gap / 2 }, .{ .x = 2 * gap, .y = h - gap / 2 },
     };
-    const g = try u.insertOuterPath(b.shape, try u.createPathFromPoints(a, &pts), "outer-path", b.st.node);
+    const g = try u.insertOuterPath(ctx, b.shape, try u.createPathFromPoints(a, &pts), "outer-path", b.st.node);
     try g.setAttr("transform", try std.fmt.allocPrint(a, "translate(-{s},{s})", .{ try u.num(a, w / 2), try u.num(a, -h) }));
     u.updateNodeBounds(node, g);
     node.intersect = .{ .polygon = .{ .points = try u.dupePoints(a, &pts) } };
@@ -148,7 +156,7 @@ pub fn windowPane(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) 
         try n(a, x - off), try n(a, y + h),   try n(a, x - off), try n(a, y - off), try n(a, x - off), try n(a, y),
         try n(a, x + w),   try n(a, y),       try n(a, x),       try n(a, y - off), try n(a, x),     try n(a, y + h),
     });
-    const g = try u.insertOuterPath(p.h.shape, d, "basic label-container outer-path", p.st.node);
+    const g = try u.insertOuterPath(ctx, p.h.shape, d, "basic label-container outer-path", p.st.node);
     try g.setAttr("transform", try u.translate(a, off / 2, off / 2));
     try p.h.label.setAttr("transform", try u.translate(a, -(p.h.w / 2) + off / 2, -(p.h.h / 2) + off / 2));
     u.updateNodeBounds(node, g);
@@ -160,11 +168,10 @@ pub fn windowPane(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) 
 pub fn filledCircle(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) Error!*El {
     node.label = "";
     const b = try bareShape(ctx, parent, node);
-    const c = try b.shape.insertFirst("circle");
-    try c.setAttr("class", "filled-circle");
-    if (b.st.node.len > 0) try c.setAttr("style", b.st.node);
-    _ = try (try (try c.attrNum("r", 7)).attrNum("cx", 0)).attrNum("cy", 0);
-    u.updateNodeBounds(node, c);
+    const g = try u.rough.circleG(ctx.a, 0, 0, 14, u.roughStyle(ctx, b.st.node));
+    const style = if (b.st.node.len > 0) b.st.node else try std.fmt.allocPrint(ctx.a, "fill: {s} !important;", .{ctx.cfg.node_border});
+    _ = try u.insertRough(b.shape, g, "", style);
+    u.updateNodeBounds(node, g);
     node.intersect = .{ .circle = 7 };
     return b.shape;
 }
@@ -175,19 +182,14 @@ pub fn crossedCircle(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opt
     const b = try bareShape(ctx, parent, node);
     const r = @max(30, node.width);
     const k = @cos(std.math.pi / 4.0) * r;
-    const g = try b.shape.insertFirst("g");
-    try g.setAttr("class", "outer-path");
-    const c = try g.insert("circle");
-    _ = try (try (try c.attrNum("r", r)).attrNum("cx", 0)).attrNum("cy", 0);
-    const line = try g.insert("path");
-    try line.setAttr("d", try std.fmt.allocPrint(a, "M {s},{s} L {s},{s} M {s},{s} L {s},{s}", .{
+    const st = u.roughStyle(ctx, b.st.node);
+    const g = try u.rough.circleG(a, 0, 0, r * 2, st);
+    const d = try std.fmt.allocPrint(a, "M {s},{s} L {s},{s} M {s},{s} L {s},{s}", .{
         try u.num(a, -k), try u.num(a, k),  try u.num(a, k),  try u.num(a, -k),
         try u.num(a, k),  try u.num(a, k),  try u.num(a, -k), try u.num(a, -k),
-    }));
-    if (b.st.node.len > 0) {
-        try c.setAttr("style", b.st.node);
-        try line.setAttr("style", b.st.node);
-    }
+    });
+    try g.append(try u.rough.drawPath(a, d, st));
+    _ = try u.insertRough(b.shape, g, "outer-path", b.st.node);
     u.updateNodeBounds(node, g);
     node.intersect = .{ .circle = r };
     return b.shape;

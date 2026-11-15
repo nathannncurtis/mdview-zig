@@ -89,7 +89,7 @@ pub fn linedWaveEdgedRect(ctx: *const model.Ctx, parent: *El, node: *NodeData, _
     try pts.append(a, .{ .x = -w / 2, .y = -fh / 2 });
     try pts.append(a, .{ .x = -w / 2, .y = (fh / 2) * 1.1 });
     try pts.append(a, .{ .x = -w / 2, .y = -fh / 2 });
-    _ = try outer(ctx, p, node, pts.items, "basic label-container outer-path", try u.translateC(a, 0, -amp / 2));
+    _ = try ext1.outerPoly(ctx, p, node, pts.items, "basic label-container outer-path", try u.translateC(a, 0, -amp / 2));
     try p.h.label.setAttr("transform", try u.translateC(a, -w / 2 + pad(node) + e / 2, -h / 2 + pad(node) - amp));
     return p.h.shape;
 }
@@ -125,7 +125,7 @@ pub fn multiWaveEdgedRectangle(ctx: *const model.Ctx, parent: *El, node: *NodeDa
         .{ .x = x + ro, .y = y },                   .{ .x = x, .y = y },                .{ .x = x, .y = y + ro },
     });
     const ip = [_]Point{ .{ .x = x, .y = y + ro }, .{ .x = x + w - ro, .y = y + ro }, .{ .x = x + w - ro, .y = last.y - ro }, .{ .x = x + w, .y = last.y - ro }, .{ .x = x + w, .y = y }, .{ .x = x, .y = y } };
-    const g = try ext2.multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, op.items), try u.createPathFromPoints(a, &ip) }, "basic label-container outer-path");
+    const g = try ext2.multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, op.items), try u.createPathFromPoints(a, &ip) }, "basic label-container outer-path", .nested);
     try g.setAttr("transform", try u.translateC(a, 0, -amp / 2));
     try p.h.label.setAttr("transform", try u.translate(a, -(p.h.w / 2) - ro, -(p.h.h / 2) + ro - amp));
     u.updateNodeBounds(node, g);
@@ -153,7 +153,7 @@ pub fn taggedWaveEdgedRectangle(ctx: *const model.Ctx, parent: *El, node: *NodeD
     var tag: std.ArrayList(Point) = .empty;
     try tag.appendSlice(a, &.{ .{ .x = x + w - tag_w, .y = (y + h) * 1.3 }, .{ .x = x + w, .y = y + h - tag_h }, .{ .x = x + w, .y = (y + h) * 0.9 } });
     try sine(a, &tag, x + w, (y + h) * 1.25, x + w - tag_w, (y + h) * 1.3, -h * 0.02, 0.5);
-    const g = try ext2.multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, pts.items), try u.createPathFromPoints(a, tag.items) }, "basic label-container outer-path");
+    const g = try ext2.multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, pts.items), try u.createPathFromPoints(a, tag.items) }, "basic label-container outer-path", .tagged);
     try g.setAttr("transform", try u.translateC(a, 0, -amp / 2));
     try p.h.label.setAttr("transform", try u.translateC(a, -w / 2 + pad(node), -h / 2 + pad(node) - amp / 2));
     u.updateNodeBounds(node, g);
