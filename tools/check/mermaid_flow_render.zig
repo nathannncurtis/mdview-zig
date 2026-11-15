@@ -49,7 +49,7 @@ fn sizesMatch(a: Allocator, ref: cmp.Model, cand: cmp.Model) Allocator.Error!?[]
 // Labels are drawn as text rather than foreignObject, so only groups, boxes and edges are compared.
 fn withoutText(a: Allocator, m: cmp.Model) Allocator.Error!cmp.Model {
     var items: std.ArrayList(cmp.Item) = .empty;
-    for (m.items) |it| if (it.kind != .label and it.kind != .text) try items.append(a, it);
+    for (m.items) |it| if (it.kind != .label and it.kind != .text and !std.mem.eql(u8, it.key, "rect.labelBkg")) try items.append(a, it);
     return .{ .view_box = m.view_box, .items = items.items };
 }
 

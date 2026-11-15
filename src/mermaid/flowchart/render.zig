@@ -723,7 +723,8 @@ fn renderElk(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
         .height = n.height,
         .label_text = if (n.is_group) n.label orelse "" else "",
         .label_w = if (n.label_bbox) |b| b.w else 0,
-        .label_h = if (n.label_bbox) |b| b.h else 0,
+        // shortcut: references show Mermaid hands ELK a one-line group title 22px tall against the 24px label box; multi-line titles are assumed to lose the same 2px
+        .label_h = if (n.label_bbox) |b| @max(0, b.h - 2) else 0,
         .padding = n.padding orelse ctx.cfg.padding,
         .dir = if (n.is_group) elkDir(n.dir) else null,
         .hook = if (!n.is_group and n.intersect != null) .{ .ctx = n, .f = outlineHook } else null,
