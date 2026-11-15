@@ -103,14 +103,14 @@ pub fn positionCluster(a: Allocator, reg: *const Registry, node: *const NodeData
 test "cluster rect grows to fit its title" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var dummy: u8 = 0;
     const fake = struct {
-        fn w(_: *anyopaque, t: []const u8, _: model.FontSpec) f64 {
+        fn w(_: ?*anyopaque, t: []const u8, _: model.Font) f64 {
             return 10 * @as(f64, @floatFromInt(t.len));
         }
     };
-    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = .{ .ctx = &dummy, .widthFn = fake.w }, .cfg = &cfg, .diagram_id = "t" };
+    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, fake.w), .cfg = &cfg, .diagram_id = "t" };
     var reg: Registry = .{};
     const root = try El.create(ctx.a, "g");
     var n: NodeData = .{ .id = "sg", .label = "Long title here", .is_group = true, .padding = 8, .width = 50, .height = 40 };

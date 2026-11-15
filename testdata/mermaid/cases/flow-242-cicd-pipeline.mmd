@@ -1,0 +1,7 @@
+flowchart LR
+  Dev[Developer] -->|push| Git[(Repository)]
+  Git --> CI{{CI build}}
+  CI -->|pass| Reg[Registry]
+  CI -->|fail| Dev
+  Reg --> Deploy((Deploy))
+  Deploy --> Prod[Production]

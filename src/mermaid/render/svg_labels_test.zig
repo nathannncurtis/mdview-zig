@@ -11,20 +11,20 @@ const table = [_]struct { []const u8, f64 }{
     .{ "x", 10 },
 };
 
-fn width(_: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
+fn width(_: ?*anyopaque, text: []const u8, _: model.Font) f64 {
     for (table) |e| if (std.mem.eql(u8, e[0], text)) return e[1];
     return 0;
 }
 
 fn render(arena: *std.heap.ArenaAllocator, src: []const u8) ![]const u8 {
     const cfg = try arena.allocator().create(model.Config);
-    cfg.* = .{};
+    cfg.* = model.testConfig(arena.allocator());
     cfg.diagram_padding = 48;
     cfg.html_labels = false;
     cfg.node_html_labels = false;
     var dummy: u8 = 0;
-    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = .{ .ctx = &dummy, .widthFn = width }, .cfg = cfg, .diagram_id = "diagram" };
-    const r = try flowchart.renderSource(&ctx, std.testing.allocator, src, .{});
+    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, width), .cfg = cfg, .diagram_id = "diagram" };
+    const r = try flowchart.renderSource(&ctx, src);
     return r.ok.svg;
 }
 

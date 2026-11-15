@@ -1,11 +1,34 @@
 const std = @import("std");
-const yaml = @import("yaml");
-const html = @import("html");
+const frontmatter = @import("../frontmatter.zig");
+const numfmt = @import("../numfmt.zig");
+const html = @import("html_api");
 const model = @import("../render/model.zig");
 const Allocator = std.mem.Allocator;
 const List = std.ArrayList;
 
 pub const Error = error{ Semantic, OutOfMemory };
+
+const Scalar = struct { text: []const u8, falsy: bool = false };
+const MetaValue = union(enum) { scalar: Scalar, nested };
+const MetaPair = struct { key: []const u8, value: MetaValue };
+
+fn metaValue(a: Allocator, v: std.json.Value) Allocator.Error!MetaValue {
+    return switch (v) {
+        .string => |s| .{ .scalar = .{ .text = s, .falsy = s.len == 0 } },
+        .integer => |n| .{ .scalar = .{ .text = try std.fmt.allocPrint(a, "{d}", .{n}), .falsy = n == 0 } },
+        .float => |f| .{ .scalar = .{ .text = try numfmt.js(a, f), .falsy = f == 0 or std.math.isNan(f) } },
+        .number_string => |s| .{ .scalar = .{ .text = s } },
+        .bool => |b| .{ .scalar = .{ .text = if (b) "true" else "false", .falsy = !b } },
+        .null => .{ .scalar = .{ .text = "null", .falsy = true } },
+        else => .nested,
+    };
+}
+
+fn metaPairs(a: Allocator, obj: std.json.ObjectMap) Allocator.Error![]const MetaPair {
+    const out = try a.alloc(MetaPair, obj.count());
+    for (obj.keys(), obj.values(), out) |k, v, *o| o.* = .{ .key = k, .value = try metaValue(a, v) };
+    return out;
+}
 
 pub const FlowText = struct { text: []const u8, type: []const u8 = "text" };
 
@@ -143,19 +166,19 @@ pub const Db = struct {
         return "markdown";
     }
 
-    fn metaTruthy(v: yaml.Value) bool {
+    fn metaTruthy(v: MetaValue) bool {
         return switch (v) {
             .scalar => |s| !s.falsy and s.text.len > 0,
-            else => true,
+            .nested => true,
         };
     }
 
-    fn metaGet(pairs: []const yaml.Pair, key: []const u8) ?yaml.Value {
+    fn metaGet(pairs: []const MetaPair, key: []const u8) ?MetaValue {
         for (pairs) |p| if (std.mem.eql(u8, p.key, key)) return p.value;
         return null;
     }
 
-    fn metaStr(pairs: []const yaml.Pair, key: []const u8) ?[]const u8 {
+    fn metaStr(pairs: []const MetaPair, key: []const u8) ?[]const u8 {
         const v = metaGet(pairs, key) orelse return null;
         if (!metaTruthy(v)) return null;
         return switch (v) {
@@ -164,7 +187,7 @@ pub const Db = struct {
         };
     }
 
-    fn metaNum(pairs: []const yaml.Pair, key: []const u8) ?f64 {
+    fn metaNum(pairs: []const MetaPair, key: []const u8) ?f64 {
         const s = metaStr(pairs, key) orelse return null;
         return std.fmt.parseFloat(f64, s) catch null;
     }
@@ -180,19 +203,15 @@ pub const Db = struct {
         metadata: ?[]const u8,
     ) Error!void {
         if (std.mem.trim(u8, id, " \t\r\n").len == 0) return;
-        var pairs: ?[]const yaml.Pair = null;
+        var pairs: ?[]const MetaPair = null;
         if (metadata) |m| {
             const src = if (std.mem.indexOfScalar(u8, m, '\n') == null)
                 try std.fmt.allocPrint(self.a, "{{\n{s}\n}}", .{m})
             else
                 try std.fmt.allocPrint(self.a, "{s}\n", .{m});
-            switch (try yaml.parse(self.a, src)) {
-                .ok => |v| pairs = switch (v) {
-                    .map => |mp| mp,
-                    else => &.{},
-                },
-                .err => |f| return self.fail("{s}", .{f.message}),
-                .other => pairs = &.{},
+            switch (try frontmatter.load(self.a, src)) {
+                .ok => |v| pairs = if (v == .object) try metaPairs(self.a, v.object) else &.{},
+                .err => |msg| return self.fail("{s}", .{msg}),
             }
         }
 

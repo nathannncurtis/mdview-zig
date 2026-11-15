@@ -1,68 +1,113 @@
 const std = @import("std");
 const dom = @import("dom.zig");
 const Allocator = std.mem.Allocator;
+const text = @import("../text.zig");
+const core_config = @import("../config.zig");
+const layout_mod = @import("../layout.zig");
 
 pub const Point = struct { x: f64, y: f64 };
 pub const Box = dom.Box;
 pub const El = dom.El;
 
-pub const FontSpec = struct {
-    family: []const u8 = "\"trebuchet ms\", verdana, arial, sans-serif",
-    size: f64 = 16,
-    bold: bool = false,
-    italic: bool = false,
-};
+pub const Measurer = text.Measurer;
+pub const Font = text.Font;
 
-// Stub of the core lane's Measurer (text.zig). Replace by an alias on rebase.
-pub const Measurer = struct {
-    ctx: *anyopaque,
-    widthFn: *const fn (ctx: *anyopaque, text: []const u8, font: FontSpec) f64,
-    metricsFn: ?*const fn (ctx: *anyopaque, font: FontSpec) [2]f64 = null,
+pub fn font(cfg: *const Config, bold: bool, italic: bool) text.Font {
+    return .{ .family = cfg.font_family, .size = @floatCast(cfg.font_size), .weight = if (bold or cfg.label_bold) 700 else 400, .italic = italic or cfg.label_italic };
+}
 
-    pub fn width(self: Measurer, text: []const u8, font: FontSpec) f64 {
-        return self.widthFn(self.ctx, text, font);
-    }
+// shortcut: the measurer reports only a line height, so ascent takes Trebuchet's 1923:455 share of it; upgrade when Measurer exposes metrics
+pub fn ascentDescent(m: Measurer, f: text.Font) [2]f64 {
+    const h: f64 = m.measure("", f).h;
+    return .{ @floor(h * 1923.0 / 2378.0 + 0.5), @floor(h * 455.0 / 2378.0 + 0.5) };
+}
 
-    // Chrome rounds SVG text ascent and descent to whole pixels; defaults are Trebuchet MS (1923 and 455 per 2048 em).
-    pub fn ascentDescent(self: Measurer, font: FontSpec) [2]f64 {
-        const raw = if (self.metricsFn) |f| f(self.ctx, font) else [2]f64{ 1923.0 / 2048.0 * font.size, 455.0 / 2048.0 * font.size };
-        return .{ @floor(raw[0] + 0.5), @floor(raw[1] + 0.5) };
-    }
-};
+pub const WidthFn = *const fn (?*anyopaque, []const u8, text.Font) f64;
+
+/// A measurer for tests that takes widths from `f` and heights from the font size.
+pub fn widthMeasurer(ctx: ?*anyopaque, comptime f: WidthFn) Measurer {
+    const S = struct {
+        fn measure(c: ?*anyopaque, t: []const u8, fnt: text.Font) text.Size {
+            return .{ .w = @floatCast(f(c, t, fnt)), .h = fnt.size * 1.15 };
+        }
+    };
+    return .{ .ctx = ctx, .measure_fn = S.measure };
+}
+
+pub fn testConfig(a: Allocator) Config {
+    const site = core_config.setupSite(a, .dark, core_config.github_init) catch @panic("site");
+    const c = core_config.current(a, &site, "flowchart", null) catch @panic("config");
+    return Config.fromCore(&c);
+}
 
 pub const SubGraphTitleMargin = struct { top: f64 = 0, bottom: f64 = 0 };
 
-// The slice of the Mermaid config the flowchart port reads (config.schema.yaml defaults @ 12.2.0).
 pub const Config = struct {
-    font_family: []const u8 = "\"trebuchet ms\", verdana, arial, sans-serif",
-    font_size: f64 = 16,
-    node_spacing: f64 = 50,
-    rank_spacing: f64 = 50,
-    curve: []const u8 = "basis",
-    padding: f64 = 15,
-    diagram_padding: f64 = 8,
-    wrapping_width: f64 = 120,
-    min_node_width: f64 = 120,
-    title_top_margin: f64 = 25,
-    use_max_width: bool = true,
-    html_labels: bool = true,
-    node_html_labels: bool = true,
+    font_family: []const u8,
+    font_size: f64,
+    node_spacing: f64,
+    rank_spacing: f64,
+    curve: []const u8,
+    padding: f64,
+    diagram_padding: f64,
+    wrapping_width: f64,
+    min_node_width: f64,
+    title_top_margin: f64,
+    use_max_width: bool,
+    html_labels: bool,
+    node_html_labels: bool,
     label_bold: bool = false,
     label_italic: bool = false,
-    dark_theme: bool = true,
-    node_border: []const u8 = "#ccc",
-    cluster_bkg: []const u8 = "hsl(180, 1.5873015873%, 28.3529411765%)",
-    cluster_border: []const u8 = "rgba(255, 255, 255, 0.25)",
-    use_gradient: bool = true,
-    gradient_start: []const u8 = "#cccccc",
-    gradient_stop: []const u8 = "hsl(180, 0%, 18.3529411765%)",
-    inherit_dir: bool = false,
-    look: []const u8 = "neo",
-    layout: []const u8 = "elk",
-    sub_graph_title_margin: SubGraphTitleMargin = .{},
-    max_edges: usize = 500,
-    max_text_size: usize = 50000,
-    security_level: []const u8 = "strict",
+    dark_theme: bool,
+    node_border: []const u8,
+    cluster_bkg: []const u8,
+    cluster_border: []const u8,
+    use_gradient: bool,
+    gradient_start: []const u8,
+    gradient_stop: []const u8,
+    inherit_dir: bool,
+    look: []const u8,
+    sub_graph_title_margin: SubGraphTitleMargin,
+    max_edges: usize,
+    max_text_size: usize,
+    security_level: []const u8,
+
+    /// The values the flowchart code reads, taken from the config Mermaid's core resolved for this diagram.
+    pub fn fromCore(c: *const core_config.Config) Config {
+        const v = &c.vars;
+        const html = c.htmlLabels();
+        return .{
+            .font_family = c.str("fontFamily") orelse text.default_family,
+            .font_size = c.num("fontSize") orelse 16,
+            .node_spacing = c.num("flowchart.nodeSpacing") orelse 50,
+            .rank_spacing = c.num("flowchart.rankSpacing") orelse 50,
+            .curve = c.str("flowchart.curve") orelse "basis",
+            .padding = c.num("flowchart.padding") orelse 15,
+            .diagram_padding = c.num("flowchart.diagramPadding") orelse 8,
+            .wrapping_width = c.num("flowchart.wrappingWidth") orelse 120,
+            .min_node_width = c.num("flowchart.minNodeWidth") orelse 120,
+            .title_top_margin = c.num("flowchart.titleTopMargin") orelse 25,
+            .use_max_width = c.boolean("flowchart.useMaxWidth") orelse true,
+            .html_labels = html,
+            .node_html_labels = html,
+            .dark_theme = v.get("darkMode").truthy(),
+            .node_border = v.str("nodeBorder") orelse "",
+            .cluster_bkg = v.str("clusterBkg") orelse "",
+            .cluster_border = v.str("clusterBorder") orelse "",
+            .use_gradient = v.get("useGradient").truthy(),
+            .gradient_start = v.str("gradientStart") orelse "",
+            .gradient_stop = v.str("gradientStop") orelse "",
+            .inherit_dir = c.boolean("flowchart.inheritDir") orelse false,
+            .look = c.str("look") orelse "neo",
+            .sub_graph_title_margin = .{
+                .top = c.num("flowchart.subGraphTitleMargin.top") orelse 0,
+                .bottom = c.num("flowchart.subGraphTitleMargin.bottom") orelse 0,
+            },
+            .max_edges = @intFromFloat(@max(0, c.num("maxEdges") orelse 500)),
+            .max_text_size = @intFromFloat(@max(0, c.num("maxTextSize") orelse 50000)),
+            .security_level = c.str("securityLevel") orelse "strict",
+        };
+    }
 };
 
 pub const Style = []const u8;
@@ -183,7 +228,7 @@ pub const LayoutData = struct {
     direction: []const u8 = "TB",
     diagram_id: []const u8 = "mermaid-svg",
     diagram_type: []const u8 = "flowchart-v2",
-    config: Config = .{},
+    config: Config,
     title: ?[]const u8 = null,
 };
 
@@ -196,4 +241,6 @@ pub const Ctx = struct {
     measurer: Measurer,
     cfg: *const Config,
     diagram_id: []const u8,
+    /// The engine the diagram's `layout` setting names; anything but dagre takes the flat path.
+    layout: layout_mod.Engine = .dagre,
 };

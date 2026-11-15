@@ -599,7 +599,7 @@ pub fn insertEdge(ctx: *const Ctx, elem: *El, edge: *EdgeData, cluster_db: Clust
 }
 
 const fake = struct {
-    fn w(_: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
+    fn w(_: ?*anyopaque, text: []const u8, _: model.Font) f64 {
         return 8 * @as(f64, @floatFromInt(text.len));
     }
     fn none(_: *anyopaque, _: []const u8) ?ClusterEntry {
@@ -610,9 +610,9 @@ const fake = struct {
 test "straight edge between two rect nodes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var dummy: u8 = 0;
-    const ctx: Ctx = .{ .a = arena.allocator(), .measurer = .{ .ctx = &dummy, .widthFn = fake.w }, .cfg = &cfg, .diagram_id = "d" };
+    const ctx: Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, fake.w), .cfg = &cfg, .diagram_id = "d" };
     const root = try El.create(ctx.a, "g");
     const paths_g = try root.insert("g");
     var pts = [_]Point{ .{ .x = 50, .y = 20 }, .{ .x = 50, .y = 60 }, .{ .x = 50, .y = 100 } };
@@ -642,9 +642,9 @@ test "cluster cut clips at the boundary" {
 test "label sizes come from the label box" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var dummy: u8 = 0;
-    const ctx: Ctx = .{ .a = arena.allocator(), .measurer = .{ .ctx = &dummy, .widthFn = fake.w }, .cfg = &cfg, .diagram_id = "d" };
+    const ctx: Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, fake.w), .cfg = &cfg, .diagram_id = "d" };
     clear();
     const root = try El.create(ctx.a, "g");
     var edge: EdgeData = .{ .id = "e1", .start = "A", .end = "B", .label = "yes" };

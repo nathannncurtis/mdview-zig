@@ -21,7 +21,7 @@ fn parsed(arena: *std.heap.ArenaAllocator, cfg: *const model.Config, src: []cons
 test "parser: flowchart with shapes, links and subgraph" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     const d = try parsed(&arena, &cfg,
         \\flowchart LR
         \\  A[Start] -->|yes| B(Round) --> C{Dec}
@@ -56,7 +56,7 @@ test "parser: flowchart with shapes, links and subgraph" {
 test "parser: ampersand groups, markdown strings, edge ids, arrows" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     const d = try parsed(&arena, &cfg,
         \\graph TD
         \\  A & B e1@--> C
@@ -79,7 +79,7 @@ test "parser: ampersand groups, markdown strings, edge ids, arrows" {
 test "parser: syntax error text" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     var diag: rt.Diag = .{};
     defer diag.deinit(t.allocator);

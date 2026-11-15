@@ -1,0 +1,8 @@
+sequenceDiagram
+  A->>B: start
+  par
+    B->>C: left
+  and
+    B->>D: right
+  end
+  C-->>A: ack

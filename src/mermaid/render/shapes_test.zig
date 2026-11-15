@@ -3,13 +3,13 @@ const model = @import("model.zig");
 const dom = @import("dom.zig");
 const shapes = @import("shapes.zig");
 
-fn hello(_: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
+fn hello(_: ?*anyopaque, text: []const u8, _: model.Font) f64 {
     return if (std.mem.eql(u8, text, "Hello")) 37.21875 else 8 * @as(f64, @floatFromInt(text.len));
 }
 
 fn mk(arena: *std.heap.ArenaAllocator, cfg: *const model.Config) model.Ctx {
     var dummy: u8 = 0;
-    return .{ .a = arena.allocator(), .measurer = .{ .ctx = &dummy, .widthFn = hello }, .cfg = cfg, .diagram_id = "t" };
+    return .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, hello), .cfg = cfg, .diagram_id = "t" };
 }
 
 const Case = struct { []const u8, []const u8, f64, f64 };
@@ -42,7 +42,7 @@ test "shape sizes match mermaid 12.2.0 in the classic and neo looks" {
     for (classic) |c| {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
-        var cfg: model.Config = .{};
+        var cfg = model.testConfig(arena.allocator());
         cfg.look = c[1];
         const ctx = mk(&arena, &cfg);
         const root = try dom.El.create(ctx.a, "g");
@@ -62,7 +62,7 @@ test "shape sizes match mermaid 12.2.0 in the classic and neo looks" {
 test "unknown shape errors" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     const ctx = mk(&arena, &cfg);
     const root = try dom.El.create(ctx.a, "g");
     var n: model.NodeData = .{ .id = "A", .label = "x", .shape = "nope" };
@@ -72,7 +72,7 @@ test "unknown shape errors" {
 test "every registered shape inserts with a finite size" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     const ctx = mk(&arena, &cfg);
     const root = try dom.El.create(ctx.a, "g");
     inline for (shapes.defs) |d| {
@@ -88,7 +88,7 @@ test "every registered shape inserts with a finite size" {
 test "collapsed group is the title box plus the separator and indicator rows" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     const ctx = mk(&arena, &cfg);
     const root = try dom.El.create(ctx.a, "g");
     var n: model.NodeData = .{ .id = "s", .label = "Group", .padding = 8, .shape = "collapsedGroup" };

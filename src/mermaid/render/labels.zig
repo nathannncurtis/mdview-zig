@@ -1,6 +1,7 @@
 const std = @import("std");
 const model = @import("model.zig");
 const dom = @import("dom.zig");
+const text_mod = @import("../text.zig");
 const Allocator = std.mem.Allocator;
 const El = dom.El;
 
@@ -26,13 +27,6 @@ pub const Atom = struct {
 };
 
 pub const Line = std.ArrayList(Atom);
-
-pub fn decodeEntities(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
-    if (std.mem.indexOf(u8, s, "\u{fb02}\u{b0}") == null and std.mem.indexOf(u8, s, "\u{b6}\u{df}") == null) return s;
-    const s1 = try std.mem.replaceOwned(u8, a, s, "\u{fb02}\u{b0}\u{b0}", "&#");
-    const s2 = try std.mem.replaceOwned(u8, a, s1, "\u{fb02}\u{b0}", "&");
-    return std.mem.replaceOwned(u8, a, s2, "\u{b6}\u{df}", ";");
-}
 
 fn isWs(c: u8) bool {
     return c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0c;
@@ -246,8 +240,7 @@ fn plainBreaks(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
 }
 
 fn runWidth(ctx: *const model.Ctx, text: []const u8, bold: bool, italic: bool) f64 {
-    const f: model.FontSpec = .{ .family = ctx.cfg.font_family, .size = ctx.cfg.font_size, .bold = bold or ctx.cfg.label_bold, .italic = italic or ctx.cfg.label_italic };
-    return ctx.measurer.width(text, f);
+    return ctx.measurer.measure(text, model.font(ctx.cfg, bold, italic)).w;
 }
 
 pub fn lineWidth(ctx: *const model.Ctx, atoms: []const Atom) f64 {
@@ -380,77 +373,46 @@ fn mergeWords(a: Allocator, atoms: []const Atom) Allocator.Error![]Atom {
     return out.items;
 }
 
-fn fitsWidth(ctx: *const model.Ctx, a: Allocator, atoms: []const Atom, width: f64) Allocator.Error!bool {
-    if (std.math.isInf(width)) return true;
-    const c = try a.dupe(Atom, atoms);
-    for (c[0 .. c.len -| 1]) |*x| x.sp = true;
-    return lineWidth(ctx, c) <= width;
+const Fit = struct { ctx: *const model.Ctx, a: Allocator, width: f64 };
+
+fn fitCheck(p: *anyopaque, line: text_mod.MarkdownLine) bool {
+    const self: *Fit = @ptrCast(@alignCast(p));
+    if (std.math.isInf(self.width)) return true;
+    const atoms = self.a.alloc(Atom, line.len) catch return false;
+    for (line, atoms, 0..) |w, *at, i| at.* = atomOf(w, i + 1 < line.len);
+    return lineWidth(self.ctx, atoms) <= self.width;
 }
 
-fn firstFit(ctx: *const model.Ctx, a: Allocator, word: Atom, width: f64) Allocator.Error!usize {
-    var used: usize = 0;
-    var i: usize = 0;
-    while (i < word.text.len) {
-        const n = std.unicode.utf8ByteSequenceLength(word.text[i]) catch 1;
-        const end = @min(word.text.len, i + n);
-        var probe = word;
-        probe.text = word.text[0..end];
-        probe.sp = false;
-        if (!try fitsWidth(ctx, a, &.{probe}, width)) break;
-        used = end;
-        i = end;
-    }
-    if (used == 0) {
-        const n = std.unicode.utf8ByteSequenceLength(word.text[0]) catch 1;
-        used = @min(word.text.len, n);
-    }
-    return used;
+// shortcut: a word carries one style, as in Mermaid's markdown lines, so bold and italic together draw as italic
+fn wordOf(at: Atom) text_mod.Word {
+    return .{ .content = at.text, .kind = if (at.italic) .em else if (at.bold) .strong else .normal };
 }
 
-// splitLineToFitWidth: a line fits when its advance is at most `width`; a word wider than a line is cut by character.
+fn atomOf(w: text_mod.Word, sp: bool) Atom {
+    return .{ .text = w.content, .bold = w.kind == .strong, .italic = w.kind == .em, .sp = sp };
+}
+
 fn svgWrap(ctx: *const model.Ctx, a: Allocator, raw: []const Line, width: f64) Allocator.Error![]Line {
     var out: std.ArrayList(Line) = .empty;
+    var fit: Fit = .{ .ctx = ctx, .a = a, .width = width };
+    const check: text_mod.CheckFit = .{ .ctx = &fit, .f = fitCheck };
     for (raw) |ln| {
         if (ln.items.len == 0) {
             try out.append(a, .empty);
             continue;
         }
-        const words = try mergeWords(a, ln.items);
-        if (try fitsWidth(ctx, a, words, width)) {
-            var l: Line = .empty;
-            try l.appendSlice(a, words);
-            try out.append(a, l);
-            continue;
-        }
-        var cur: Line = .empty;
-        var i: usize = 0;
-        while (i < words.len) {
-            try cur.append(a, words[i]);
-            if (try fitsWidth(ctx, a, cur.items, width)) {
-                i += 1;
-                continue;
-            }
-            _ = cur.pop();
-            if (cur.items.len > 0) {
-                try out.append(a, cur);
-                cur = .empty;
-                continue;
-            }
-            const k = try firstFit(ctx, a, words[i], width);
-            var head = words[i];
-            head.text = words[i].text[0..k];
-            head.sp = false;
-            var l: Line = .empty;
-            try l.append(a, head);
-            try out.append(a, l);
-            if (k < words[i].text.len) words[i].text = words[i].text[k..] else i += 1;
-        }
-        if (cur.items.len > 0) try out.append(a, cur);
-    }
-    for (out.items) |*l| {
-        if (l.items.len > 1) for (l.items[0 .. l.items.len - 1]) |*w| {
-            w.sp = true;
+        const merged = try mergeWords(a, ln.items);
+        const words = try a.alloc(text_mod.Word, merged.len);
+        for (merged, words) |at, *w| w.* = wordOf(at);
+        const lines = if (fitCheck(&fit, words)) try a.dupe(text_mod.MarkdownLine, &.{words}) else text_mod.splitLineToFitWidth(a, words, check) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.NewlineInLine => try a.dupe(text_mod.MarkdownLine, &.{words}),
         };
+        for (lines) |l| {
+            var line: Line = .empty;
+            for (l, 0..) |w, i| try line.append(a, atomOf(w, i + 1 < l.len));
+            try out.append(a, line);
+        }
     }
     return out.items;
 }
@@ -483,7 +445,7 @@ fn svgText(ctx0: *const model.Ctx, ctx: *const model.Ctx, parent: *El, text: []c
 
     const g = try parent.insert("g");
     const size = ctx.cfg.font_size;
-    const ad = ctx.measurer.ascentDescent(.{ .family = ctx.cfg.font_family, .size = size, .bold = ctx.cfg.label_bold, .italic = ctx.cfg.label_italic });
+    const ad = model.ascentDescent(ctx.measurer, model.font(ctx.cfg, false, false));
     const lh = 1.1 * size;
     var first: ?usize = null;
     var last: usize = 0;
@@ -631,20 +593,20 @@ pub fn createLabel(ctx: *const model.Ctx, text: []const u8, style: []const u8, i
 }
 
 const fake = struct {
-    fn w(_: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
+    fn w(_: ?*anyopaque, text: []const u8, _: model.Font) f64 {
         return 8 * @as(f64, @floatFromInt(text.len));
     }
 };
 
 fn testCtx(arena: *std.heap.ArenaAllocator, cfg: *const model.Config) model.Ctx {
     var dummy: u8 = 0;
-    return .{ .a = arena.allocator(), .measurer = .{ .ctx = &dummy, .widthFn = fake.w }, .cfg = cfg, .diagram_id = "t" };
+    return .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, fake.w), .cfg = cfg, .diagram_id = "t" };
 }
 
 test "single line label is 8px per char by 24px" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     const ctx = testCtx(&arena, &cfg);
     const root = try El.create(ctx.a, "g");
     const g = try createText(&ctx, root, "Hello", .{});
@@ -655,7 +617,7 @@ test "single line label is 8px per char by 24px" {
 test "br and long text wrap at 200" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var cfg: model.Config = .{};
+    var cfg = model.testConfig(arena.allocator());
     cfg.wrapping_width = 200;
     const ctx = testCtx(&arena, &cfg);
     const root = try El.create(ctx.a, "g");
@@ -671,7 +633,7 @@ test "br and long text wrap at 200" {
 test "createLabel never wraps" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     const ctx = testCtx(&arena, &cfg);
     const l = try createLabel(&ctx, "aaaa bbbb cccc dddd eeee ffff gggg", "", false, true);
     try std.testing.expectEqual(@as(f64, 24), l.box.?.h);

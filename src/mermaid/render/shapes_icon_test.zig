@@ -12,7 +12,7 @@ const widths = [_]struct { []const u8, f64 }{
     .{ "top label", 64.15625 },
 };
 
-fn measure(_: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
+fn measure(_: ?*anyopaque, text: []const u8, _: model.Font) f64 {
     for (widths) |e| if (std.mem.eql(u8, e[0], text)) return e[1];
     return 0;
 }
@@ -22,9 +22,9 @@ fn natural(_: []const u8) ?[2]f64 {
 }
 
 fn size(arena: *std.heap.ArenaAllocator, node: model.NodeData) ![2]f64 {
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var dummy: u8 = 0;
-    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = .{ .ctx = &dummy, .widthFn = measure }, .cfg = &cfg, .diagram_id = "t" };
+    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, measure), .cfg = &cfg, .diagram_id = "t" };
     const root = try dom.El.create(ctx.a, "g");
     var n = node;
     n.padding = 15;

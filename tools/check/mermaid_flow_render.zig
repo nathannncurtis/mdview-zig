@@ -1,139 +1,77 @@
 const std = @import("std");
-const lib = @import("mermaid_flowchart");
+const mermaid = @import("mermaid");
+const cmp = @import("mermaid_compare");
 const Allocator = std.mem.Allocator;
 const Dir = std.Io.Dir;
-const model = lib.model;
-
-const Entry = struct { text: []const u8, w: f64, h: f64 };
 
 const Replay = struct {
-    map: std.StringHashMapUnmanaged(Entry) = .empty,
+    sizes: cmp.ReplayMeasurer,
+    wrapped_height: f64 = 28.5,
 
-    fn width(ctx: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
-        const self: *Replay = @ptrCast(@alignCast(ctx));
-        if (self.map.get(text)) |e| {
-            if (e.h > 24.5) return 4000;
-            return e.w;
-        }
-        return 8 * @as(f64, @floatFromInt(text.len));
+    fn measure(ctx: ?*anyopaque, text: []const u8, _: mermaid.text.Font) mermaid.text.Size {
+        const self: *const Replay = @ptrCast(@alignCast(ctx.?));
+        const s = self.sizes.measure(text, "", 0, 0) catch return .{ .w = 8 * @as(f32, @floatFromInt(text.len)), .h = 18.4 };
+        if (s.h > self.wrapped_height) return .{ .w = 4000, .h = 18.4 };
+        return .{ .w = @floatCast(s.w), .h = 18.4 };
     }
 };
 
-fn labelText(a: Allocator, inner: []const u8) Allocator.Error![]const u8 {
-    var out: std.ArrayList(u8) = .empty;
-    var in_tag = false;
-    var space = true;
-    for (inner) |c| {
-        if (c == '<') {
-            in_tag = true;
-            continue;
-        }
-        if (c == '>') {
-            in_tag = false;
-            continue;
-        }
-        if (in_tag) continue;
-        if (std.ascii.isWhitespace(c)) {
-            if (!space) try out.append(a, ' ');
-            space = true;
-        } else {
-            try out.append(a, c);
-            space = false;
-        }
-    }
-    while (out.items.len > 0 and out.items[out.items.len - 1] == ' ') _ = out.pop();
-    const raw = out.items;
-    const amp = try std.mem.replaceOwned(u8, a, raw, "&amp;", "&");
-    const lt = try std.mem.replaceOwned(u8, a, amp, "&lt;", "<");
-    return std.mem.replaceOwned(u8, a, lt, "&gt;", ">");
+fn styleOf(svg: []const u8) []const u8 {
+    const s = std.mem.indexOf(u8, svg, "<style>") orelse return "";
+    const e = std.mem.indexOfPos(u8, svg, s, "</style>") orelse return "";
+    return svg[s..e];
 }
 
-fn attrNum(tag: []const u8, name: []const u8) f64 {
-    var key_buf: [24]u8 = undefined;
-    const key = std.fmt.bufPrint(&key_buf, " {s}=\"", .{name}) catch return 0;
-    const at = std.mem.indexOf(u8, tag, key) orelse return 0;
-    const rest = tag[at + key.len ..];
-    const end = std.mem.indexOfScalar(u8, rest, '"') orelse return 0;
-    return std.fmt.parseFloat(f64, rest[0..end]) catch 0;
+fn sizesMatch(a: Allocator, ref: cmp.Model, cand: cmp.Model) Allocator.Error!?[]const u8 {
+    var buckets: std.StringHashMapUnmanaged(std.ArrayList(u32)) = .empty;
+    for (cand.items, 0..) |it, i| {
+        if (it.kind != .box and it.kind != .label) continue;
+        const gop = try buckets.getOrPut(a, it.key);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.append(a, @intCast(i));
+    }
+    var seen: std.StringHashMapUnmanaged(u32) = .empty;
+    for (ref.items) |it| {
+        if (it.kind != .box and it.kind != .label) continue;
+        const gop = try seen.getOrPut(a, it.key);
+        if (!gop.found_existing) gop.value_ptr.* = 0;
+        const n = gop.value_ptr.*;
+        gop.value_ptr.* += 1;
+        const list = buckets.get(it.key);
+        if (list == null or n >= list.?.items.len) return try std.fmt.allocPrint(a, "missing {s} #{d}", .{ it.key, n });
+        const other = cand.items[list.?.items[n]];
+        const dev = @max(@abs(it.w - other.w), @abs(it.h - other.h));
+        if (dev > cmp.node_tolerance) return try std.fmt.allocPrint(a, "{s} #{d} ({s}) size off by {d:.2}: {d}x{d} vs {d}x{d}", .{ it.key, n, it.id, dev, it.w, it.h, other.w, other.h });
+    }
+    return null;
 }
 
-fn buildReplay(a: Allocator, ref: []const u8, out: *Replay) Allocator.Error!void {
-    var pos: usize = 0;
-    while (std.mem.indexOfPos(u8, ref, pos, "<foreignObject")) |s| {
-        const tag_end = std.mem.indexOfScalarPos(u8, ref, s, '>') orelse break;
-        const close = std.mem.indexOfPos(u8, ref, tag_end, "</foreignObject>") orelse break;
-        pos = close;
-        const tag = ref[s..tag_end];
-        const text = try labelText(a, ref[tag_end + 1 .. close]);
-        if (text.len == 0) continue;
-        try out.map.put(a, text, .{ .text = text, .w = attrNum(tag, "width"), .h = attrNum(tag, "height") });
-    }
+fn isDagre(src: []const u8) bool {
+    return std.mem.indexOf(u8, src, "dagre") != null;
 }
 
-const Pre = struct { source: []const u8, layout: []const u8, look: []const u8 };
-
-fn preprocess(a: Allocator, raw: []const u8) Allocator.Error!Pre {
-    var layout: []const u8 = "elk";
-    var look: []const u8 = "neo";
-    var body = raw;
-    if (std.mem.startsWith(u8, raw, "---\n")) {
-        if (std.mem.indexOf(u8, raw[4..], "\n---")) |e| {
-            const fm = raw[4 .. 4 + e];
-            var it = std.mem.splitScalar(u8, fm, '\n');
-            while (it.next()) |ln| {
-                const t = std.mem.trim(u8, ln, " \t\r");
-                if (std.mem.startsWith(u8, t, "layout:")) layout = try a.dupe(u8, std.mem.trim(u8, t["layout:".len..], " \t'\""));
-                if (std.mem.startsWith(u8, t, "look:")) look = try a.dupe(u8, std.mem.trim(u8, t["look:".len..], " \t'\""));
-            }
-            var rest = raw[4 + e + 4 ..];
-            if (rest.len > 0 and rest[0] == '\r') rest = rest[1..];
-            if (rest.len > 0 and rest[0] == '\n') rest = rest[1..];
-            body = rest;
-        }
-    }
-    var out: std.ArrayList(u8) = .empty;
-    var it = std.mem.splitScalar(u8, body, '\n');
-    var first = true;
-    while (it.next()) |ln| {
-        const t = std.mem.trim(u8, ln, " \t\r");
-        if (std.mem.startsWith(u8, t, "%%")) {
-            if (std.mem.indexOf(u8, t, "\"layout\"") != null or std.mem.indexOf(u8, t, "layout:") != null) {
-                if (std.mem.indexOf(u8, t, "dagre") != null) layout = "dagre";
-            }
-            if (std.mem.indexOf(u8, t, "classic") != null) look = "classic";
-            continue;
-        }
-        if (!first) try out.append(a, '\n');
-        first = false;
-        try out.appendSlice(a, ln);
-    }
-    try out.append(a, '\n');
-    return .{ .source = out.items, .layout = layout, .look = look };
-}
-
-pub fn main(init: std.process.Init) !void {
+pub fn main(init: std.process.Init) !u8 {
     var arena_state = std.heap.ArenaAllocator.init(init.gpa);
     defer arena_state.deinit();
     const root = arena_state.allocator();
     const io = init.io;
     const args = try init.minimal.args.toSlice(root);
-    if (args.len < 4) {
-        std.log.info("usage: mermaid-flow-render <cases dir> <refs dir> <out dir> [name prefix]\n", .{});
-        return error.Usage;
+    if (args.len < 3) {
+        std.log.err("usage: mermaid-flow-render <cases dir> <refs dir> [out dir]", .{});
+        return 2;
     }
     const cases_dir = args[1];
     const refs_dir = args[2];
-    const out_dir = args[3];
-    const prefix: []const u8 = if (args.len > 4) args[4] else "flow-";
+    const out_dir: ?[]const u8 = if (args.len > 3) args[3] else null;
     const cwd = Dir.cwd();
-    try cwd.createDirPath(io, out_dir);
+    if (out_dir) |d| try cwd.createDirPath(io, d);
     var names: std.ArrayList([]const u8) = .empty;
     {
         var dir = try cwd.openDir(io, cases_dir, .{ .iterate = true });
         defer dir.close(io);
         var it = dir.iterate();
         while (try it.next(io)) |e| {
-            if (e.kind != .file or !std.mem.startsWith(u8, e.name, prefix) or !std.mem.endsWith(u8, e.name, ".mmd")) continue;
+            if (e.kind != .file or !std.mem.startsWith(u8, e.name, "flow-") or !std.mem.endsWith(u8, e.name, ".mmd")) continue;
             try names.append(root, try root.dupe(u8, e.name[0 .. e.name.len - 4]));
         }
     }
@@ -142,37 +80,49 @@ pub fn main(init: std.process.Init) !void {
             return std.mem.lessThan(u8, x, y);
         }
     }.lt);
-    var rendered: usize = 0;
-    var failed: usize = 0;
-    var dagre_cases: usize = 0;
+
+    var css_ok: usize = 0;
+    var sizes_ok: usize = 0;
+    var dagre_total: usize = 0;
+    var dagre_ok: usize = 0;
+    var other_total: usize = 0;
+    var other_ok: usize = 0;
     for (names.items) |name| {
         var arena = std.heap.ArenaAllocator.init(init.gpa);
         defer arena.deinit();
         const a = arena.allocator();
         const src = try cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.mmd", .{ cases_dir, name }), a, .limited(1 << 22));
-        var replay: Replay = .{};
-        if (cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ refs_dir, name }), a, .limited(1 << 26))) |ref| {
-            try buildReplay(a, ref, &replay);
-        } else |_| {}
-        const pre = try preprocess(a, src);
-        var cfg: model.Config = .{};
-        cfg.diagram_padding = 48;
-        cfg.layout = pre.layout;
-        cfg.look = pre.look;
-        const ctx: model.Ctx = .{ .a = a, .measurer = .{ .ctx = &replay, .widthFn = Replay.width }, .cfg = &cfg, .diagram_id = "diagram" };
-        if (std.mem.eql(u8, pre.layout, "dagre")) dagre_cases += 1;
-        const res = try lib.flowchart.renderSource(&ctx, init.gpa, pre.source, .{});
+        const ref = try cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ refs_dir, name }), a, .limited(1 << 26));
+        const side = cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.labels.json", .{ refs_dir, name }), a, .limited(1 << 24)) catch null;
+        const ref_model = try cmp.extract(a, ref);
+        var replay: Replay = .{ .sizes = try cmp.ReplayMeasurer.init(a, ref_model, side) };
+        const dagre = isDagre(src);
+        if (dagre) dagre_total += 1 else other_total += 1;
+        const tag: []const u8 = if (dagre) "dagre" else "default";
+        const res = try mermaid.render(init.gpa, src, .{ .measurer = .{ .ctx = &replay, .measure_fn = Replay.measure } });
+        defer mermaid.free(init.gpa, res);
         switch (res) {
-            .ok => |o| {
-                try cwd.writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ out_dir, name }), .data = o.svg });
-                rendered += 1;
+            .svg => |img| {
+                if (out_dir) |d| try cwd.writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ d, name }), .data = img.bytes });
+                const cand = try cmp.extract(a, img.bytes);
+                const full = try cmp.compare(a, ref_model, cand);
+                const style_same = std.mem.eql(u8, styleOf(ref), styleOf(img.bytes));
+                const size_problem = try sizesMatch(a, ref_model, cand);
+                if (style_same) css_ok += 1;
+                if (size_problem == null) sizes_ok += 1;
+                if (full.passed()) {
+                    if (dagre) dagre_ok += 1 else other_ok += 1;
+                } else std.log.info("FAIL {s} [{s}] items={d} bad={d} missing={d} extra={d} max={d:.2}: {s}", .{ name, tag, full.items, full.bad, full.missing, full.extra, full.max_dev, full.first });
+                if (!style_same) std.log.info("CSS {s} [{s}] differs", .{ name, tag });
+                if (size_problem) |p| std.log.info("SIZE {s} [{s}]: {s}", .{ name, tag, p });
             },
-            .err => |m| {
-                try cwd.writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/{s}.err", .{ out_dir, name }), .data = m });
-                failed += 1;
-            },
+            .err => |m| std.log.info("ERROR {s} [{s}]: {s}", .{ name, tag, m }),
+            .unsupported => |m| std.log.info("UNSUPPORTED {s} [{s}]: {s}", .{ name, tag, m }),
         }
-        if (std.mem.eql(u8, pre.layout, "dagre")) std.log.info("dagre case: {s}\n", .{name});
     }
-    std.log.info("rendered {d}, failed {d}, explicit dagre {d}\n", .{ rendered, failed, dagre_cases });
+    std.log.info("flowchart parity over {d} cases: css {d}/{d}, sizes {d}/{d}, full layout dagre {d}/{d}, full layout default (ELK) {d}/{d}", .{
+        names.items.len, css_ok,      names.items.len, sizes_ok,    names.items.len,
+        dagre_ok,        dagre_total, other_ok,        other_total,
+    });
+    return if (css_ok == names.items.len and sizes_ok == names.items.len and dagre_ok == dagre_total) 0 else 1;
 }

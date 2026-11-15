@@ -1,6 +1,7 @@
 const std = @import("std");
 const model = @import("../model.zig");
 const dom = @import("../dom.zig");
+const preprocess = @import("../../preprocess.zig");
 const labels = @import("../labels.zig");
 const Allocator = std.mem.Allocator;
 const El = dom.El;
@@ -83,7 +84,7 @@ pub fn labelHelperOpt(ctx: *const model.Ctx, parent: *El, node: *NodeData, class
     try label_el.setAttr("class", "label");
     try label_el.setAttr("style", node.label_style);
 
-    const text = try labels.decodeEntities(a, node.label orelse "");
+    const text = try preprocess.decodeEntities(a, node.label orelse "");
     const markdown = std.mem.eql(u8, node.label_type, "markdown");
     const t = try labels.createText(ctx, label_el, text, .{
         .style = node.label_style,
@@ -199,12 +200,12 @@ pub fn dupePoints(a: Allocator, pts: []const Point) Allocator.Error![]const Poin
 }
 
 pub const test_support = struct {
-    fn w(_: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
+    fn w(_: ?*anyopaque, text: []const u8, _: model.Font) f64 {
         return 8 * @as(f64, @floatFromInt(text.len));
     }
 
     pub fn ctx(arena: *std.heap.ArenaAllocator, cfg: *const model.Config) model.Ctx {
         const S = struct { var dummy: u8 = 0; };
-        return .{ .a = arena.allocator(), .measurer = .{ .ctx = &S.dummy, .widthFn = w }, .cfg = cfg, .diagram_id = "t" };
+        return .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&S.dummy, w), .cfg = cfg, .diagram_id = "t" };
     }
 };

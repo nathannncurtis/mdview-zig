@@ -1,0 +1,397 @@
+ce	H2O
+ce	2H2 + O2 -> 2H2O
+ce	SO4^2-
+ce	Na+ + Cl- -> NaCl
+ce	A ->[x] B
+ce	A ->[x][y] B
+ce	CO2 + C -> 2 CO
+ce	Hg^2+ ->C[ ]A
+ce	Hg^2+ ->[I-] HgI2 ->[I-] [Hg^{II}I4]^2-
+ce	Zn^2+  <=>[+ 2OH-][+ 2H+]  $\underset{\text{amphoteric hydroxide}}{\ce{Zn(OH)2 v}}$  <=>[+ 2OH-][+ 2H+]  $\underset{\text{tetrahydroxozincate}}{\ce{[Zn(OH)4]^2-}}$
+ce	CH4 + 2O2 -> CO2 + 2H2O
+ce	^{227}_{90}Th+
+ce	^227_90Th+
+ce	^{0}_{-1}n^{-}
+ce	$n$ Cl2
+ce	A <-> B
+ce	A <--> B
+ce	A <=> B
+ce	A <=>> B
+ce	A <<=> B
+ce	A <- B
+ce	A --> B
+ce	A + B
+ce	A - B
+ce	A = B
+ce	A < B
+ce	A > B
+ce	A v
+ce	A ^
+ce	CuSO4*5H2O
+ce	CuSO4 . 5 H2O
+ce	H2O(l)
+ce	NaCl(aq)
+ce	CO2(g)
+ce	Fe(s)
+ce	Fe^3+(aq)
+ce	Na+(aq) + Cl-(aq)
+ce	C6H5-CH3
+ce	CH3-CH2-OH
+ce	CH3CH=CH2
+ce	HC#CH
+ce	C6H6
+ce	C6H5-OH
+ce	R-C(=O)-OH
+ce	CH3-CH=CH-CH3
+ce	A-B
+ce	A=B
+ce	A#B
+ce	A~B
+ce	A~-B
+ce	A~=B
+ce	A-~-B
+ce	A...B
+ce	A....B
+ce	A->B
+ce	A<-B
+ce	\bond{-}
+ce	\bond{=}
+ce	\bond{#}
+ce	\bond{~}
+ce	\bond{...}
+ce	A\bond{-}B
+ce	1/2 O2
+ce	1/2O2
+ce	0.5 O2
+ce	2 H2 + O2
+ce	3 H2O
+ce	H+
+ce	OH-
+ce	H3O+
+ce	NH4+
+ce	SO4^{2-}
+ce	PO4^{3-}
+ce	Fe^{3+}
+ce	Fe^{III}
+ce	Fe^III
+ce	Fe^{II}
+ce	Mn^{VII}O4-
+ce	O^{-II}
+ce	^{18}O
+ce	^{14}C
+ce	^{14}_{6}C
+ce	_{6}^{14}C
+ce	^14_6C
+ce	{}^{14}C
+ce	{}^1H
+ce	H_2O
+ce	H_{2}O
+ce	H2O2
+ce	Al2(SO4)3
+ce	Ca(OH)2
+ce	[Cu(NH3)4]^2+
+ce	[Fe(CN)6]^{4-}
+ce	{[Cu(NH3)4]^2+}
+ce	(NH4)2SO4
+ce	K4[Fe(CN)6]
+ce	\ce{H2O}
+ce	\color{red}{H2O}
+ce	\color{red}H2O
+ce	{\color{red}H2O}
+ce	\frac{1}{2}O2
+ce	\frac{1}{2} O2
+ce	\overset{a}{B}
+ce	\underset{a}{B}
+ce	\underbrace{AB}_{x}
+ce	A\,B
+ce	A\ B
+ce	$\alpha$-Fe
+ce	\alpha-Fe
+ce	$\mu$ g
+ce	\mu
+ce	H2O \pu{5 mol}
+ce	pH
+ce	pOH
+ce	pK
+ce	p-Cymene
+ce	iPr
+ce	iBu
+ce	1s2 2s2 2p6
+ce	2p
+ce	3d10
+ce	sp3
+ce	e-
+ce	e^-
+ce	e-
+ce	n^0
+ce	^0n
+ce	\hline
+ce	A & B
+ce	A \\ B
+ce	A, B, C
+ce	A,B
+ce	A; B
+ce	(v)
+ce	(^)
+ce	A (v)
+ce	A (^)
+ce	A v B
+ce	NaOH(aq) + HCl(aq) -> NaCl(aq) + H2O(l)
+ce	2 NaOH + H2SO4 -> Na2SO4 + 2 H2O
+ce	C + O2 -> CO2 ^
+ce	CaCO3 -> CaO + CO2 ^
+ce	Ag+ + Cl- -> AgCl v
+ce	AgCl v
+ce	2 Na + 2 H2O -> 2 NaOH + H2 ^
+ce	N2 + 3H2 <=> 2NH3
+ce	N2 + 3 H2 <=>[Fe] 2 NH3
+ce	CO2 + H2O <=> H2CO3
+ce	A ->[$\Delta$] B
+ce	A ->[\Delta] B
+ce	A ->[heat] B
+ce	A ->[{text}] B
+ce	A ->C[$\Delta$] B
+ce	A ->T[text] B
+ce	A ->M[$x$] B
+ce	A ->CT[x] B
+ce	{
+ce	}
+ce	A}
+ce	{A
+ce	^{
+ce	$
+ce	$A
+ce	\color{
+ce	\bond{
+ce	\frac{1}
+ce	\unknown
+ce	\x{a}{b}
+ce	\x{a}
+ce	\x
+ce	[(...)]
+ce	[A]
+ce	A[B]
+ce	A->[B
+ce	+
+ce	-
+ce	++
+ce	--
+ce	+-
+ce	A+-B
+ce	A +- B
+ce	A \pm B
+ce	A $\pm$ B
+ce	A $\approx$ B
+ce	A << B
+ce	A >> B
+ce	A \approx B
+ce	…
+ce	A...
+ce	A…B
+ce	−
+ce	A−B
+ce	A–B
+ce	H2O ... H2O
+ce	100 g
+ce	100 mL
+ce	0.1 M
+ce	1.5e-3 M
+ce	10^3
+ce	$10^3$
+ce	A_{(aq)}
+ce	A_(aq)
+ce	A(aq)
+ce	A(aq)(s)
+ce	A(l)
+ce	A(g)
+ce	A(cr)
+ce	A($l$)
+ce	A(\ca $a$)
+ce	\ca A
+ce	\ca100
+ce	~A
+ce	x
+ce	i
+ce	x2
+ce	A x B
+ce	1x
+ce	2 x 3
+ce	KV
+ce	K,V
+ce	H^+(aq)
+ce	H^+ + OH^- -> H2O
+ce	Na^+
+ce	Cl^-
+ce	O^2-
+ce	S^2-
+ce	O^{2-}
+ce	O^2
+ce	O^-
+ce	O^+
+ce	O^+-
+ce	O^{+-}
+ce	O^{+/-}
+ce	A^-
+ce	A^
+ce	A_
+ce	^
+ce	_
+ce	A_B
+ce	A_1
+ce	A_{1}
+ce	A_x
+ce	A^x
+ce	A^{x}
+ce	A^$x$
+ce	A_$x$
+ce	A^\alpha
+ce	A_\alpha
+ce	A^\frac{1}{2}
+ce	A_\frac{1}{2}
+ce	A^\mathrm{x}{y}
+ce	A_{\mathrm{x}}
+ce	'
+ce	A'
+ce	A''
+ce	A'B
+pu	123 kJ/mol
+pu	5
+pu	1.5e-3 mol L-1
+pu	1.5e3 mol L-1
+pu	1e3
+pu	+1.5
+pu	-1.5
+pu	+-1.5
+pu	+/-1.5
+pu	\pm 1.5
+pu	1.5(3)
+pu	1.5(3) cm
+pu	1.5 x 10^3 cm
+pu	1.5*10^3 cm
+pu	1.5\times 10^3 cm
+pu	1.5 \times 10^{3} cm
+pu	10^3
+pu	10^{-3}
+pu	1,5
+pu	1.5
+pu	1000 g
+pu	10000 g
+pu	1000000 g
+pu	1234567.89 g
+pu	0.0001 g
+pu	kg m2 s-2
+pu	kg.m2.s-2
+pu	kg*m2*s-2
+pu	kg m^2 s^-2
+pu	kg m^{2} s^{-2}
+pu	m/s
+pu	m//s
+pu	m / s
+pu	m // s
+pu	kg/m^3
+pu	J/(mol K)
+pu	J/(mol*K)
+pu	J mol-1 K-1
+pu	mol L-1
+pu	mol/L
+pu	mol//L
+pu	g/mol
+pu	g//mol
+pu	g / mol
+pu	°C
+pu	25 °C
+pu	25^oC
+pu	25^{o}C
+pu	25 °F
+pu	25^oF
+pu	25^{o}F
+pu	100 K
+pu	1 atm
+pu	1 bar
+pu	1 Pa
+pu	1 kPa
+pu	1 MPa
+pu	1 eV
+pu	1 mol
+pu	1 mmol
+pu	1 µmol
+pu	1 \mu mol
+pu	1 {\mu}mol
+pu	{1} {mol}
+pu	{kg} {m}
+pu	kg {m}
+pu	{kg m}
+pu	\ce{H2O}
+pu	\pu{1 mol}
+pu	1 \ce{H2O}
+pu	a b
+pu	a  b
+pu	a
+pu
+pu
+pu	{
+pu	}
+pu	{a
+pu	a}
+pu	^
+pu	-
+pu	+
+pu	/
+pu	//
+pu	*
+pu	.
+pu	,
+pu	1 /
+pu	1 //
+pu	/ 1
+pu	// 1
+pu	1 * 2
+pu	1 . 2
+pu	1 x 2
+pu	1 \times 2
+pu	1 \cdot 2
+pu	a \cdot b
+pu	a\cdot b
+pu	\x
+pu	\x{a}
+pu	\x{a}{b}
+pu	\frac{1}{2}
+pu	1/2
+pu	1/2 mol
+pu	1 / 2 mol
+pu	0.5 mol
+pu	.5 mol
+pu	5. mol
+pu	5.5.5 mol
+pu	-5 mol
+pu	+5 mol
+pu	e3
+pu	5e
+pu	5e3e
+pu	5E3
+pu	5e+3
+pu	5e-3
+pu	5e{3}
+pu	5e{-3}
+pu	5 e 3
+pu	5(3)
+pu	5(3.5)
+pu	5(.5)
+pu	5()
+pu	5(
+pu	5)
+pu	(5)
+pu	[5]
+pu	{5}
+pu	(5 mol)
+pu	[5 mol]
+pu	{5 mol}
+pu	(a)(b)
+pu	[a][b]
+pu	{a}{b}
+pu	a(b)
+pu	a[b]
+pu	a{b}
+pu	(a)b
+pu	[a]b
+pu	{a}b

@@ -458,7 +458,13 @@ fn addEdges(self: *Renderer, g: *Graph, data: *const model.LayoutData) Error!voi
     }
 }
 
-pub const Output = struct { svg: []const u8, width: f64, height: f64 };
+pub const Rendered = struct {
+    svg: *El,
+    width: f64,
+    height: f64,
+    view_box: [4]f64,
+    max_width: []const u8,
+};
 
 fn sig6(a: Allocator, v: f64) Allocator.Error![]const u8 {
     if (v == 0) return "0";
@@ -617,16 +623,10 @@ fn renderFlat(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
     }
 }
 
-pub fn render(ctx: *const model.Ctx, data: *model.LayoutData, css: []const u8) Error!Output {
+pub fn render(ctx: *const model.Ctx, data: *model.LayoutData) Error!Rendered {
     const al = ctx.a;
     const cfg = ctx.cfg;
     const svg = try El.create(al, "svg");
-    try svg.setAttr("id", data.diagram_id);
-    try svg.setAttr("width", "100%");
-    try svg.setAttr("xmlns", "http://www.w3.org/2000/svg");
-    try svg.setAttr("xmlns:xlink", "http://www.w3.org/1999/xlink");
-    const style_el = try svg.insert("style");
-    try style_el.setText(css);
     const root = try svg.insert("g");
 
     var r: Renderer = .{
@@ -639,7 +639,7 @@ pub fn render(ctx: *const model.Ctx, data: *model.LayoutData, css: []const u8) E
     nodes_mod.clear();
     try markers.insertMarkers(al, root, &.{ "point", "circle", "cross" }, data.diagram_type, data.diagram_id);
 
-    if (std.mem.eql(u8, cfg.layout, "dagre")) {
+    if (ctx.layout == .dagre) {
         const g = try r.st.newGraph(data.direction);
         g.label.nodesep = cfg.node_spacing;
         g.label.ranksep = cfg.rank_spacing;
@@ -669,21 +669,11 @@ pub fn render(ctx: *const model.Ctx, data: *model.LayoutData, css: []const u8) E
     const b = svg.bbox() orelse dom.Box{ .x = 0, .y = 0, .w = 0, .h = 0 };
     const w = b.w + pad * 2;
     const h = b.h + pad * 2;
-    try svg.setAttr("class", "flowchart");
-    if (cfg.use_max_width) {
-        try svg.setAttr("style", try std.fmt.allocPrint(al, "max-width: {s}px;", .{try sig6(al, w)}));
-    } else {
-        _ = try svg.attrNum("width", w);
-    }
-    try svg.setAttr("viewBox", try std.fmt.allocPrint(al, "{s} {s} {s} {s}", .{
-        try dom.fmtNum(al, b.x - pad), try dom.fmtNum(al, b.y - pad), try dom.fmtNum(al, w), try dom.fmtNum(al, h),
-    }));
-    try svg.setAttr("role", "graphics-document document");
-    try svg.setAttr("aria-roledescription", data.diagram_type);
-    _ = try svg.attrNum("height", h);
-    try svg.setAttr("preserveAspectRatio", "xMinYMin");
-
-    var out: std.ArrayList(u8) = .empty;
-    try dom.serialize(&out, al, svg);
-    return .{ .svg = out.items, .width = w, .height = h };
+    return .{
+        .svg = svg,
+        .width = w,
+        .height = h,
+        .view_box = .{ b.x - pad, b.y - pad, w, h },
+        .max_width = try sig6(al, w),
+    };
 }

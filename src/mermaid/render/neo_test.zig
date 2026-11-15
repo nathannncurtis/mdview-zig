@@ -5,8 +5,8 @@ const flowchart = @import("../flowchart/flowchart.zig");
 const Entry = struct { []const u8, f64 };
 const Node = struct { []const u8, f64, f64 };
 
-fn width(ctx: *anyopaque, text: []const u8, _: model.FontSpec) f64 {
-    const table: *const []const Entry = @ptrCast(@alignCast(ctx));
+fn width(ctx: ?*anyopaque, text: []const u8, _: model.Font) f64 {
+    const table: *const []const Entry = @ptrCast(@alignCast(ctx.?));
     for (table.*) |e| if (std.mem.eql(u8, e[0], text)) return e[1];
     return 0;
 }
@@ -27,12 +27,12 @@ fn translate(svg: []const u8, id: []const u8) !struct { f64, f64 } {
 fn check(src: []const u8, table: []const Entry, nodes: []const Node) !void {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var cfg: model.Config = .{};
+    var cfg = model.testConfig(arena.allocator());
     cfg.diagram_padding = 48;
     cfg.look = "neo";
     var t = table;
-    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = .{ .ctx = @ptrCast(&t), .widthFn = width }, .cfg = &cfg, .diagram_id = "diagram" };
-    const r = try flowchart.renderSource(&ctx, std.testing.allocator, src, .{});
+    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(@ptrCast(&t), width), .cfg = &cfg, .diagram_id = "diagram" };
+    const r = try flowchart.renderSource(&ctx, src);
     const svg = r.ok.svg;
     try std.testing.expect(std.mem.indexOf(u8, svg, "data-look=\"neo\"") != null);
     for (nodes) |n| _ = try translate(svg, n[0]);
@@ -104,11 +104,11 @@ test "neo look n3" {
 test "neo edges use margin markers and a dash prefix" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    var cfg: model.Config = .{};
+    var cfg = model.testConfig(arena.allocator());
     cfg.look = "neo";
     var table: []const Entry = &.{};
-    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = .{ .ctx = @ptrCast(&table), .widthFn = width }, .cfg = &cfg, .diagram_id = "diagram" };
-    const r = try flowchart.renderSource(&ctx, std.testing.allocator, "flowchart LR\n  A --> B\n  B -.-> C\n  C --x D\n  D --o E\n", .{});
+    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(@ptrCast(&table), width), .cfg = &cfg, .diagram_id = "diagram" };
+    const r = try flowchart.renderSource(&ctx, "flowchart LR\n  A --> B\n  B -.-> C\n  C --x D\n  D --o E\n");
     const svg = r.ok.svg;
     try std.testing.expect(std.mem.indexOf(u8, svg, "marker-end=\"url(#diagram_flowchart-v2-pointEnd-margin)\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, "marker-end=\"url(#diagram_flowchart-v2-crossEnd-margin)\"") != null);

@@ -15,7 +15,7 @@ fn link(db: *Db, s: []const u8, e: []const u8) !void {
 test "A-->B builds two nodes and one edge" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     try db.setDirection("TD");
     try db.addVertex("A", null, null, null, null, null, null);
@@ -40,7 +40,7 @@ test "A-->B builds two nodes and one edge" {
 test "subgraph with direction, classDef, class, style, linkStyle" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     try db.addVertex("A", null, null, null, null, null, null);
     try db.addVertex("B", null, null, null, null, null, null);
@@ -69,7 +69,7 @@ test "subgraph with direction, classDef, class, style, linkStyle" {
 test "shape metadata, edge ids, markdown, errors" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     try db.addVertex("A", null, null, null, null, null, "shape: cyl, label: \"Store\"");
     try db.addVertex("B", .{ .text = "`**bold**`", .type = "markdown" }, "square", null, null, null, null);
@@ -92,7 +92,8 @@ test "shape metadata, edge ids, markdown, errors" {
 test "maxEdges error text" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{ .max_edges = 2 };
+    var cfg = model.testConfig(arena.allocator());
+    cfg.max_edges = 2;
     var db = Db.init(arena.allocator(), &cfg);
     try link(&db, "A", "B");
     try link(&db, "B", "C");
@@ -103,7 +104,7 @@ test "maxEdges error text" {
 test "link destructuring and sanitizing" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     const a = try db.destructLink("<-.->", null);
     try t.expectEqualStrings("double_arrow_point", a.type);
@@ -121,7 +122,7 @@ test "link destructuring and sanitizing" {
 test "collapsed subgraph becomes one node and boundary edges are redirected" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     for ([_][]const u8{ "X", "A", "B" }) |n| try db.addVertex(n, null, null, null, null, null, null);
     try link(&db, "X", "A");
@@ -140,7 +141,7 @@ test "collapsed subgraph becomes one node and boundary edges are redirected" {
 test "a repeated subgraph id merges into the first declaration" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     for ([_][]const u8{ "A", "B" }) |n| try db.addVertex(n, null, null, null, null, null, null);
     _ = try db.addSubGraph(ft("g"), &.{.{ .name = "A" }}, ft("G"), false);
@@ -152,7 +153,7 @@ test "a repeated subgraph id merges into the first declaration" {
 test "node links always open in the parent frame" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
-    const cfg: model.Config = .{};
+    const cfg = model.testConfig(arena.allocator());
     var db = Db.init(arena.allocator(), &cfg);
     try db.addVertex("A", null, null, null, null, null, null);
     try db.setLink("A", "https://example.com", "_blank");

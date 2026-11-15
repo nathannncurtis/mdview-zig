@@ -1,0 +1,14 @@
+flowchart TB
+  classDef hl fill:#ff9,stroke:#333
+  subgraph S1 [Group One]
+    direction LR
+    a1([Stadium]):::hl --> a2{{Hex}}
+  end
+  subgraph S2 [Group Two]
+    b1[(DB)] -.-> b2[[Sub]]
+  end
+  a2 ==>|thick| b1
+  S1 --> S2
+  b2 --x c1((End))
+  style c1 fill:#f66
+  linkStyle 0 stroke:#f00
