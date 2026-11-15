@@ -96,6 +96,13 @@ pub const Algorithm = enum {
             inline else => |t| "elk." ++ @tagName(t),
         };
     }
+
+    // The `algorithm` of a registered ELK layout (src/mermaid/layout.zig), e.g. "elk.stress".
+    pub fn fromId(name: []const u8) ?Algorithm {
+        const prefix = "elk.";
+        if (!std.mem.startsWith(u8, name, prefix)) return null;
+        return std.meta.stringToEnum(Algorithm, name[prefix.len..]);
+    }
 };
 
 pub const Config = struct {

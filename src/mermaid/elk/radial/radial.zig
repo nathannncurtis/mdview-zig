@@ -18,7 +18,7 @@ fn countNodes(n: *const eg.ElkNode) usize {
 // RadialLayoutProvider.layout, ELK 0.9.1: no SPOrE overlap removal and no root selection strategies
 pub fn layout(a: std.mem.Allocator, graph: *eg.ElkNode) lg.Error!void {
     // SAFETY: assigned before use
-    var c: Ctx = .{ .a = a, .graph = graph, .root = undefined, .max_depth = 4 * countNodes(graph) + 8 };
+    var c: Ctx = .{ .a = a, .graph = graph, .root = undefined, .max_depth = 4 * countNodes(graph) + 8, .budget = @min(50_000_000, 2048 * countNodes(graph) * countNodes(graph) + 65536) };
     if (!(graph.opts.omit_node_micro_layout orelse false)) try micro.run(&c);
     c.root = util.findRoot(graph) orelse {
         lg.setElkMessage("The given graph is not a tree!");

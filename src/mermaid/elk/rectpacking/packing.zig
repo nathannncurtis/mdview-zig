@@ -73,14 +73,21 @@ fn isSimilarHeight(block: *const Block, rect: *const ElkNode) bool {
 const Pair = struct { changed: bool, compact_again: bool };
 
 // p2packing.Compaction.compact
-fn compact(a: Allocator, row_idx: usize, rows: *Rows, bounding_width: f64, nn: f64, reeval: bool) Allocator.Error!Pair {
+fn compact(a: Allocator, row_idx: usize, rows: *Rows, bounding_width: f64, nn: f64, reeval: bool) lg.Error!Pair {
     var something_changed = false;
     var compact_again = false;
     const next_row_index = row_idx + 1;
     const row = rows.items[row_idx];
     var current_stack: ?*BlockStack = null;
     var block_id: i64 = 0;
+    // ELK steps back and retries blocks without a bound; some inputs never leave this loop
+    var steps: usize = 0;
     while (block_id < @as(i64, @intCast(row.children.items.len))) : (block_id += 1) {
+        steps += 1;
+        if (steps > 100_000) {
+            lg.setElkMessage("rectpacking compaction does not terminate");
+            return error.ElkException;
+        }
         const block = row.children.items[@intCast(block_id)];
         if (block.fixed) continue;
         if (block.children.items.len == 0) {
@@ -190,7 +197,10 @@ fn useRowWidth(block: *Block, bounding_width: f64) Allocator.Error!void {
 fn absorbBlocks(row: *RectRow, block: *Block, next_block: *Block, bounding_width: f64, nn: f64) Allocator.Error!bool {
     var changed = false;
     var rect = next_block.children.items[0];
-    while (try placeRectInBlock(row, block, rect, bounding_width, nn)) {
+    // every placed rect leaves the next block, so more rounds than rects means the block did not shrink
+    var rounds = next_block.children.items.len + 1;
+    while (rounds > 0 and try placeRectInBlock(row, block, rect, bounding_width, nn)) {
+        rounds -= 1;
         changed = true;
         next_block.removeChild(rect);
         if (next_block.children.items.len == 0) break;
@@ -277,6 +287,9 @@ pub const RowFilling = struct {
         c.resetCoordinates(ctx.node.children.items);
         const rows = try initialPlace(a, ctx.node.children.items, target_width, nn, ctx.rowHeightReevaluation());
         var row_idx: i64 = 0;
+        // ELK repeats a row for as long as compaction asks for it, which does not end for some target widths
+        var repeats: usize = 0;
+        const max_repeats = 64 * (ctx.node.children.items.len + 1) * (ctx.node.children.items.len + 1);
         while (row_idx < @as(i64, @intCast(rows.items.len))) : (row_idx += 1) {
             const idx: usize = @intCast(row_idx);
             const current_row = rows.items[idx];
@@ -286,6 +299,11 @@ pub const RowFilling = struct {
             }
             const result = try compact(a, idx, rows, target_width, nn, ctx.rowHeightReevaluation());
             if (result.compact_again) {
+                repeats += 1;
+                if (repeats > max_repeats) {
+                    lg.setElkMessage("rectpacking row compaction does not terminate");
+                    return error.ElkException;
+                }
                 for (current_row.children.items) |block| {
                     block.fixed = false;
                     block.position_fixed = false;

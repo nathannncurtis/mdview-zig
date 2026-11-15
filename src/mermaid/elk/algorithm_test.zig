@@ -178,3 +178,10 @@ test "glue fixtures match elkjs" {
     std.debug.print("\nelk glue parity: graphs={d} failed={d} nodes={d} edges={d} points={d} labels={d} maxNode={d:.4} maxPoint={d:.4} maxLabel={d:.4}\n", .{ stats.graphs, stats.failed, stats.nodes, stats.edges, stats.points, stats.labels, stats.max_node, stats.max_point, stats.max_label });
     try std.testing.expectEqual(@as(usize, 0), stats.failed);
 }
+
+test "every ELK layout the registry offers maps to an algorithm" {
+    const registered = [_][]const u8{ "elk.layered", "elk.stress", "elk.force", "elk.mrtree", "elk.sporeOverlap", "elk.box", "elk.rectpacking" };
+    for (registered) |name| try std.testing.expect(mermaid.Algorithm.fromId(name) != null);
+    try std.testing.expect(mermaid.Algorithm.fromId("dagre") == null);
+    try std.testing.expect(mermaid.Algorithm.fromId("elk.nothing") == null);
+}
