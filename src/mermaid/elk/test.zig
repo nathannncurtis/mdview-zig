@@ -25,6 +25,17 @@ test {
     _ = @import("radial/test.zig");
 }
 
+const lg = @import("lgraph.zig");
+
+// elk.algorithm of a fixture input's root, without the package prefix
+fn fixtureAlgorithm(input: Value) []const u8 {
+    const alg = (field(input, "layoutOptions") orelse return "layered");
+    const v = field(alg, "elk.algorithm") orelse return "layered";
+    if (v != .string) return "layered";
+    const dot = std.mem.lastIndexOfScalar(u8, v.string, '.') orelse return v.string;
+    return v.string[dot + 1 ..];
+}
+
 const node_tol = 0.5;
 const point_tol = 1.0;
 
@@ -151,6 +162,11 @@ pub const Cmp = struct {
 };
 
 test "elk layout matches elkjs on the fixtures" {
+    try checkFixtures("layered", layered.layout, 200);
+}
+
+// The fixtures whose root layout algorithm is `algorithm` (layered when none is set), laid out by `layoutFn`.
+pub fn checkFixtures(algorithm: []const u8, layoutFn: *const fn (std.mem.Allocator, *eg.ElkNode) lg.Error!void, min_graphs: usize) !void {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var env = try std.testing.environ.createMap(gpa);
@@ -175,8 +191,6 @@ test "elk layout matches elkjs on the fixtures" {
             return std.mem.lessThan(u8, a, b);
         }
     }.less);
-    try std.testing.expect(names.items.len >= 200);
-
     var stats: Stats = .{};
     for (names.items) |name| {
         if (only) |o| if (std.mem.find(u8, name, o) == null) continue;
@@ -185,11 +199,12 @@ test "elk layout matches elkjs on the fixtures" {
         const a = arena.allocator();
         const src = try dir.readFileAlloc(io, name, a, .unlimited);
         const doc = try std.json.parseFromSliceLeaky(Value, a, src, .{});
+        if (!std.mem.eql(u8, fixtureAlgorithm(field(doc, "input").?), algorithm)) continue;
         const root = try elk_json.fromValue(a, field(doc, "input").?);
         stats.graphs += 1;
         var c: Cmp = .{ .a = a, .name = name, .stats = &stats, .expected_edges = std.StringHashMap(Value).init(a) };
         const out = field(doc, "output").?;
-        layered.layout(a, root) catch |err| {
+        layoutFn(a, root) catch |err| {
             std.debug.print("  {s}: layout failed: {s}\n", .{ name, @errorName(err) });
             stats.failed += 1;
             continue;
@@ -201,6 +216,7 @@ test "elk layout matches elkjs on the fixtures" {
             std.debug.print("  {s}: {d} mismatches\n", .{ name, c.errors });
         }
     }
-    std.debug.print("\nelk parity: graphs={d} failed={d} nodes={d} edges={d} points={d} labels={d} maxNode={d:.4} maxPoint={d:.4} maxLabel={d:.4}\n", .{ stats.graphs, stats.failed, stats.nodes, stats.edges, stats.points, stats.labels, stats.max_node, stats.max_point, stats.max_label });
+    std.debug.print("\nelk parity {s}: graphs={d} failed={d} nodes={d} edges={d} points={d} labels={d} maxNode={d:.4} maxPoint={d:.4} maxLabel={d:.4}\n", .{ algorithm, stats.graphs, stats.failed, stats.nodes, stats.edges, stats.points, stats.labels, stats.max_node, stats.max_point, stats.max_label });
+    try std.testing.expect(stats.graphs >= min_graphs);
     try std.testing.expectEqual(@as(usize, 0), stats.failed);
 }
