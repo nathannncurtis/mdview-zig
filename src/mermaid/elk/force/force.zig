@@ -299,7 +299,7 @@ fn eadesRepulsive(d: f64, r: f64) f64 {
 }
 
 fn eadesAttractive(d: f64, s: f64) f64 {
-    return if (d > 0) @log(d / s) else -dist_zero_factor;
+    return if (d > 0) util.fdlibmLog(d / s) else -dist_zero_factor;
 }
 
 fn frRepulsive(d: f64, k: f64) f64 {
