@@ -67,6 +67,8 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
+    exe_mod.addImport("font", font_mod);
     const parser_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/markdown_test.zig"),
@@ -75,6 +77,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     parser_tests.root_module.addImport("testdata", testdata);
+    parser_tests.root_module.addImport("font", font_mod);
     const test_step = b.step("test", "Run parser tests");
     const run_parser = b.addRunArtifact(parser_tests);
     run_parser.setCwd(b.path("."));
@@ -109,7 +112,6 @@ pub fn build(b: *std.Build) void {
     });
     dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
-    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
     const math_mod = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = target, .optimize = optimize });
     math_mod.addImport("font", font_mod);
     const math_layout_tests = b.addTest(.{ .root_module = math_mod });
@@ -127,6 +129,7 @@ pub fn build(b: *std.Build) void {
         for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
@@ -140,6 +143,7 @@ pub fn build(b: *std.Build) void {
         });
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("font", font_mod);
         for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
@@ -189,6 +193,7 @@ pub fn build(b: *std.Build) void {
             hit_tests.root_module.linkSystemLibrary(lib, .{});
         }
         hit_tests.root_module.addImport("testdata", testdata);
+        hit_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
 

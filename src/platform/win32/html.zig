@@ -196,7 +196,7 @@ fn withoutFloats(c: md.Inline) std.mem.Allocator.Error!md.Inline {
     };
     const m: Map = .{ .cuts = cuts.items };
     var out: md.Inline = .{ .text = text.items };
-    inline for (.{ "bold", "italic", "code", "strike", "emoji", "sup", "links", "styles" }) |name| {
+    inline for (.{ "bold", "italic", "code", "strike", "emoji", "sup", "links", "styles", "math" }) |name| {
         @field(out, name) = try remap(a, @field(c, name), m);
     }
     var images: std.ArrayList(md.Image) = .empty;
@@ -373,6 +373,10 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
                 natural = win.g_last_text_w;
                 gap = 16;
             },
+            .math => {
+                y += win.renderMathBlock(vt_rt, rt, content.text, x, y, w, draw);
+                gap = 16;
+            },
             .table => {
                 y += tables.renderTable(vt_rt, g.vt_dw, rt, g.dwf, block.table, x, y, w, draw, &natural);
                 gap = 16;
@@ -494,6 +498,7 @@ fn sliceInline(c: md.Inline, lo: u32, hi: u32) std.mem.Allocator.Error!md.Inline
         .sup = try clipSpans(a, c.sup, lo, hi),
         .links = try clipSpans(a, c.links, lo, hi),
         .images = try clipSpans(a, c.images, lo, hi),
+        .math = try clipSpans(a, c.math, lo, hi),
         .styles = try clipSpans(a, c.styles, lo, hi),
     };
 }

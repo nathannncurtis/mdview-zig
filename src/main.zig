@@ -34,6 +34,7 @@ var scroll_path: ?[]const u8 = null;
 
 const links = @import("markdown/links.zig");
 pub const images = @import("image/images.zig");
+pub const math = @import("math/render.zig");
 
 pub const Font = enum { body, h1, h2, h3, h4, h5, h6 };
 
@@ -61,6 +62,36 @@ const Toggle = struct { rect: Rect, frame: md.Frame };
 /// Click targets of the summary markers drawn this frame, in document coordinates.
 var toggles: std.ArrayList(Toggle) = .empty;
 pub var details_open: md.DetailsState = .empty;
+
+const MathBlock = struct { rect: Rect, key: usize, max: f32 };
+
+/// Display formulas drawn this frame, in document coordinates, with how far each can scroll sideways.
+var math_blocks: std.ArrayList(MathBlock) = .empty;
+var math_scroll: std.AutoHashMapUnmanaged(usize, f32) = .empty;
+var pointer_x: f32 = 0;
+var pointer_y: f32 = 0;
+
+pub fn noteMathBlock(rect: Rect, key: usize, max: f32) void {
+    math_blocks.append(gpa, .{ .rect = rect, .key = key, .max = max }) catch return;
+}
+
+pub fn mathOffset(key: usize) f32 {
+    return math_scroll.get(key) orelse 0;
+}
+
+/// Scrolls the display formula under the pointer sideways by `dx` (positive shows more of the right side); false when none can scroll.
+pub fn scrollMath(dx: f32) bool {
+    const y = pointer_y + scroll_y;
+    for (math_blocks.items) |b| {
+        const r = b.rect;
+        if (b.max <= 0 or pointer_x < r.x or pointer_x >= r.x + r.w or y < r.y or y >= r.y + r.h) continue;
+        const next = std.math.clamp(mathOffset(b.key) + dx, 0, b.max);
+        math_scroll.put(gpa, b.key, next) catch return false;
+        platform.invalidate();
+        return true;
+    }
+    return false;
+}
 
 pub fn noteToggle(rect: Rect, frame: md.Frame) void {
     toggles.append(gpa, .{ .rect = rect, .frame = frame }) catch return;
@@ -90,6 +121,7 @@ pub fn beginFrame() void {
     hits.clearRetainingCapacity();
     block_y.clearRetainingCapacity();
     toggles.clearRetainingCapacity();
+    math_blocks.clearRetainingCapacity();
 }
 
 pub fn noteBlock(y: f32) void {
@@ -138,6 +170,8 @@ pub fn linkAt(px: f32, py: f32) ?LinkHit {
 }
 
 pub fn pointerMoved(px: f32, py: f32) bool {
+    pointer_x = px;
+    pointer_y = py;
     const title = titleAt(px, py);
     const had_tip = tooltip != null;
     tooltip = if (title) |t| .{ .text = t, .x = px, .y = py } else null;
@@ -523,6 +557,7 @@ pub fn main(init: std.process.Init) !void {
     io = init.io;
     environ = init.environ_map;
     images.init(gpa, io);
+    math.init(environ.get(if (builtin.os.tag == .windows) "USERPROFILE" else "HOME"));
     if (builtin.os.tag == .windows) {
         platform.hinstance = std.os.windows.peb().ImageBaseAddress;
     }
