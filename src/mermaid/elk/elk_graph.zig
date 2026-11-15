@@ -2,6 +2,7 @@ const std = @import("std");
 const lg = @import("lgraph.zig");
 const Allocator = std.mem.Allocator;
 const Vec = lg.Vec;
+const mrtree_options = @import("mrtree/options.zig");
 
 // Layout options as set on an ELK graph element. null = not set (Java hasProperty false), so copying onto an
 // LGraph element (copyProperties) only overrides what was given.
@@ -74,6 +75,13 @@ pub const Options = struct {
     spacing_ports_surrounding: ?lg.Margin = null,
     spacing_comment_comment: ?f64 = null,
     spacing_comment_node: ?f64 = null,
+    priority: ?i32 = null,
+    mrtree_weighting: ?mrtree_options.OrderWeighting = null,
+    mrtree_search_order: ?mrtree_options.TreeifyingOrder = null,
+    mrtree_edge_routing_mode: ?mrtree_options.EdgeRoutingMode = null,
+    mrtree_compaction: ?bool = null,
+    mrtree_edge_end_texture_length: ?f64 = null,
+    mrtree_position_constraint: ?i32 = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
 
@@ -161,6 +169,13 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.spacing.portsSurrounding", "spacing_ports_surrounding" },
     .{ "org.eclipse.elk.spacing.commentComment", "spacing_comment_comment" },
     .{ "org.eclipse.elk.spacing.commentNode", "spacing_comment_node" },
+    .{ "org.eclipse.elk.priority", "priority" },
+    .{ "org.eclipse.elk.mrtree.weighting", "mrtree_weighting" },
+    .{ "org.eclipse.elk.mrtree.searchOrder", "mrtree_search_order" },
+    .{ "org.eclipse.elk.mrtree.edgeRoutingMode", "mrtree_edge_routing_mode" },
+    .{ "org.eclipse.elk.mrtree.compaction", "mrtree_compaction" },
+    .{ "org.eclipse.elk.mrtree.edgeEndTextureLength", "mrtree_edge_end_texture_length" },
+    .{ "org.eclipse.elk.mrtree.positionConstraint", "mrtree_position_constraint" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.

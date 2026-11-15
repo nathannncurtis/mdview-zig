@@ -2,6 +2,7 @@ const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
 const html = @import("markdown/html.zig");
 const elk_fuzz = @import("mermaid/elk/fuzz.zig");
+const mrtree_fuzz = @import("mermaid/elk/mrtree/fuzz.zig");
 const font = @import("font/font.zig");
 const image = @import("image/image.zig");
 const fuzz_images = @import("image/fuzz_seeds.zig");
@@ -142,6 +143,10 @@ test "fuzz html.Builder" {
 
 test "fuzz mermaid.elk" {
     try std.testing.fuzz({}, elk_fuzz.fuzzOne, .{ .corpus = &elk_fuzz.corpus });
+}
+
+test "fuzz elk.mrtree" {
+    try std.testing.fuzz({}, mrtree_fuzz.fuzzOne, .{ .corpus = &mrtree_fuzz.corpus });
 }
 
 const font_corpus = [_][]const u8{

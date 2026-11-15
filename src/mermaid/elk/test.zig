@@ -2,6 +2,7 @@ const std = @import("std");
 const eg = @import("elk_graph.zig");
 const elk_json = @import("elk_json.zig");
 const layered = @import("layered.zig");
+const lg = @import("lgraph.zig");
 const Value = std.json.Value;
 
 test {
@@ -25,7 +26,7 @@ test {
 const node_tol = 0.5;
 const point_tol = 1.0;
 
-const Stats = struct {
+pub const Stats = struct {
     graphs: usize = 0,
     failed: usize = 0,
     nodes: usize = 0,
@@ -37,7 +38,7 @@ const Stats = struct {
     max_label: f64 = 0,
 };
 
-fn num(v: Value) f64 {
+pub fn num(v: Value) f64 {
     return switch (v) {
         .integer => |i| @floatFromInt(i),
         .float => |f| f,
@@ -45,12 +46,12 @@ fn num(v: Value) f64 {
     };
 }
 
-fn field(v: Value, name: []const u8) ?Value {
+pub fn field(v: Value, name: []const u8) ?Value {
     if (v != .object) return null;
     return v.object.get(name);
 }
 
-const Cmp = struct {
+pub const Cmp = struct {
     a: std.mem.Allocator,
     name: []const u8,
     stats: *Stats,
@@ -143,7 +144,19 @@ const Cmp = struct {
     }
 };
 
+// Fixtures of other algorithms sit in the same folder under their own prefix.
+const other_prefixes = [_][]const u8{"mrtree-"};
+
+fn hasOtherPrefix(name: []const u8) bool {
+    for (other_prefixes) |p| if (std.mem.startsWith(u8, name, p)) return true;
+    return false;
+}
+
 test "elk layout matches elkjs on the fixtures" {
+    try runFixtures(null, layered.layout, 200);
+}
+
+pub fn runFixtures(prefix: ?[]const u8, layout_fn: fn (std.mem.Allocator, *eg.ElkNode) lg.Error!void, min_count: usize) !void {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var env = try std.testing.environ.createMap(gpa);
@@ -160,6 +173,8 @@ test "elk layout matches elkjs on the fixtures" {
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".json")) continue;
+        const wanted = if (prefix) |p| std.mem.startsWith(u8, entry.name, p) else !hasOtherPrefix(entry.name);
+        if (!wanted) continue;
         try names.append(gpa, try gpa.dupe(u8, entry.name));
     }
     std.mem.sort([]u8, names.items, {}, struct {
@@ -167,7 +182,7 @@ test "elk layout matches elkjs on the fixtures" {
             return std.mem.lessThan(u8, a, b);
         }
     }.less);
-    try std.testing.expect(names.items.len >= 200);
+    try std.testing.expect(names.items.len >= min_count);
 
     var stats: Stats = .{};
     for (names.items) |name| {
@@ -181,7 +196,7 @@ test "elk layout matches elkjs on the fixtures" {
         stats.graphs += 1;
         var c: Cmp = .{ .a = a, .name = name, .stats = &stats, .expected_edges = std.StringHashMap(Value).init(a) };
         const out = field(doc, "output").?;
-        layered.layout(a, root) catch |err| {
+        layout_fn(a, root) catch |err| {
             std.debug.print("  {s}: layout failed: {s}\n", .{ name, @errorName(err) });
             stats.failed += 1;
             continue;
