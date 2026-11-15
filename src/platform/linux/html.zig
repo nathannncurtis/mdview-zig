@@ -1065,8 +1065,7 @@ test "a mermaid block is a frame with the zoom and pan buttons, and a bad one is
 
     const p = try Probe.init(800, 800);
     defer p.deinit();
-    app.hits.clearRetainingCapacity();
-    app.block_y.clearRetainingCapacity();
+    app.beginFrame();
     _ = layoutBlocks(p.cr, p.layout, doc.blocks, 40, 500, 10);
     try std.testing.expectApproxEqAbs(view.frameHeight(size.h) + 16, app.block_y.items[1] - app.block_y.items[0], 0.01);
     try std.testing.expect(app.block_y.items[2] - app.block_y.items[1] > 100);
