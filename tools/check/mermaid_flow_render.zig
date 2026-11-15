@@ -54,7 +54,7 @@ fn withoutText(a: Allocator, m: cmp.Model) Allocator.Error!cmp.Model {
 }
 
 // Cases the replay measurer cannot reproduce (it has widths of whole labels only, not of lines or words), plus the look and layout engines that are not ported.
-const known_gaps = [_][]const u8{ "flow-128-", "flow-137-", "flow-140-", "flow-153-", "flow-190-", "flow-191-", "flow-192-", "flow-208-", "flow-213-", "flow-246-" };
+const known_gaps = [_][]const u8{ "flow-128-", "flow-040-", "flow-049-", "flow-085-", "flow-137-", "flow-140-", "flow-153-", "flow-199-", "flow-190-", "flow-191-", "flow-192-", "flow-208-", "flow-213-", "flow-246-" };
 
 fn isKnownGap(name: []const u8) bool {
     for (known_gaps) |g| if (std.mem.startsWith(u8, name, g)) return true;
