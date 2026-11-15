@@ -10,6 +10,7 @@ test {
     _ = @import("parser.zig");
     _ = @import("regex.zig");
     _ = @import("mhchem.zig");
+    _ = @import("check.zig");
 }
 
 const testdata = @import("testdata");

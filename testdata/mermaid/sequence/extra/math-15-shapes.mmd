@@ -1,0 +1,9 @@
+sequenceDiagram
+  participant D@{ "type": "database" } as $$d$$
+  participant Q@{ "type": "queue" } as $$q$$
+  participant C@{ "type": "control" } as $$c$$
+  participant E@{ "type": "entity" } as $$e$$
+  participant B@{ "type": "boundary" } as $$b$$
+  participant L@{ "type": "collections" } as $$l$$
+  D->>Q: m
+  Q->>C: m

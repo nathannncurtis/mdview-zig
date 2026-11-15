@@ -57,6 +57,8 @@ pub const Ctx = struct {
     }
 };
 
+pub const Whole = struct { bytes: []const u8, w: f32, h: f32 };
+
 /// A diagram type: parse the text into a model, lay it out into geometry, emit the SVG.
 pub const Def = struct {
     id: []const u8,
@@ -71,4 +73,7 @@ pub const Def = struct {
     owns_group: bool = false,
     class_defs: ?*const fn (ctx: *Ctx, model: *anyopaque) Error![]const ClassDef = null,
     acc: ?*const fn (ctx: *Ctx, model: *anyopaque) Acc = null,
+    /// Renders the finished document itself, given the common stylesheet split where the diagram's own rules go; `parse`,
+    /// `layout` and `emit` are then unused.
+    whole: ?*const fn (ctx: *Ctx, source: []const u8, css_before: []const u8, css_after: []const u8) Error!Whole = null,
 };

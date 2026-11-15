@@ -7,6 +7,8 @@ const scale = @import("scale.zig");
 const md = @import("../markdown/markdown.zig");
 const font = @import("font");
 const mermaid = @import("mermaid");
+const math_render = @import("../math/render.zig");
+const math_check = @import("../math/check.zig");
 const view = mermaid.view;
 const probe_adapter = @import("mermaid_probe.zig");
 
@@ -801,6 +803,64 @@ fn measureText(_: ?*anyopaque, text: []const u8, f: mermaid.text.Font) mermaid.t
     return .{ .w = @floatCast(m.w), .h = @floatCast(m.h) };
 }
 
+fn mathErrorMessage(_: ?*anyopaque, a: std.mem.Allocator, tex: []const u8) std.mem.Allocator.Error!?[]const u8 {
+    return math_check.errorMessage(a, tex);
+}
+
+/// A label with `$$..$$` math as Mermaid measures it: the lines stacked, each line its text and formulas side by side.
+fn measureMathLabel(_: ?*anyopaque, text: []const u8, in_diagram: bool) mermaid.text.Size {
+    const family: []const u8 = if (in_diagram) mermaid.text.default_family else "serif";
+    const f = font.resolveFont(io, family, 400, false);
+    const size: f32 = 16;
+    var width: f32 = 0;
+    var height: f32 = 0;
+    var rest = text;
+    while (true) {
+        const br = nextBreak(rest);
+        const line = if (br) |b| rest[0..b.start] else rest;
+        var line_w: f32 = 0;
+        var line_h: f32 = 0;
+        var i: usize = 0;
+        while (i < line.len) {
+            const open = std.mem.indexOfPos(u8, line, i, "$$");
+            const close = if (open) |o| std.mem.indexOfPos(u8, line, o + 2, "$$") else null;
+            if (open == null or close == null) {
+                const m = font.measure(f, line[i..], size);
+                line_w += @floatCast(m.w);
+                line_h = @max(line_h, @as(f32, @floatCast(m.h)));
+                break;
+            }
+            if (open.? > i) {
+                const m = font.measure(f, line[i..open.?], size);
+                line_w += @floatCast(m.w);
+                line_h = @max(line_h, @as(f32, @floatCast(m.h)));
+            }
+            if (math_render.look(line[open.? + 2 .. close.?], true, size)) |l| {
+                line_w += l.w;
+                line_h = @max(line_h, l.ascent + l.descent);
+            }
+            i = close.? + 2;
+        }
+        width = @max(width, line_w);
+        height += line_h;
+        rest = if (br) |b| rest[b.end..] else break;
+    }
+    return .{ .w = width, .h = height };
+}
+
+fn nextBreak(s: []const u8) ?struct { start: usize, end: usize } {
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, s, i, "<")) |at| {
+        i = at + 1;
+        if (at + 3 > s.len or !std.ascii.eqlIgnoreCase(s[at + 1 .. at + 3], "br")) continue;
+        var j = at + 3;
+        while (j < s.len and std.ascii.isWhitespace(s[j])) j += 1;
+        if (j < s.len and s[j] == '/') j += 1;
+        if (j < s.len and s[j] == '>') return .{ .start = at, .end = j + 1 };
+    }
+    return null;
+}
+
 threadlocal var probe_waits: std.ArrayList(u8) = .empty;
 threadlocal var probe_oom: bool = false;
 
@@ -839,7 +899,7 @@ fn loadDiagram(e: *Entry) !void {
         if (probe_waits.items.len > 0) e.mm_wait = gpa.dupe(u8, probe_waits.items) catch null;
         probe_waits.clearAndFree(gpa);
     }
-    const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText }, .clock = clockNs, .image_probe = imageProbe });
+    const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText, .math_fn = measureMathLabel, .math_error_fn = mathErrorMessage }, .clock = clockNs, .image_probe = imageProbe });
     if (probe_oom) {
         mermaid.free(gpa, r);
         return error.OutOfMemory;

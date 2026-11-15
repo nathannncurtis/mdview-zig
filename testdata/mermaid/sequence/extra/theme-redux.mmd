@@ -1,0 +1,24 @@
+---
+config:
+  theme: redux
+---
+sequenceDiagram
+  participant P
+  participant C@{ "type": "collections" }
+  participant Q@{ "type": "queue" }
+  participant D@{ "type": "database" }
+  participant K@{ "type": "control" }
+  participant E@{ "type": "entity" }
+  participant B@{ "type": "boundary" }
+  actor M
+  P->>+C: a
+  C->>+Q: b
+  Q-->>-C: c
+  C-->>-P: d
+  Note over P,M: n
+  loop l
+    D->>E: e
+  end
+  rect rgb(10,20,30)
+    K->>B: f
+  end
