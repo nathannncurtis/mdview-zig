@@ -1,0 +1,1 @@
+{"name":"box-s-001","source":"","input":{"id":"root","layoutOptions":{"elk.algorithm":"elk.box","elk.padding":"[top=38,left=36,bottom=39,right=25]","elk.box.packingMode":"GROUP_DEC"},"children":[{"id":"n0","width":38,"height":265}],"edges":[]},"output":{"id":"root","x":0,"y":0,"width":99,"height":342,"children":[{"id":"n0","x":36,"y":38,"width":38,"height":265}],"edges":[]}}

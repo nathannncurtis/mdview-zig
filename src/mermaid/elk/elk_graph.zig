@@ -2,6 +2,17 @@ const std = @import("std");
 const lg = @import("lgraph.zig");
 const Allocator = std.mem.Allocator;
 const Vec = lg.Vec;
+const radial_options = @import("radial/options.zig");
+
+pub const ForceModel = enum { fruchterman_reingold, eades };
+pub const StressDimension = enum { xy, x, y };
+
+pub const BoxPackingMode = enum { simple, group_dec, group_mixed, group_inc };
+pub const WidthApproximationStrategy = enum { greedy, target_width };
+pub const OptimizationGoal = enum { aspect_ratio_driven, max_scale_driven, area_driven };
+pub const PackingStrategy = enum { compaction, simple, none };
+pub const WhiteSpaceEliminationStrategy = enum { equal_between_structures, to_aspect_ratio };
+const mrtree_options = @import("mrtree/options.zig");
 
 // Layout options as set on an ELK graph element. null = not set (Java hasProperty false), so copying onto an
 // LGraph element (copyProperties) only overrides what was given.
@@ -80,8 +91,56 @@ pub const Options = struct {
     spacing_ports_surrounding: ?lg.Margin = null,
     spacing_comment_comment: ?f64 = null,
     spacing_comment_node: ?f64 = null,
+    force_model: ?ForceModel = null,
+    force_iterations: ?i32 = null,
+    force_repulsive_power: ?i32 = null,
+    force_temperature: ?f64 = null,
+    force_repulsion: ?f64 = null,
+    interactive: ?bool = null,
+    omit_node_micro_layout: ?bool = null,
+    priority: ?i32 = null,
+    position: ?Vec = null,
+    radial_radius: ?f64 = null,
+    radial_center_on_root: ?bool = null,
+    radial_order_id: ?i32 = null,
+    radial_rotate: ?bool = null,
+    radial_rotation_target_angle: ?f64 = null,
+    radial_rotation_compute_additional_wedge_space: ?bool = null,
+    radial_rotation_outgoing_edge_angles: ?bool = null,
+    radial_compactor: ?radial_options.CompactionStrategy = null,
+    radial_compaction_step_size: ?i32 = null,
+    radial_sorter: ?radial_options.SortingStrategy = null,
+    radial_wedge_criteria: ?radial_options.AnnulusWedgeCriteria = null,
+    radial_optimization_criteria: ?radial_options.RadialTranslationStrategy = null,
+    expand_nodes: ?bool = null,
+    box_packing_mode: ?BoxPackingMode = null,
+    rp_width_approximation_strategy: ?WidthApproximationStrategy = null,
+    rp_target_width: ?f64 = null,
+    rp_optimization_goal: ?OptimizationGoal = null,
+    rp_last_place_shift: ?bool = null,
+    rp_packing_strategy: ?PackingStrategy = null,
+    rp_row_height_reevaluation: ?bool = null,
+    rp_compaction_iterations: ?i32 = null,
+    rp_white_space_elimination: ?WhiteSpaceEliminationStrategy = null,
+    rp_trybox: ?bool = null,
+    rp_desired_position: ?i32 = null,
+    rp_in_new_row: ?bool = null,
+    mrtree_weighting: ?mrtree_options.OrderWeighting = null,
+    mrtree_search_order: ?mrtree_options.TreeifyingOrder = null,
+    mrtree_edge_routing_mode: ?mrtree_options.EdgeRoutingMode = null,
+    mrtree_compaction: ?bool = null,
+    mrtree_edge_end_texture_length: ?f64 = null,
+    mrtree_position_constraint: ?i32 = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
+    stress_fixed: ?bool = null,
+    stress_desired_edge_length: ?f64 = null,
+    stress_dimension: ?StressDimension = null,
+    stress_epsilon: ?f64 = null,
+    stress_iteration_limit: ?i32 = null,
+    underlying_layout_algorithm: ?[]const u8 = null,
+    overlap_removal_max_iterations: ?i32 = null,
+    overlap_removal_run_scanline: ?bool = null,
 
     // MapPropertyHolder.copyProperties onto the layered property bag
     pub fn applyTo(o: *const Options, p: *lg.Props) void {
@@ -173,6 +232,54 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.spacing.portsSurrounding", "spacing_ports_surrounding" },
     .{ "org.eclipse.elk.spacing.commentComment", "spacing_comment_comment" },
     .{ "org.eclipse.elk.spacing.commentNode", "spacing_comment_node" },
+    .{ "org.eclipse.elk.force.model", "force_model" },
+    .{ "org.eclipse.elk.force.iterations", "force_iterations" },
+    .{ "org.eclipse.elk.force.repulsivePower", "force_repulsive_power" },
+    .{ "org.eclipse.elk.force.temperature", "force_temperature" },
+    .{ "org.eclipse.elk.force.repulsion", "force_repulsion" },
+    .{ "org.eclipse.elk.interactive", "interactive" },
+    .{ "org.eclipse.elk.omitNodeMicroLayout", "omit_node_micro_layout" },
+    .{ "org.eclipse.elk.priority", "priority" },
+    .{ "org.eclipse.elk.stress.fixed", "stress_fixed" },
+    .{ "org.eclipse.elk.stress.desiredEdgeLength", "stress_desired_edge_length" },
+    .{ "org.eclipse.elk.stress.dimension", "stress_dimension" },
+    .{ "org.eclipse.elk.stress.epsilon", "stress_epsilon" },
+    .{ "org.eclipse.elk.stress.iterationLimit", "stress_iteration_limit" },
+    .{ "org.eclipse.elk.underlyingLayoutAlgorithm", "underlying_layout_algorithm" },
+    .{ "org.eclipse.elk.overlapRemoval.maxIterations", "overlap_removal_max_iterations" },
+    .{ "org.eclipse.elk.overlapRemoval.runScanline", "overlap_removal_run_scanline" },
+    .{ "org.eclipse.elk.position", "position" },
+    .{ "org.eclipse.elk.radial.radius", "radial_radius" },
+    .{ "org.eclipse.elk.radial.centerOnRoot", "radial_center_on_root" },
+    .{ "org.eclipse.elk.radial.orderId", "radial_order_id" },
+    .{ "org.eclipse.elk.radial.rotate", "radial_rotate" },
+    .{ "org.eclipse.elk.radial.rotation.targetAngle", "radial_rotation_target_angle" },
+    .{ "org.eclipse.elk.radial.rotation.computeAdditionalWedgeSpace", "radial_rotation_compute_additional_wedge_space" },
+    .{ "org.eclipse.elk.radial.rotation.outgoingEdgeAngles", "radial_rotation_outgoing_edge_angles" },
+    .{ "org.eclipse.elk.radial.compactor", "radial_compactor" },
+    .{ "org.eclipse.elk.radial.compactionStepSize", "radial_compaction_step_size" },
+    .{ "org.eclipse.elk.radial.sorter", "radial_sorter" },
+    .{ "org.eclipse.elk.radial.wedgeCriteria", "radial_wedge_criteria" },
+    .{ "org.eclipse.elk.radial.optimizationCriteria", "radial_optimization_criteria" },
+    .{ "org.eclipse.elk.expandNodes", "expand_nodes" },
+    .{ "org.eclipse.elk.box.packingMode", "box_packing_mode" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.strategy", "rp_width_approximation_strategy" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.targetWidth", "rp_target_width" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.optimizationGoal", "rp_optimization_goal" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.lastPlaceShift", "rp_last_place_shift" },
+    .{ "org.eclipse.elk.rectpacking.packing.strategy", "rp_packing_strategy" },
+    .{ "org.eclipse.elk.rectpacking.packing.compaction.rowHeightReevaluation", "rp_row_height_reevaluation" },
+    .{ "org.eclipse.elk.rectpacking.packing.compaction.iterations", "rp_compaction_iterations" },
+    .{ "org.eclipse.elk.rectpacking.whiteSpaceElimination.strategy", "rp_white_space_elimination" },
+    .{ "org.eclipse.elk.rectpacking.trybox", "rp_trybox" },
+    .{ "org.eclipse.elk.rectpacking.desiredPosition", "rp_desired_position" },
+    .{ "org.eclipse.elk.rectpacking.inNewRow", "rp_in_new_row" },
+    .{ "org.eclipse.elk.mrtree.weighting", "mrtree_weighting" },
+    .{ "org.eclipse.elk.mrtree.searchOrder", "mrtree_search_order" },
+    .{ "org.eclipse.elk.mrtree.edgeRoutingMode", "mrtree_edge_routing_mode" },
+    .{ "org.eclipse.elk.mrtree.compaction", "mrtree_compaction" },
+    .{ "org.eclipse.elk.mrtree.edgeEndTextureLength", "mrtree_edge_end_texture_length" },
+    .{ "org.eclipse.elk.mrtree.positionConstraint", "mrtree_position_constraint" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.

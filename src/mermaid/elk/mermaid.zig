@@ -30,6 +30,7 @@ pub const Node = struct {
     label_h: f64 = 0,
     padding: f64 = 0,
     dir: ?Dir = null,
+    algorithm: ?[]const u8 = null,
     paints_title: bool = true,
     skip_center_points: bool = false,
     intersect: ?geo.Intersect = null,
@@ -82,7 +83,25 @@ fn presetOf(name: []const u8) Preset {
     return .{ .layering = "NETWORK_SIMPLEX", .placement = "BRANDES_KOEPF", .container_placement = "BRANDES_KOEPF", .alignment = "BALANCED", .cycle_breaking = "DEPTH_FIRST" };
 }
 
+pub const Algorithm = enum {
+    layered,
+    stress,
+    force,
+    mrtree,
+    sporeOverlap,
+    box,
+    rectpacking,
+    radial,
+
+    fn id(self: Algorithm) []const u8 {
+        return switch (self) {
+            inline else => |t| "elk." ++ @tagName(t),
+        };
+    }
+};
+
 pub const Config = struct {
+    algorithm: Algorithm = .layered,
     direction: Dir = .tb,
     straighten_edges: bool = true,
     orient_feedback_edges: bool = true,
@@ -104,7 +123,34 @@ pub const EdgeOut = struct {
 pub const Result = struct {
     nodes: []NodeOut,
     edges: []EdgeOut,
+    warnings: []const []const u8 = &.{},
 };
+
+const container_algorithms = [_][]const u8{ "elk.layered", "elk.box", "elk.rectpacking", "elk.stress", "elk.force", "elk.mrtree", "elk.radial", "elk.sporeOverlap" };
+const container_padding: f64 = 15;
+const rectpacking_container_padding: f64 = 10;
+const subgraph_base_value = "24";
+const subgraph_node_spacing = "50";
+
+fn resolveContainerAlgorithm(requested: ?[]const u8) ?[]const u8 {
+    const r = requested orelse return null;
+    for (container_algorithms) |c| if (std.mem.eql(u8, c, r)) return c;
+    return null;
+}
+
+fn setRectpacking(o: *eg.Options) void {
+    setOpts(o, &.{
+        .{ "spacing.baseValue", "15" },
+        .{ "spacing.nodeNode", "15" },
+        .{ "elk.aspectRatio", "1.6" },
+        .{ "elk.expandNodes", "true" },
+        .{ "elk.rectpacking.trybox", "true" },
+        .{ "elk.rectpacking.packing.compaction.rowHeightReevaluation", "true" },
+        .{ "elk.rectpacking.packing.compaction.iterations", "10" },
+        .{ "elk.rectpacking.whiteSpaceElimination.strategy", "EQUAL_BETWEEN_STRUCTURES" },
+        .{ "elk.rectpacking.widthApproximation.strategy", "SCANLINE" },
+    });
+}
 
 const ports_surrounding = "[top=12,left=12,bottom=12,right=12]";
 const subgraph_padding: f64 = 24;
@@ -142,6 +188,9 @@ const State = struct {
     parent: []?usize,
     children: []std.ArrayList(usize),
     elk: []?*eg.ElkNode,
+    algorithm: Algorithm,
+    container_algo: []?[]const u8,
+    warnings: std.ArrayList([]const u8),
     // working geometry
     x: []f64,
     y: []f64,
@@ -229,19 +278,26 @@ fn setOpts(o: *eg.Options, kv: []const [2][]const u8) void {
     for (kv) |p| eg.setOption(o, p[0], p[1]);
 }
 
-fn subgraphOptions(st: *const State, i: usize, o: *eg.Options) Allocator.Error!void {
+fn titleSizeOptions(st: *const State, i: usize, o: *eg.Options) Allocator.Error!void {
+    if (!st.nodes[i].paints_title) return;
+    eg.setOption(o, "nodeSize.constraints", "[MINIMUM_SIZE, NODE_LABELS]");
+    eg.setOption(o, "nodeSize.minimum", try std.fmt.allocPrint(st.a, "({d}, 0)", .{st.groupTitleWidth(i)}));
+}
+
+fn paddingOption(a: Allocator, top: f64, side: f64) Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(a, "[top={d},left={d},bottom={d},right={d}]", .{ top, side, side, side });
+}
+
+fn subgraphOptions(st: *State, i: usize, o: *eg.Options) Allocator.Error!void {
     const n = st.nodes[i];
     const ec = st.ecfg;
     const preset = presetOf(ec.preset);
-    if (n.paints_title) {
-        eg.setOption(o, "nodeSize.constraints", "[MINIMUM_SIZE, NODE_LABELS]");
-        eg.setOption(o, "nodeSize.minimum", try std.fmt.allocPrint(st.a, "({d}, 0)", .{st.groupTitleWidth(i)}));
-    }
+    try titleSizeOptions(st, i, o);
     setOpts(o, &.{
-        .{ "spacing.baseValue", "24" },
+        .{ "spacing.baseValue", subgraph_base_value },
         .{ "elk.layered.spacing.edgeNodeBetweenLayers", "30" },
         .{ "elk.spacing.edgeEdge", "20" },
-        .{ "spacing.nodeNode", "50" },
+        .{ "spacing.nodeNode", subgraph_node_spacing },
         .{ "elk.padding", "[top=24,left=24,bottom=24,right=24]" },
         .{ "nodeLabels.placement", "[H_CENTER V_TOP, INSIDE]" },
         .{ "elk.layered.mergeEdges", if (ec.merge_edges) "true" else "false" },
@@ -251,11 +307,56 @@ fn subgraphOptions(st: *const State, i: usize, o: *eg.Options) Allocator.Error!v
         .{ "elk.layered.nodePlacement.networkSimplex.nodeFlexibility", "PORT_POSITION" },
         .{ "elk.spacing.portsSurrounding", ports_surrounding },
     });
-    if (n.dir) |d| {
-        eg.setOption(o, "elk.algorithm", "elk.layered");
+    st.container_algo[i] = resolveContainerAlgorithm(n.algorithm);
+    if (n.algorithm != null and st.container_algo[i] == null) {
+        const supported = try std.mem.join(st.a, ", ", &container_algorithms);
+        try st.warnings.append(st.a, try std.fmt.allocPrint(st.a, "Unknown container layout algorithm \"{s}\". Supported values: {s}. Falling back to the diagram's layout algorithm.", .{ n.algorithm.?, supported }));
+    }
+    if (st.container_algo[i]) |algo| {
+        const pad_top = n.label_h + container_padding;
+        const min_w = n.label_w + 2 * n.padding;
+        setOpts(o, &.{
+            .{ "nodeSize.constraints", "[MINIMUM_SIZE, NODE_LABELS]" },
+            .{ "nodeSize.minimum", try std.fmt.allocPrint(st.a, "({d}, {d})", .{ min_w, pad_top + container_padding }) },
+            .{ "elk.algorithm", algo },
+            .{ "elk.hierarchyHandling", "SEPARATE_CHILDREN" },
+            .{ "elk.aspectRatio", "2.0" },
+            .{ "elk.contentAlignment", "H_CENTER V_TOP" },
+            .{ "elk.expandNodes", "true" },
+            .{ "elk.padding", try paddingOption(st.a, pad_top, container_padding) },
+        });
+        if (std.mem.eql(u8, algo, "elk.rectpacking")) {
+            const rect_top = n.label_h + rectpacking_container_padding;
+            setRectpacking(o);
+            setOpts(o, &.{
+                .{ "elk.padding", try paddingOption(st.a, rect_top, rectpacking_container_padding) },
+                .{ "nodeSize.minimum", try std.fmt.allocPrint(st.a, "({d}, {d})", .{ min_w, rect_top + rectpacking_container_padding }) },
+            });
+        }
+    } else if (n.dir) |d| {
+        eg.setOption(o, "elk.algorithm", st.algorithm.id());
         eg.setOption(o, "elk.direction", elkDirection(d));
         eg.setOption(o, "elk.hierarchyHandling", "SEPARATE_CHILDREN");
     }
+}
+
+// clearContainerAlgorithmOptions: a container with cross-boundary edges falls back to a plain subgraph
+fn clearContainerAlgorithm(st: *State, i: usize) Allocator.Error!void {
+    const o = &st.elk[i].?.opts;
+    o.node_size_constraints = null;
+    o.node_size_minimum = null;
+    o.algorithm = null;
+    o.aspect_ratio = null;
+    o.content_alignment = null;
+    o.expand_nodes = null;
+    o.padding = null;
+    o.rp_trybox = null;
+    o.rp_row_height_reevaluation = null;
+    o.rp_compaction_iterations = null;
+    o.rp_white_space_elimination = null;
+    o.rp_width_approximation_strategy = null;
+    setOpts(o, &.{ .{ "spacing.baseValue", subgraph_base_value }, .{ "spacing.nodeNode", subgraph_node_spacing } });
+    try titleSizeOptions(st, i, o);
 }
 
 fn addVertices(st: *State, parent_elk: *eg.ElkNode, parent: ?usize) Error!void {
@@ -351,11 +452,12 @@ fn childOnPath(st: *const State, id: usize, anc: ?usize) usize {
     return cur;
 }
 
-fn setIncludeChildren(st: *State, i: usize, anc: ?usize) void {
+fn setIncludeChildren(st: *State, i: usize, anc: ?usize) Allocator.Error!void {
     const e = st.elk[i].?;
+    if (e.opts.hierarchy_handling == .separate_children and st.container_algo[i] != null) try clearContainerAlgorithm(st, i);
     e.opts.hierarchy_handling = .include_children;
     if (anc == null or i != anc.?) {
-        if (st.parent[i]) |p| setIncludeChildren(st, p, anc);
+        if (st.parent[i]) |p| try setIncludeChildren(st, p, anc);
     }
 }
 
@@ -369,6 +471,9 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
         .parent = try a.alloc(?usize, n),
         .children = try a.alloc(std.ArrayList(usize), n),
         .elk = try a.alloc(?*eg.ElkNode, n),
+        .algorithm = cfg.algorithm,
+        .container_algo = try a.alloc(?[]const u8, n),
+        .warnings = .empty,
         .x = try a.alloc(f64, n),
         .y = try a.alloc(f64, n),
         .w = try a.alloc(f64, n),
@@ -386,6 +491,7 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
         st.parent[i] = if (nd.parent_id) |p| st.lookup(p) else null;
         st.children[i] = .empty;
         st.elk[i] = null;
+        st.container_algo[i] = null;
         st.x[i] = 0;
         st.y[i] = 0;
         st.w[i] = 0;
@@ -402,7 +508,7 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
     const layer_bound = try std.fmt.allocPrint(a, "{d}", .{cfg.elk.layering_layer_bound});
     setOpts(&root.opts, &.{
         .{ "elk.hierarchyHandling", "INCLUDE_CHILDREN" },
-        .{ "elk.algorithm", "elk.layered" },
+        .{ "elk.algorithm", cfg.algorithm.id() },
         .{ "elk.layered.nodePlacement.strategy", cfg.elk.node_placement_strategy orelse root_preset.placement },
         .{ "elk.layered.nodePlacement.bk.fixedAlignment", cfg.elk.node_placement_alignment orelse root_preset.alignment },
         .{ "elk.layered.mergeEdges", if (cfg.elk.merge_edges) "true" else "false" },
@@ -418,6 +524,10 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
         .{ "elk.spacing.portsSurrounding", ports_surrounding },
     });
     eg.setOption(&root.opts, "elk.direction", elkDirection(cfg.direction));
+    if (cfg.algorithm == .rectpacking) {
+        setRectpacking(&root.opts);
+        setOpts(&root.opts, &.{ .{ "elk.contentAlignment", "H_CENTER V_TOP" }, .{ "elk.padding", "[top=15,left=15,bottom=15,right=15]" } });
+    }
 
     try addVertices(&st, root, null);
 
@@ -453,8 +563,8 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
         const t = st.lookup(e.end).?;
         if (st.parent[s] != st.parent[t]) {
             const anc = st.commonAncestor(s, t);
-            setIncludeChildren(&st, s, anc);
-            setIncludeChildren(&st, t, anc);
+            try setIncludeChildren(&st, s, anc);
+            try setIncludeChildren(&st, t, anc);
         }
     }
 
@@ -464,7 +574,7 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
     try applyPositions(&st, root, 0, 0);
     try evenGroupFrames(&st, root, null);
 
-    const res: Result = .{ .nodes = try a.alloc(NodeOut, n), .edges = try a.alloc(EdgeOut, edges.len) };
+    const res: Result = .{ .nodes = try a.alloc(NodeOut, n), .edges = try a.alloc(EdgeOut, edges.len), .warnings = st.warnings.items };
     try applyEdgeLayout(&st, cfg, res.edges);
     if (cfg.line_hops != .off) try applyLineHops(&st, res.edges, cfg.line_hops);
     for (0..n) |i| res.nodes[i] = .{ .x = st.x[i], .y = st.y[i], .width = st.w[i], .height = st.h[i] };

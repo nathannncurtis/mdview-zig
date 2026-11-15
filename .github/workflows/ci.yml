@@ -163,6 +163,20 @@ jobs:
             iterations: 150K
           - target: mermaid.elk
             iterations: 200K
+          - target: elk.stress
+            iterations: 100K
+          - target: elk.force
+            iterations: 100K
+          - target: elk.spore
+            iterations: 150K
+          - target: elk.radial
+            iterations: 150K
+          - target: elk.mrtree
+            iterations: 150K
+          - target: elk.box
+            iterations: 150K
+          - target: elk.rectpacking
+            iterations: 150K
           - target: mermaid.render
             iterations: 300K
           - target: flowchart.render
