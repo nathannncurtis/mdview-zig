@@ -76,6 +76,9 @@ pub const Options = struct {
     spacing_comment_node: ?f64 = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
+    underlying_layout_algorithm: ?[]const u8 = null,
+    overlap_removal_max_iterations: ?i32 = null,
+    overlap_removal_run_scanline: ?bool = null,
 
     // MapPropertyHolder.copyProperties onto the layered property bag
     pub fn applyTo(o: *const Options, p: *lg.Props) void {
@@ -161,6 +164,9 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.spacing.portsSurrounding", "spacing_ports_surrounding" },
     .{ "org.eclipse.elk.spacing.commentComment", "spacing_comment_comment" },
     .{ "org.eclipse.elk.spacing.commentNode", "spacing_comment_node" },
+    .{ "org.eclipse.elk.underlyingLayoutAlgorithm", "underlying_layout_algorithm" },
+    .{ "org.eclipse.elk.overlapRemoval.maxIterations", "overlap_removal_max_iterations" },
+    .{ "org.eclipse.elk.overlapRemoval.runScanline", "overlap_removal_run_scanline" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.
