@@ -829,10 +829,10 @@ fn clockNs() i64 {
 }
 
 fn loadDiagram(e: *Entry) !void {
-    probe_waits.clearRetainingCapacity();
-    defer if (probe_waits.items.len > 0) {
-        e.mm_wait = gpa.dupe(u8, probe_waits.items) catch null;
-    };
+    defer {
+        if (probe_waits.items.len > 0) e.mm_wait = gpa.dupe(u8, probe_waits.items) catch null;
+        probe_waits.clearAndFree(gpa);
+    }
     const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText }, .clock = clockNs, .image_probe = imageProbe });
     switch (r) {
         .svg => |i| {
@@ -1381,7 +1381,7 @@ test "a diagram drawn before its image loaded is laid out again with the real si
     wait.* = .{ .key = try gpa.dupe(u8, "wait.png"), .started = now() };
     wait.state.store(.loading, .release);
     try entries.put(gpa, wait.key, wait);
-    const src = "flowchart TD\n  A@{ img: \"wait.png\", label: \"x\", w: 80, h: 80 }\n";
+    const src = "flowchart TD\n  A@{ img: \"wait.png\", label: \"x\" }\n";
     const first = (try waitDiagram(src)).picture;
     wait.size = .{ .w = 60, .h = 30 };
     wait.state.store(.ready, .release);
