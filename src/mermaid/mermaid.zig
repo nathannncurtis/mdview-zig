@@ -441,9 +441,9 @@ test "parse errors, unknown types and unsupported types" {
     const unknown = try render(std.testing.allocator, "foo", .{});
     defer free(std.testing.allocator, unknown);
     try std.testing.expectEqualStrings("No diagram type detected matching given configuration for text: foo", unknown.err);
-    const seq = try render(std.testing.allocator, "sequenceDiagram\nA->>B: hi", .{});
-    defer free(std.testing.allocator, seq);
-    try std.testing.expectEqualStrings("sequence", seq.unsupported);
+    const gantt = try render(std.testing.allocator, "gantt\ntitle t", .{});
+    defer free(std.testing.allocator, gantt);
+    try std.testing.expectEqualStrings("gantt", gantt.unsupported);
     const dashes = try render(std.testing.allocator, "---\nfoo", .{});
     defer free(std.testing.allocator, dashes);
     try std.testing.expectEqualStrings(errors.dashes_message, dashes.err);
@@ -561,4 +561,28 @@ test "a sequence diagram renders through mermaid.render" {
     const bad = try render(std.testing.allocator, "sequenceDiagram\n    Alice->>", .{});
     defer free(std.testing.allocator, bad);
     try std.testing.expect(bad == .err);
+}
+
+fn rejectBad(_: ?*anyopaque, a: Allocator, tex: []const u8) Allocator.Error!?[]const u8 {
+    if (std.mem.indexOf(u8, tex, "bad") == null) return null;
+    return try std.fmt.allocPrint(a, "Rejected: {s}", .{tex});
+}
+
+test "a formula the math parser rejects fails the whole sequence diagram" {
+    const m: text.Measurer = .{ .measure_fn = text.stub.measure_fn, .math_error_fn = rejectBad };
+    const sources = [_][]const u8{
+        "sequenceDiagram\n    A->>B: ok $$x$$ then $$bad1$$\n    B->>A: $$bad2$$",
+        "sequenceDiagram\n    participant A as $$bad1$$\n    A->>B: hi",
+        "sequenceDiagram\n    A->>B: hi\n    Note over A: $$bad1$$",
+        "sequenceDiagram\n    loop $$bad1$$\n    A->>B: hi\n    end",
+    };
+    for (sources) |src| {
+        const r = try render(std.testing.allocator, src, .{ .measurer = m });
+        defer free(std.testing.allocator, r);
+        try std.testing.expect(r == .err);
+        try std.testing.expectEqualStrings("Rejected: bad1", r.err);
+    }
+    const fine = try render(std.testing.allocator, "sequenceDiagram\n    A->>B: $$x^2$$", .{ .measurer = m });
+    defer free(std.testing.allocator, fine);
+    try std.testing.expect(fine == .svg);
 }

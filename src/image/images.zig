@@ -8,6 +8,7 @@ const md = @import("../markdown/markdown.zig");
 const font = @import("font");
 const mermaid = @import("mermaid");
 const math_render = @import("../math/render.zig");
+const math_check = @import("../math/check.zig");
 const view = mermaid.view;
 const probe_adapter = @import("mermaid_probe.zig");
 
@@ -802,6 +803,10 @@ fn measureText(_: ?*anyopaque, text: []const u8, f: mermaid.text.Font) mermaid.t
     return .{ .w = @floatCast(m.w), .h = @floatCast(m.h) };
 }
 
+fn mathErrorMessage(_: ?*anyopaque, a: std.mem.Allocator, tex: []const u8) std.mem.Allocator.Error!?[]const u8 {
+    return math_check.errorMessage(a, tex);
+}
+
 /// A label with `$$..$$` math as Mermaid measures it: the lines stacked, each line its text and formulas side by side.
 fn measureMathLabel(_: ?*anyopaque, text: []const u8, in_diagram: bool) mermaid.text.Size {
     const family: []const u8 = if (in_diagram) mermaid.text.default_family else "serif";
@@ -894,7 +899,7 @@ fn loadDiagram(e: *Entry) !void {
         if (probe_waits.items.len > 0) e.mm_wait = gpa.dupe(u8, probe_waits.items) catch null;
         probe_waits.clearAndFree(gpa);
     }
-    const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText, .math_fn = measureMathLabel }, .clock = clockNs, .image_probe = imageProbe });
+    const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText, .math_fn = measureMathLabel, .math_error_fn = mathErrorMessage }, .clock = clockNs, .image_probe = imageProbe });
     if (probe_oom) {
         mermaid.free(gpa, r);
         return error.OutOfMemory;

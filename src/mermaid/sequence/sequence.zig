@@ -67,6 +67,7 @@ pub fn render(a: Allocator, source: []const u8, o: Options) Allocator.Error!Resu
     var r: render_mod.Renderer = .{ .a = a, .d = d, .conf = conf, .db = db, .m = o.measurer, .theme = o.theme, .id = o.id, .root = root, .deadline = o.deadline };
     r.draw() catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
+        error.MathError => return .{ .err = r.math_err },
         error.Timeout => return .{ .err = "Diagram took too long to render" },
         error.BadModel => return .{ .err = "Cannot read properties of undefined (reading 'x')" },
     };

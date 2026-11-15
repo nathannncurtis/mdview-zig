@@ -20,9 +20,16 @@ pub const Measurer = struct {
     /// Size of the KaTeX output for a label that holds `$$..$$`, in pixels; `in_diagram` is the size inside the SVG
     /// (Trebuchet), otherwise the size on a bare page (the browser default serif).
     math_fn: ?*const fn (ctx: ?*anyopaque, text: []const u8, in_diagram: bool) Size = null,
+    /// The message KaTeX would fail with for one formula (the text between `$$` marks), allocated from `a`; null when it is valid.
+    math_error_fn: ?*const fn (ctx: ?*anyopaque, a: Allocator, tex: []const u8) Allocator.Error!?[]const u8 = null,
 
     pub fn measure(m: Measurer, text: []const u8, font: Font) Size {
         return m.measure_fn(m.ctx, text, font);
+    }
+
+    pub fn mathError(m: Measurer, a: Allocator, tex: []const u8) Allocator.Error!?[]const u8 {
+        const f = m.math_error_fn orelse return null;
+        return f(m.ctx, a, tex);
     }
 
     pub fn measureMath(m: Measurer, text: []const u8, in_diagram: bool) Size {

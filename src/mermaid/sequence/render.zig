@@ -180,6 +180,7 @@ pub const Renderer = struct {
     life_lines: std.AutoHashMapUnmanaged(usize, *Node) = .empty,
     cur_line_y: f64 = 0,
     clock: i64 = 0,
+    math_err: []const u8 = "",
     actor_keys: []const []const u8 = &.{},
     katex_actors: std.ArrayList(KatexActor) = .empty,
     deadline: ?*env.Deadline = null,
@@ -267,15 +268,30 @@ pub const Renderer = struct {
     }
 
     /// calculateMathMLDimensions: the KaTeX output measured on a bare page, whole pixels.
-    fn mathCalc(r: *const Renderer, text: []const u8) Dims {
+    fn mathCalc(r: *Renderer, text: []const u8) !Dims {
+        try r.checkMath(text);
         const sz = r.m.measureMath(text, false);
         const w = @round(@as(f64, sz.w));
         const h = @round(@as(f64, sz.h));
         return .{ .w = w, .h = h, .lh = h };
     }
 
+    /// KaTeX throws on a formula it cannot parse, and Mermaid's render fails with that message for the whole diagram.
+    fn checkMath(r: *Renderer, text: []const u8) !void {
+        if (r.m.math_error_fn == null) return;
+        var i: usize = 0;
+        while (nextMath(text, i)) |m| {
+            if (try r.m.mathError(r.a, text[m.s + 2 .. m.e - 2])) |msg| {
+                r.math_err = msg;
+                return error.MathError;
+            }
+            i = m.e;
+        }
+    }
+
     /// The same output laid out inside the SVG, as drawKatex measures it.
-    fn mathRect(r: *const Renderer, text: []const u8) env.Dim {
+    fn mathRect(r: *Renderer, text: []const u8) !env.Dim {
+        try r.checkMath(text);
         const sz = r.m.measureMath(text, true);
         return .{ .w = sz.w, .h = sz.h };
     }
@@ -306,7 +322,7 @@ pub const Renderer = struct {
     /// drawKatex; returns the foreignObject's height, which is what getBBox reports for it.
     fn drawKatex(r: *Renderer, elem: *Node, t: *const TextObj, model: KModel) !f64 {
         const fo = try r.d.append(elem, "foreignObject");
-        const dim = r.mathRect(t.text);
+        const dim = try r.mathRect(t.text);
         const div = try r.d.append(fo, "div");
         try r.d.attr(div, "style", "width: fit-content;");
         try r.d.attr(div, "xmlns", "http://www.w3.org/1999/xhtml");
@@ -340,7 +356,7 @@ pub const Renderer = struct {
         for (r.katex_actors.items) |k| {
             const t = r.clock - k.start;
             if (t < katex_shell_ticks) continue;
-            const dim = r.mathCalc(k.content);
+            const dim = try r.mathCalc(k.content);
             const complete = t >= katex_done_ticks;
             const s = try r.d.append(k.g, "switch");
             const fo = try r.d.append(s, "foreignObject");
@@ -702,7 +718,7 @@ pub const Renderer = struct {
         r.bumpVerticalPos(10);
         const lines: f64 = @floatFromInt((try splitBreaks(r.a, mm.message)).len);
         const katex = hasKatex(mm.message);
-        const td = if (katex) r.mathCalc(mm.message) else try r.textDims(mm.message, r.messageFont());
+        const td = if (katex) try r.mathCalc(mm.message) else try r.textDims(mm.message, r.messageFont());
         if (!katex) {
             const line_height = td.h / lines;
             mm.height += line_height;
@@ -972,7 +988,7 @@ pub const Renderer = struct {
         while (it.next()) |kv| {
             const actor = kv.value_ptr.*;
             if (actor.wrap) actor.description = try r.wrapLabel(actor.description, r.conf.width - 2 * r.conf.wrap_padding, r.actorFont());
-            const dims = if (hasKatex(actor.description)) r.mathCalc(actor.description) else try r.textDims(actor.description, r.actorFont());
+            const dims = if (hasKatex(actor.description)) try r.mathCalc(actor.description) else try r.textDims(actor.description, r.actorFont());
             actor.width = if (actor.wrap) r.conf.width else @max(r.conf.width, dims.w + 2 * r.conf.wrap_padding);
             if (r.neo()) {
                 actor.actor_text_height = dims.h;
@@ -1028,7 +1044,7 @@ pub const Renderer = struct {
             const is_message = !is_note;
             const font = if (is_note) r.noteFont() else r.messageFont();
             const wrapped = if (msg.wrap) try r.wrapLabel(msg.message, r.conf.width - 2 * r.conf.wrap_padding, font) else msg.message;
-            const dims = if (hasKatex(wrapped)) r.mathCalc(msg.message) else try r.textDims(wrapped, font);
+            const dims = if (hasKatex(wrapped)) try r.mathCalc(msg.message) else try r.textDims(wrapped, font);
             const mw = dims.w + 2 * r.conf.wrap_padding;
             const next = actor.next_actor;
             const prev = actor.prev_actor;
@@ -1720,7 +1736,7 @@ pub const Renderer = struct {
         const stopx = to.x;
         const should_wrap = msg.wrap and msg.message.len > 0;
         const nf = r.noteFont();
-        var td = if (hasKatex(msg.message)) r.mathCalc(msg.message) else try r.textDims(if (should_wrap) try r.wrapLabel(msg.message, c.width, nf) else msg.message, nf);
+        var td = if (hasKatex(msg.message)) try r.mathCalc(msg.message) else try r.textDims(if (should_wrap) try r.wrapLabel(msg.message, c.width, nf) else msg.message, nf);
         var nm: NoteModel = .{
             .width = if (should_wrap) c.width else @max(c.width, td.w + 2 * c.note_margin),
             .startx = from.x,
