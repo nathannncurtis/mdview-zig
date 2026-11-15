@@ -152,6 +152,18 @@ pub fn build(b: *std.Build) void {
     const math_layout_tests = b.addTest(.{ .root_module = math_mod });
     test_step.dependOn(&b.addRunArtifact(math_layout_tests).step);
     const flow_grammar = addTools(b, test_step, testdata);
+    mermaid_mod.addImport("flow_grammar", flow_grammar);
+    const compare_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/mermaid_compare.zig"),
+        .target = b.graph.host,
+    });
+    addStubs(b, compare_mod);
+    const flow_render = toolExe(b, "mermaid-flow-render", "tools/check/mermaid_flow_render.zig");
+    flow_render.root_module.addImport("mermaid", mermaid_mod);
+    flow_render.root_module.addImport("mermaid_compare", compare_mod);
+    const flow_render_run = toolStep(b, "mermaid-flow-render", "Flowchart parity against testdata/mermaid: <cases dir> <refs dir> [out dir]", flow_render);
+    flow_render_run.addArgs(&.{ "testdata/mermaid/cases", "testdata/mermaid/refs" });
+    test_step.dependOn(&flow_render_run.step);
 
     if (linux_c) |c| {
         const layout_tests = b.addTest(.{
