@@ -28,8 +28,8 @@ fn isSpace(c: u8) bool {
 }
 
 const c1 = [32]u21{
-    0x20AC, 0x81,   0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D, 0x017D, 0x8F,
-    0x90,   0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D, 0x017E, 0x0178,
+    0x20AC, 0x81,   0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D,   0x017D, 0x8F,
+    0x90,   0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D,   0x017E, 0x0178,
 };
 
 /// Splits HTML into tokens. Character references decode only with a semicolon for names.
@@ -310,6 +310,7 @@ pub const Node = struct {
     attrs: []const Attr = &.{},
     raw_attrs: []const Attr = &.{},
     text: []const u8 = "",
+    text_cap: usize = 0,
     parent: u32 = nil,
     first: u32 = nil,
     last: u32 = nil,
@@ -336,15 +337,15 @@ fn inSet(comptime names: []const []const u8, n: []const u8) bool {
 
 fn isSpecial(n: []const u8) bool {
     return inSet(&.{
-        "address",   "applet", "area",     "article",  "aside",      "base",     "basefont", "bgsound", "blockquote", "body",
-        "br",        "button", "caption",  "center",   "col",        "colgroup", "dd",       "details", "dir",        "div",
-        "dl",        "dt",     "embed",    "fieldset", "figcaption", "figure",   "footer",   "form",    "frame",      "frameset",
-        "h1",        "h2",     "h3",       "h4",       "h5",         "h6",       "head",     "header",  "hgroup",     "hr",
-        "html",      "iframe", "img",      "input",    "keygen",     "li",       "link",     "listing", "main",       "marquee",
-        "menu",      "meta",   "nav",      "noembed",  "noframes",   "noscript", "object",   "ol",      "p",          "param",
-        "plaintext", "pre",    "script",   "search",   "section",    "select",   "source",   "style",   "summary",    "table",
-        "tbody",     "td",     "template", "textarea", "tfoot",      "th",       "thead",    "title",   "tr",         "track",
-        "ul",        "wbr",    "xmp",
+        "address",  "applet",   "area",     "article", "aside",    "base",     "basefont", "bgsound",  "blockquote", "body",
+        "br",       "button",   "caption",  "center",  "col",      "colgroup", "dd",       "details",  "dir",        "div",
+        "dl",       "dt",       "embed",    "fieldset", "figcaption", "figure", "footer",   "form",     "frame",      "frameset",
+        "h1",       "h2",       "h3",       "h4",      "h5",       "h6",       "head",     "header",   "hgroup",     "hr",
+        "html",     "iframe",   "img",      "input",   "keygen",   "li",       "link",     "listing",  "main",       "marquee",
+        "menu",     "meta",     "nav",      "noembed", "noframes", "noscript", "object",   "ol",       "p",          "param",
+        "plaintext", "pre",     "script",   "search",  "section",  "select",   "source",   "style",    "summary",    "table",
+        "tbody",    "td",       "template", "textarea", "tfoot",   "th",       "thead",    "title",    "tr",         "track",
+        "ul",       "wbr",      "xmp",
     }, n);
 }
 
@@ -366,9 +367,9 @@ fn isHeading(n: []const u8) bool {
 
 fn closesP(n: []const u8) bool {
     return inSet(&.{
-        "address",  "article",    "aside",   "blockquote", "center", "details", "dialog", "dir",  "div", "dl",
-        "fieldset", "figcaption", "figure",  "footer",     "header", "hgroup",  "main",   "menu", "nav", "ol",
-        "p",        "search",     "section", "summary",    "ul",
+        "address", "article", "aside",  "blockquote", "center", "details", "dialog", "dir",  "div",    "dl",
+        "fieldset", "figcaption", "figure", "footer", "header", "hgroup",  "main",   "menu", "nav",    "ol",
+        "p",      "search", "section", "summary", "ul",
     }, n);
 }
 
@@ -591,11 +592,17 @@ pub const Builder = struct {
             while (c != nil and c != loc.before) : (c = b.node(c).next) prev = c;
         }
         if (prev != nil and b.node(prev).kind == .text) {
-            const old = b.node(prev).text;
-            const joined = try b.a().alloc(u8, old.len + s.len);
-            @memcpy(joined[0..old.len], old);
-            @memcpy(joined[old.len..], s);
-            b.node(prev).text = joined;
+            const t = b.node(prev);
+            const need = t.text.len + s.len;
+            if (need > t.text_cap) {
+                const grown = try b.a().alloc(u8, need * 2);
+                @memcpy(grown[0..t.text.len], t.text);
+                t.text = grown[0..t.text.len];
+                t.text_cap = grown.len;
+            }
+            const buf = @constCast(t.text.ptr)[0..need];
+            @memcpy(buf[t.text.len..], s);
+            t.text = buf;
         } else {
             try b.nodes.append(b.a(), .{ .kind = .text, .text = try b.a().dupe(u8, s) });
             b.link(loc, @intCast(b.nodes.items.len - 1));

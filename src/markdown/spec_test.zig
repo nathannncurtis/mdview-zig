@@ -28,7 +28,7 @@ fn escape(out: *std.ArrayList(u8), a: Allocator, s: []const u8, breaks: bool) !v
 
 const Tag = enum { strong, em, del, code, a, img };
 
-const Range = struct { start: u32, len: u32, tag: Tag, target: []const u8 = "", title: []const u8 = "" };
+const Range = struct { start: u32, len: u32, tag: Tag, target: []const u8 = "", title: []const u8 = "", alt: []const u8 = "" };
 
 fn rangeLess(_: void, x: Range, y: Range) bool {
     if (x.start != y.start) return x.start < y.start;
@@ -81,7 +81,7 @@ fn renderRanges(out: *std.ArrayList(u8), a: Allocator, text: []const u8, ranges:
                 try out.appendSlice(a, "<img src=\"");
                 try escape(out, a, try links.encodeUrl(a, r.target), false);
                 try out.appendSlice(a, "\" alt=\"");
-                try escape(out, a, inner, false);
+                try escape(out, a, r.alt, false);
                 try out.append(a, '"');
                 try titleAttr(out, a, r.title);
                 try out.appendSlice(a, " />");
@@ -100,7 +100,7 @@ fn inlineHtml(out: *std.ArrayList(u8), a: Allocator, c: md.Inline) !void {
     for (c.strike) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .del });
     for (c.code) |x| try ranges.append(a, .{ .start = x[0], .len = x[1], .tag = .code });
     for (c.links) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .a, .target = l.target, .title = l.title });
-    for (c.images) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .img, .target = l.target, .title = l.title });
+    for (c.images) |l| try ranges.append(a, .{ .start = l.start, .len = l.len, .tag = .img, .target = l.target, .title = l.title, .alt = l.alt });
     std.mem.sort(Range, ranges.items, {}, rangeLess);
     try renderRanges(out, a, c.text, ranges.items, 0, @intCast(c.text.len));
 }
@@ -133,6 +133,7 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
         var want_ordered: std.ArrayList(md.Frame) = .empty;
         for (b.frames) |f| {
             switch (f.kind) {
+                .details, .dd => continue,
                 .quote => try want.append(a, .{ .kind = .quote, .id = f.id }),
                 .list => {
                     try want.append(a, .{ .kind = .list, .id = f.group });
@@ -187,7 +188,7 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
                 if (!tight) try out.appendSlice(a, "</p>\n");
             },
             .h1, .h2, .h3, .h4, .h5, .h6 => {
-                const n = @backingInt(b.kind) - @backingInt(md.BlockKind.h1) + 1;
+                const n = @intFromEnum(b.kind) - @intFromEnum(md.BlockKind.h1) + 1;
                 try cr(&out, a);
                 try out.print(a, "<h{d}>", .{n});
                 try inlineHtml(&out, a, b.content);
@@ -297,7 +298,7 @@ test "spec examples for the block sections" {
     try testing.expect(pass >= 227 and loose_pass >= 239);
 }
 
-const link_floor = 144;
+const link_floor = 166;
 
 // Examples where GitHub's renderer (checked with its markdown API) differs from the spec text:
 // it removes raw HTML it does not allow, and the autolink extension links bare URLs and emails.

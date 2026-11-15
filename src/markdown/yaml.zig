@@ -304,7 +304,7 @@ const Pairs = struct {
 };
 
 fn identity(a: Allocator, o: Obj) Allocator.Error![]const u8 {
-    const tag: u8 = @backingInt(std.meta.activeTag(o));
+    const tag: u8 = @intFromEnum(std.meta.activeTag(o));
     const body = switch (o) {
         .null_ => "",
         .boolean => |b| if (b) "t" else "f",

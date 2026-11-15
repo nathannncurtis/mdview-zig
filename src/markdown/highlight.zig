@@ -29,37 +29,9 @@ pub const Kind = enum {
 pub const Token = struct { start: u32, end: u32, kind: Kind };
 
 pub const Lang = enum {
-    c,
-    cpp,
-    csharp,
-    go,
-    rust,
-    zig,
-    java,
-    kotlin,
-    swift,
-    python,
-    ruby,
-    php,
-    javascript,
-    typescript,
-    json,
-    yaml,
-    toml,
-    ini,
-    bash,
-    powershell,
-    batch,
-    sql,
-    html,
-    css,
-    scss,
-    markdown,
-    diff,
-    dockerfile,
-    makefile,
-    lua,
-    dart,
+    c, cpp, csharp, go, rust, zig, java, kotlin, swift, python, ruby, php,
+    javascript, typescript, json, yaml, toml, ini, bash, powershell, batch,
+    sql, html, css, scss, markdown, diff, dockerfile, makefile, lua, dart,
 };
 
 pub const Style = struct { fg: ?u24 = null, bg: ?u24 = null, bold: bool = false, underline: bool = false };
@@ -1795,16 +1767,16 @@ fn expectTok(lang: []const u8, code: []const u8, text: []const u8, kind: Kind) !
 
 test "aliases resolve case-insensitively" {
     const cases = [_]struct { []const u8, Lang }{
-        .{ "js", .javascript },  .{ "JavaScript", .javascript }, .{ "jsx", .javascript },
-        .{ "ts", .typescript },  .{ "tsx", .typescript },        .{ "TypeScript", .typescript },
-        .{ "py", .python },      .{ "python", .python },         .{ "sh", .bash },
-        .{ "Bash", .bash },      .{ "shell", .bash },            .{ "zsh", .bash },
-        .{ "console", .bash },   .{ "yml", .yaml },              .{ "c++", .cpp },
-        .{ "cpp", .cpp },        .{ "cs", .csharp },             .{ "csharp", .csharp },
-        .{ "rs", .rust },        .{ "golang", .go },             .{ "go", .go },
-        .{ "ps1", .powershell }, .{ "bat", .batch },             .{ "md", .markdown },
-        .{ "xml", .html },       .{ "svg", .html },              .{ "kt", .kotlin },
-        .{ "rb", .ruby },        .{ "make", .makefile },         .{ "js {highlight}", .javascript },
+        .{ "js", .javascript },   .{ "JavaScript", .javascript }, .{ "jsx", .javascript },
+        .{ "ts", .typescript },   .{ "tsx", .typescript },        .{ "TypeScript", .typescript },
+        .{ "py", .python },       .{ "python", .python },         .{ "sh", .bash },
+        .{ "Bash", .bash },       .{ "shell", .bash },            .{ "zsh", .bash },
+        .{ "console", .bash },    .{ "yml", .yaml },              .{ "c++", .cpp },
+        .{ "cpp", .cpp },         .{ "cs", .csharp },             .{ "csharp", .csharp },
+        .{ "rs", .rust },         .{ "golang", .go },             .{ "go", .go },
+        .{ "ps1", .powershell },  .{ "bat", .batch },             .{ "md", .markdown },
+        .{ "xml", .html },        .{ "svg", .html },              .{ "kt", .kotlin },
+        .{ "rb", .ruby },         .{ "make", .makefile },         .{ "js {highlight}", .javascript },
     };
     for (cases) |cs| try testing.expectEqual(cs[1], resolve(cs[0]).?);
 }

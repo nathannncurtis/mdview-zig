@@ -3,11 +3,12 @@ const app = @import("../../main.zig");
 const md = app.md;
 const hl = @import("../../markdown/highlight.zig");
 const alerts = @import("../../markdown/alerts.zig");
+const html = @import("html.zig");
 const windows = std.os.windows;
 const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
 // Types
-const HWND = windows.HWND;
+pub const HWND = windows.HWND;
 const HINSTANCE = windows.HINSTANCE;
 const LPARAM = windows.LPARAM;
 const WPARAM = usize;
@@ -15,8 +16,8 @@ const LRESULT = isize;
 const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
 const POINT = extern struct { x: i32, y: i32 };
 const BOOL = i32;
-const HRESULT = i32;
-const GUID = windows.GUID;
+pub const HRESULT = i32;
+pub const GUID = windows.GUID;
 
 // Constants
 const WM_DESTROY: u32 = 0x0002;
@@ -42,7 +43,7 @@ const VK_MENU: i32 = 0x12;
 const VK_CONTROL: i32 = 0x11;
 const CS_HREDRAW: u32 = 0x0002;
 const CS_VREDRAW: u32 = 0x0001;
-const WS_POPUP: u32 = 0x80000000;
+pub const WS_POPUP: u32 = 0x80000000;
 const WS_THICKFRAME: u32 = 0x00040000;
 const WS_SYSMENU: u32 = 0x00080000;
 const WS_MINIMIZEBOX: u32 = 0x00020000;
@@ -52,24 +53,10 @@ const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 const SW_SHOW: i32 = 5;
 
 const STARTUPINFOW = extern struct {
-    cb: u32,
-    reserved: ?[*:0]u16,
-    desktop: ?[*:0]u16,
-    title: ?[*:0]u16,
-    x: u32,
-    y: u32,
-    x_size: u32,
-    y_size: u32,
-    x_chars: u32,
-    y_chars: u32,
-    fill: u32,
-    flags: u32,
-    show_window: u16,
-    reserved2: u16,
-    reserved3: ?*u8,
-    std_input: ?*anyopaque,
-    std_output: ?*anyopaque,
-    std_error: ?*anyopaque,
+    cb: u32, reserved: ?[*:0]u16, desktop: ?[*:0]u16, title: ?[*:0]u16,
+    x: u32, y: u32, x_size: u32, y_size: u32, x_chars: u32, y_chars: u32, fill: u32,
+    flags: u32, show_window: u16, reserved2: u16, reserved3: ?*u8,
+    std_input: ?*anyopaque, std_output: ?*anyopaque, std_error: ?*anyopaque,
 };
 extern "kernel32" fn GetStartupInfoW(info: *STARTUPINFOW) callconv(.c) void;
 
@@ -98,27 +85,24 @@ const KEY_WRITE: u32 = 0x20006;
 const REG_SZ: u32 = 1;
 const TIMER_FILE_WATCH: usize = 1;
 const TIMER_SCROLL_SAVE: usize = 2;
+const TIMER_IMAGES: usize = 3;
+const WM_DPICHANGED: u32 = 0x02E0;
+const SWP_NOZORDER: u32 = 0x0004;
+const SWP_NOACTIVATE: u32 = 0x0010;
 
 // Structs
 const MSG = extern struct { hwnd: ?HWND, message: u32, wParam: WPARAM, lParam: LPARAM, time: u32, pt: POINT };
 const WNDCLASSEXW = extern struct {
-    cbSize: u32 = @sizeOf(WNDCLASSEXW),
-    style: u32 = 0,
+    cbSize: u32 = @sizeOf(WNDCLASSEXW), style: u32 = 0,
     lpfnWndProc: *const fn (HWND, u32, WPARAM, LPARAM) callconv(.c) LRESULT,
-    cbClsExtra: i32 = 0,
-    cbWndExtra: i32 = 0,
-    hInstance: ?HINSTANCE = null,
-    hIcon: ?*anyopaque = null,
-    hCursor: ?*anyopaque = null,
-    hbrBackground: ?*anyopaque = null,
-    lpszMenuName: ?[*:0]const u16 = null,
-    lpszClassName: [*:0]const u16,
-    hIconSm: ?*anyopaque = null,
+    cbClsExtra: i32 = 0, cbWndExtra: i32 = 0, hInstance: ?HINSTANCE = null,
+    hIcon: ?*anyopaque = null, hCursor: ?*anyopaque = null, hbrBackground: ?*anyopaque = null,
+    lpszMenuName: ?[*:0]const u16 = null, lpszClassName: [*:0]const u16, hIconSm: ?*anyopaque = null,
 };
 const PAINTSTRUCT = extern struct { hdc: ?*anyopaque, fErase: BOOL, rcPaint: RECT, fRestore: BOOL, fIncUpdate: BOOL, rgbReserved: [32]u8 };
 
 // Win32 externs
-extern "user32" fn CreateWindowExW(dwExStyle: u32, lpClassName: [*:0]const u16, lpWindowName: [*:0]const u16, dwStyle: u32, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWndParent: ?HWND, hMenu: ?*anyopaque, hInstance: ?HINSTANCE, lpParam: ?*anyopaque) callconv(.c) ?HWND;
+pub extern "user32" fn CreateWindowExW(dwExStyle: u32, lpClassName: [*:0]const u16, lpWindowName: [*:0]const u16, dwStyle: u32, X: i32, Y: i32, nWidth: i32, nHeight: i32, hWndParent: ?HWND, hMenu: ?*anyopaque, hInstance: ?HINSTANCE, lpParam: ?*anyopaque) callconv(.c) ?HWND;
 extern "user32" fn DefWindowProcW(hWnd: HWND, Msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LRESULT;
 extern "user32" fn GetMessageW(lpMsg: *MSG, hWnd: ?HWND, wMsgFilterMin: u32, wMsgFilterMax: u32) callconv(.c) BOOL;
 extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(.c) BOOL;
@@ -136,7 +120,11 @@ extern "user32" fn ScreenToClient(hWnd: HWND, lpPoint: *POINT) callconv(.c) BOOL
 extern "user32" fn BeginPaint(hWnd: HWND, lpPaint: *PAINTSTRUCT) callconv(.c) ?*anyopaque;
 extern "user32" fn EndPaint(hWnd: HWND, lpPaint: *const PAINTSTRUCT) callconv(.c) BOOL;
 extern "user32" fn SetTimer(hWnd: ?HWND, nIDEvent: usize, uElapse: u32, lpTimerFunc: ?*anyopaque) callconv(.c) usize;
-extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: u32) callconv(.c) HRESULT;
+extern "user32" fn KillTimer(hWnd: ?HWND, uIDEvent: usize) callconv(.c) BOOL;
+extern "user32" fn SetWindowPos(hWnd: HWND, hWndInsertAfter: ?HWND, X: i32, Y: i32, cx: i32, cy: i32, uFlags: u32) callconv(.c) BOOL;
+extern "kernel32" fn GetProcAddress(hModule: ?*anyopaque, name: [*:0]const u8) callconv(.c) ?*const anyopaque;
+extern "kernel32" fn GetModuleHandleW(name: ?[*:0]const u16) callconv(.c) ?*anyopaque;
+pub extern "ole32" fn CoInitializeEx(pvReserved: ?*anyopaque, dwCoInit: u32) callconv(.c) HRESULT;
 extern "shell32" fn DragQueryFileW(hDrop: *anyopaque, iFile: u32, lpszFile: ?[*]u16, cch: u32) callconv(.c) u32;
 extern "shell32" fn ShellExecuteW(hwnd: ?HWND, lpOperation: ?[*:0]const u16, lpFile: [*:0]const u16, lpParameters: ?[*:0]const u16, lpDirectory: ?[*:0]const u16, nShowCmd: i32) callconv(.c) ?*anyopaque;
 extern "shell32" fn DragFinish(hDrop: *anyopaque) callconv(.c) void;
@@ -149,70 +137,37 @@ extern "kernel32" fn GetModuleFileNameW(hModule: ?*anyopaque, lpFilename: [*]u16
 const D2D1_COLOR_F = extern struct { r: f32, g: f32, b: f32, a: f32 };
 const D2D1_POINT_2F = extern struct { x: f32, y: f32 };
 const D2D1_SIZE_U = extern struct { width: u32, height: u32 };
-const D2D1_RECT_F = extern struct { left: f32, top: f32, right: f32, bottom: f32 };
+pub const D2D1_RECT_F = extern struct { left: f32, top: f32, right: f32, bottom: f32 };
 const D2D1_ROUNDED_RECT = extern struct { rect: D2D1_RECT_F, radiusX: f32, radiusY: f32 };
 const D2D1_MATRIX_3X2_F = extern struct { m: [6]f32 };
+const D2D1_BITMAP_PROPERTIES = extern struct { pixel_format: extern struct { format: u32, alpha_mode: u32 }, dpi_x: f32, dpi_y: f32 };
 const D2D1_RENDER_TARGET_PROPERTIES = extern struct {
-    type: u32 = 0,
-    pixel_format: extern struct { format: u32 = 0, alpha_mode: u32 = 0 } = .{},
-    dpi_x: f32 = 0,
-    dpi_y: f32 = 0,
-    usage: u32 = 0,
-    min_level: u32 = 0,
+    type: u32 = 0, pixel_format: extern struct { format: u32 = 0, alpha_mode: u32 = 0 } = .{},
+    dpi_x: f32 = 0, dpi_y: f32 = 0, usage: u32 = 0, min_level: u32 = 0,
 };
 const D2D1_HWND_RENDER_TARGET_PROPERTIES = extern struct { hwnd: HWND, pixel_size: D2D1_SIZE_U, present_options: u32 = 0 };
-const DWRITE_TEXT_RANGE = extern struct { startPosition: u32, length: u32 };
+pub const DWRITE_TEXT_RANGE = extern struct { startPosition: u32, length: u32 };
 const DWRITE_HIT_TEST_METRICS = extern struct {
-    textPosition: u32,
-    length: u32,
-    left: f32,
-    top: f32,
-    width: f32,
-    height: f32,
-    bidiLevel: u32,
-    isText: BOOL,
-    isTrimmed: BOOL,
+    textPosition: u32, length: u32, left: f32, top: f32, width: f32, height: f32, bidiLevel: u32, isText: BOOL, isTrimmed: BOOL,
 };
 const DWRITE_GLYPH_RUN = extern struct {
-    fontFace: ?*anyopaque,
-    fontEmSize: f32,
-    glyphCount: u32,
-    glyphIndices: ?*const u16,
-    glyphAdvances: ?*const f32,
-    glyphOffsets: ?*const anyopaque,
-    isSideways: BOOL,
-    bidiLevel: u32,
+    fontFace: ?*anyopaque, fontEmSize: f32, glyphCount: u32, glyphIndices: ?*const u16,
+    glyphAdvances: ?*const f32, glyphOffsets: ?*const anyopaque, isSideways: BOOL, bidiLevel: u32,
 };
 const DWRITE_COLOR_F = extern struct { r: f32, g: f32, b: f32, a: f32 };
 const DWRITE_COLOR_GLYPH_RUN = extern struct {
-    glyphRun: DWRITE_GLYPH_RUN,
-    glyphRunDescription: ?*const anyopaque,
-    baselineOriginX: f32,
-    baselineOriginY: f32,
-    runColor: DWRITE_COLOR_F,
-    paletteIndex: u16,
+    glyphRun: DWRITE_GLYPH_RUN, glyphRunDescription: ?*const anyopaque, baselineOriginX: f32, baselineOriginY: f32,
+    runColor: DWRITE_COLOR_F, paletteIndex: u16,
 };
 const DWRITE_UNDERLINE = extern struct {
-    width: f32,
-    thickness: f32,
-    offset: f32,
-    runHeight: f32,
-    readingDirection: u32,
-    flowDirection: u32,
-    localeName: ?*const u16,
-    measuringMode: u32,
+    width: f32, thickness: f32, offset: f32, runHeight: f32, readingDirection: u32, flowDirection: u32,
+    localeName: ?*const u16, measuringMode: u32,
 };
 const DWRITE_MATRIX = extern struct { m11: f32, m12: f32, m21: f32, m22: f32, dx: f32, dy: f32 };
-const DWRITE_TEXT_METRICS = extern struct {
-    left: f32,
-    top: f32,
-    width: f32,
-    widthIncludingTrailingWhitespace: f32,
-    height: f32,
-    layoutWidth: f32,
-    layoutHeight: f32,
-    maxBidiReorderingDepth: u32,
-    lineCount: u32,
+pub const DWRITE_LINE_METRICS = extern struct { length: u32, trailing: u32, newline: u32, height: f32, baseline: f32, trimmed: BOOL };
+pub const DWRITE_TEXT_METRICS = extern struct {
+    left: f32, top: f32, width: f32, widthIncludingTrailingWhitespace: f32,
+    height: f32, layoutWidth: f32, layoutHeight: f32, maxBidiReorderingDepth: u32, lineCount: u32,
 };
 
 extern "d2d1" fn D2D1CreateFactory(factoryType: u32, riid: *const GUID, pFactoryOptions: ?*const anyopaque, ppIFactory: *?*anyopaque) callconv(.c) HRESULT;
@@ -220,21 +175,19 @@ extern "dwrite" fn DWriteCreateFactory(factoryType: u32, iid: *const GUID, facto
 
 // COM vtables
 const ID2D1Factory_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.c) u32,
-    _pad3_9: [7]*const anyopaque,
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32, _pad3_9: [7]*const anyopaque,
     CreatePathGeometry: *const fn (*anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 10
     _pad11_13: [3]*const anyopaque,
     CreateHwndRenderTarget: *const fn (*anyopaque, *const D2D1_RENDER_TARGET_PROPERTIES, *const D2D1_HWND_RENDER_TARGET_PROPERTIES, *?*anyopaque) callconv(.c) HRESULT,
 };
 
-const ID2D1RT_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+pub const ID2D1RT_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     GetFactory: *const anyopaque,
-    _pad4_7: [4]*const anyopaque,
+    CreateBitmap: *const fn (*anyopaque, D2D1_SIZE_U, ?*const anyopaque, u32, *const D2D1_BITMAP_PROPERTIES, *?*anyopaque) callconv(.c) HRESULT, // 4
+    _pad5_7: [3]*const anyopaque,
     CreateSolidColorBrush: *const fn (*anyopaque, *const D2D1_COLOR_F, ?*const anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 8
     _pad9_14: [6]*const anyopaque,
     DrawLine: *const fn (*anyopaque, D2D1_POINT_2F, D2D1_POINT_2F, *anyopaque, f32, ?*anyopaque) callconv(.c) void, // 15
@@ -244,7 +197,9 @@ const ID2D1RT_VTable = extern struct {
     FillRoundedRectangle: *const fn (*anyopaque, *const D2D1_ROUNDED_RECT, *anyopaque) callconv(.c) void, // 19
     _pad20_22: [3]*const anyopaque,
     FillGeometry: *const fn (*anyopaque, *anyopaque, *anyopaque, ?*anyopaque) callconv(.c) void, // 23
-    _pad24_27: [4]*const anyopaque,
+    _pad24_25: [2]*const anyopaque,
+    DrawBitmap: *const fn (*anyopaque, *anyopaque, *const D2D1_RECT_F, f32, u32, ?*const D2D1_RECT_F) callconv(.c) void, // 26
+    _pad27: *const anyopaque,
     DrawTextLayout: *const fn (*anyopaque, D2D1_POINT_2F, *anyopaque, *anyopaque, u32) callconv(.c) void, // 28
     DrawGlyphRun: *const fn (*anyopaque, D2D1_POINT_2F, *const DWRITE_GLYPH_RUN, *anyopaque, u32) callconv(.c) void, // 29
     SetTransform: *const fn (*anyopaque, *const D2D1_MATRIX_3X2_F) callconv(.c) void, // 30
@@ -257,9 +212,8 @@ const ID2D1RT_VTable = extern struct {
     Resize: *const fn (*anyopaque, *const D2D1_SIZE_U) callconv(.c) HRESULT, // 58
 };
 
-const IDWriteFactory_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+pub const IDWriteFactory_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_14: [12]*const anyopaque,
     CreateTextFormat: *const fn (*anyopaque, [*:0]const u16, ?*anyopaque, u32, u32, u32, f32, [*:0]const u16, *?*anyopaque) callconv(.c) HRESULT, // 15
@@ -267,19 +221,17 @@ const IDWriteFactory_VTable = extern struct {
     CreateTextLayout: *const fn (*anyopaque, [*]const u16, u32, *anyopaque, f32, f32, *?*anyopaque) callconv(.c) HRESULT, // 18
 };
 
-const IID_IDWriteTextLayout1 = GUID{ .Data1 = 0x9064d822, .Data2 = 0x80a7, .Data3 = 0x465c, .Data4 = .{ 0xa9, 0x86, 0xdf, 0x65, 0xf7, 0x8b, 0x8f, 0xeb } };
+pub const IID_IDWriteTextLayout1 = GUID{ .Data1 = 0x9064d822, .Data2 = 0x80a7, .Data3 = 0x465c, .Data4 = .{ 0xa9, 0x86, 0xdf, 0x65, 0xf7, 0x8b, 0x8f, 0xeb } };
 
-const IDWriteTextLayout1_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+pub const IDWriteTextLayout1_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_68: [66]*const anyopaque,
     SetCharacterSpacing: *const fn (*anyopaque, f32, f32, f32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 69
 };
 
-const IDWriteTextLayout_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+pub const IDWriteTextLayout_VTable = extern struct {
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     SetTextAlignment: *const fn (*anyopaque, u32) callconv(.c) HRESULT, // 3
     _pad4_27: [24]*const anyopaque,
@@ -294,9 +246,10 @@ const IDWriteTextLayout_VTable = extern struct {
     SetUnderline: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 36
     SetStrikethrough: *const fn (*anyopaque, BOOL, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 37
     SetDrawingEffect: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 38
-    _pad39_57: [19]*const anyopaque,
+    SetInlineObject: *const fn (*anyopaque, ?*anyopaque, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 39
+    _pad40_57: [18]*const anyopaque,
     Draw: *const fn (*anyopaque, ?*anyopaque, *anyopaque, f32, f32) callconv(.c) HRESULT, // 58
-    _pad59: *const anyopaque,
+    GetLineMetrics: *const fn (*anyopaque, ?[*]DWRITE_LINE_METRICS, u32, *u32) callconv(.c) HRESULT, // 59
     GetMetrics: *const fn (*anyopaque, *DWRITE_TEXT_METRICS) callconv(.c) HRESULT, // 60
     _pad61_63: [3]*const anyopaque,
     HitTestPoint: *const fn (*anyopaque, f32, f32, *BOOL, *BOOL, *DWRITE_HIT_TEST_METRICS) callconv(.c) HRESULT, // 64
@@ -305,24 +258,21 @@ const IDWriteTextLayout_VTable = extern struct {
 };
 
 const IDWriteFactory2_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_27: [25]*const anyopaque,
     TranslateColorGlyphRun: *const fn (*anyopaque, f32, f32, *const DWRITE_GLYPH_RUN, ?*const anyopaque, u32, *const DWRITE_MATRIX, u32, *?*anyopaque) callconv(.c) HRESULT, // 28
 };
 
 const IDWriteColorGlyphRunEnumerator_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     MoveNext: *const fn (*anyopaque, *BOOL) callconv(.c) HRESULT, // 3
     GetCurrentRun: *const fn (*anyopaque, *?*const DWRITE_COLOR_GLYPH_RUN) callconv(.c) HRESULT, // 4
 };
 
 const ID2D1SolidColorBrush_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_7: [5]*const anyopaque,
     SetColor: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 8
@@ -398,9 +348,21 @@ fn isSupBrush(effect: ?*anyopaque) bool {
     return e == g_brush_link_sup or e == g_brush_text_sup;
 }
 
+fn isSubBrush(effect: ?*anyopaque) bool {
+    const e = effect orelse return false;
+    return e == g_brush_link_sub or e == g_brush_text_sub;
+}
+
+/// DirectWrite has no baseline shift, so sup runs move up and sub runs down as the glyph runs are drawn.
+pub fn baselineRaise(effect: ?*anyopaque, em: f32) f32 {
+    if (isSupBrush(effect)) return em * sup_raise;
+    if (isSubBrush(effect)) return -em * sub_drop;
+    return 0;
+}
+
 fn rendererGlyphRun(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, mode: u32, glyphs: *const DWRITE_GLYPH_RUN, desc: ?*const anyopaque, effect: ?*anyopaque) callconv(.c) HRESULT {
     const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
-    const raise: f32 = if (isSupBrush(effect)) glyphs.fontEmSize * sup_raise else 0;
+    const raise = baselineRaise(effect, glyphs.fontEmSize);
     drawGlyphRun(dc, x, y - raise, mode, glyphs, desc, effect orelse dc.brush);
     return 0;
 }
@@ -439,7 +401,7 @@ fn drawGlyphRun(dc: *const DrawContext, x: f32, y: f32, mode: u32, glyphs: *cons
 }
 fn rendererUnderline(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, u: *const DWRITE_UNDERLINE, effect: ?*anyopaque) callconv(.c) HRESULT {
     const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
-    const raise: f32 = if (isSupBrush(effect)) u.runHeight * sup_raise else 0;
+    const raise = baselineRaise(effect, u.runHeight);
     const top = y + u.offset - raise;
     vtable(ID2D1RT_VTable, dc.rt).FillRectangle(dc.rt, &.{ .left = x, .top = top, .right = x + u.width, .bottom = top + @max(u.thickness, 1) }, effect orelse dc.brush);
     return 0;
@@ -451,35 +413,193 @@ fn rendererStrike(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, u: *const any
     vtable(ID2D1RT_VTable, dc.rt).FillRectangle(dc.rt, &.{ .left = x, .top = top, .right = x + line.width, .bottom = top + @max(line.thickness, 1) }, effect orelse dc.brush);
     return 0;
 }
-fn rendererInline(_: *anyopaque, _: ?*anyopaque, _: f32, _: f32, _: ?*anyopaque, _: BOOL, _: BOOL, _: ?*anyopaque) callconv(.c) HRESULT {
+fn rendererInline(_: *anyopaque, ctx: ?*anyopaque, x: f32, y: f32, object: ?*anyopaque, _: BOOL, _: BOOL, _: ?*anyopaque) callconv(.c) HRESULT {
+    const dc: *const DrawContext = @ptrCast(@alignCast(ctx orelse return 0));
+    const obj: *const ImageObject = @ptrCast(@alignCast(object orelse return 0));
+    drawImageObject(dc, obj, x, y);
     return 0;
+}
+
+const IID_IDWriteInlineObject = GUID{ .Data1 = 0x8339fde3, .Data2 = 0x106f, .Data3 = 0x47ab, .Data4 = .{ 0x83, 0x73, 0x1c, 0x62, 0x95, 0xeb, 0x10, 0xb3 } };
+const DWRITE_INLINE_OBJECT_METRICS = extern struct { width: f32, height: f32, baseline: f32, supports_sideways: BOOL };
+const DWRITE_OVERHANG_METRICS = extern struct { left: f32, top: f32, right: f32, bottom: f32 };
+
+const InlineObject_VTable = extern struct {
+    QueryInterface: *const fn (*anyopaque, *const GUID, *?*anyopaque) callconv(.c) HRESULT,
+    AddRef: *const fn (*anyopaque) callconv(.c) u32,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    Draw: *const fn (*anyopaque, ?*anyopaque, *anyopaque, f32, f32, BOOL, BOOL, ?*anyopaque) callconv(.c) HRESULT,
+    GetMetrics: *const fn (*anyopaque, *DWRITE_INLINE_OBJECT_METRICS) callconv(.c) HRESULT,
+    GetOverhangMetrics: *const fn (*anyopaque, *DWRITE_OVERHANG_METRICS) callconv(.c) HRESULT,
+    GetBreakConditions: *const fn (*anyopaque, *u32, *u32) callconv(.c) HRESULT,
+};
+
+const inline_object_vtable = InlineObject_VTable{
+    .QueryInterface = objectQuery,
+    .AddRef = rendererRef,
+    .Release = rendererRef,
+    .Draw = objectDraw,
+    .GetMetrics = objectMetrics,
+    .GetOverhangMetrics = objectOverhang,
+    .GetBreakConditions = objectBreaks,
+};
+
+const ImageKind = enum(u32) { pending, picture, broken };
+
+/// Width of the broken image glyph with its gap to the alt text that follows, and its height.
+const broken_w: f32 = 18;
+const broken_h: f32 = 16;
+
+/// One image in a layout; sits on the baseline and is painted by the text renderer, which receives this pointer back.
+const ImageObject = extern struct {
+    vtbl: *const InlineObject_VTable = &inline_object_vtable,
+    w: f32,
+    h: f32,
+    kind: ImageKind,
+    image: *const md.Image,
+};
+
+var g_objects: ?std.heap.ArenaAllocator = null;
+
+pub fn resetObjects() void {
+    if (g_objects) |*a| _ = a.reset(.free_all);
+}
+
+fn objectQuery(self: *anyopaque, iid: *const GUID, out: *?*anyopaque) callconv(.c) HRESULT {
+    inline for (.{ IID_IUnknown, IID_IDWriteInlineObject }) |known| {
+        if (std.mem.eql(u8, std.mem.asBytes(iid), std.mem.asBytes(&known))) {
+            out.* = self;
+            return 0;
+        }
+    }
+    out.* = null;
+    return @bitCast(@as(u32, 0x80004002));
+}
+fn objectDraw(_: *anyopaque, _: ?*anyopaque, _: *anyopaque, _: f32, _: f32, _: BOOL, _: BOOL, _: ?*anyopaque) callconv(.c) HRESULT {
+    return 0;
+}
+fn objectMetrics(self: *anyopaque, out: *DWRITE_INLINE_OBJECT_METRICS) callconv(.c) HRESULT {
+    const obj: *const ImageObject = @ptrCast(@alignCast(self));
+    out.* = .{ .width = obj.w, .height = obj.h, .baseline = obj.h, .supports_sideways = 0 };
+    return 0;
+}
+fn objectOverhang(_: *anyopaque, out: *DWRITE_OVERHANG_METRICS) callconv(.c) HRESULT {
+    out.* = .{ .left = 0, .top = 0, .right = 0, .bottom = 0 };
+    return 0;
+}
+fn objectBreaks(_: *anyopaque, before: *u32, after: *u32) callconv(.c) HRESULT {
+    before.* = 0;
+    after.* = 0;
+    return 0;
+}
+
+fn imageObject(im: *const md.Image, max_width: f32) ?*ImageObject {
+    if (g_objects == null) g_objects = .init(app.gpa);
+    const obj = (g_objects.?.allocator().create(ImageObject) catch return null);
+    obj.* = .{ .w = 0, .h = 0, .kind = .pending, .image = im };
+    switch (app.images.look(im.target, max_width)) {
+        .pending => {},
+        .picture => |fitted| {
+            const s = if (im.width > 0 or im.height > 0) sizedImage(im, max_width) orelse fitted else fitted;
+            obj.w = s.w;
+            obj.h = s.h;
+            obj.kind = if (s.w > 0) .picture else .pending;
+        },
+        .missing => if (im.alt.len > 0) {
+            obj.w = broken_w;
+            obj.h = broken_h;
+            obj.kind = .broken;
+        },
+    }
+    return obj;
+}
+
+/// The size an `<img width height>` asks for; the natural size is what `look` reports for an unbounded width.
+fn sizedImage(im: *const md.Image, max_width: f32) ?app.images.Size {
+    const natural = switch (app.images.look(im.target, std.math.floatMax(f32))) {
+        .picture => |s| s,
+        else => return null,
+    };
+    return app.images.requested(natural, im.width, im.height, max_width);
+}
+
+fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f32) void {
+    const top = y - app.scroll_y;
+    if (top + obj.h < 0 or top > app.window_height or obj.w <= 0) return;
+    const vt_rt = vtable(ID2D1RT_VTable, dc.rt);
+    switch (obj.kind) {
+        .pending => {},
+        .picture => {
+            const bm = app.images.bitmap(obj.image.target, .{ .w = obj.w, .h = obj.h }) orelse return;
+            vt_rt.DrawBitmap(dc.rt, bm.native, &.{ .left = x, .top = y, .right = x + obj.w, .bottom = y + obj.h }, 1, 1, null);
+        },
+        .broken => {
+            if (app.images.brokenIcon()) |icon| {
+                vt_rt.DrawBitmap(dc.rt, icon.native, &.{ .left = x, .top = y, .right = x + icon.w, .bottom = y + icon.h }, 1, 1, null);
+                return;
+            }
+            const geom = g_broken_geom orelse return;
+            const muted = g_brush_quote orelse return;
+            vt_rt.SetTransform(dc.rt, &matrix(x, y - app.scroll_y));
+            vt_rt.FillGeometry(dc.rt, geom, muted, null);
+            vt_rt.SetTransform(dc.rt, &matrix(0, -app.scroll_y));
+        },
+    }
+}
+
+fn createBitmapNative(rgba: []const u8, w: u32, h: u32) ?*anyopaque {
+    const rt = g_render_target orelse return null;
+    const buf = app.gpa.alloc(u8, rgba.len) catch return null;
+    defer app.gpa.free(buf);
+    var i: usize = 0;
+    while (i + 3 < rgba.len) : (i += 4) {
+        const a: u32 = rgba[i + 3];
+        buf[i] = @intCast((@as(u32, rgba[i + 2]) * a + 127) / 255);
+        buf[i + 1] = @intCast((@as(u32, rgba[i + 1]) * a + 127) / 255);
+        buf[i + 2] = @intCast((@as(u32, rgba[i]) * a + 127) / 255);
+        buf[i + 3] = @intCast(a);
+    }
+    var bmp: ?*anyopaque = null;
+    const props = D2D1_BITMAP_PROPERTIES{ .pixel_format = .{ .format = 87, .alpha_mode = 1 }, .dpi_x = 96, .dpi_y = 96 };
+    if (vtable(ID2D1RT_VTable, rt).CreateBitmap(rt, .{ .width = w, .height = h }, buf.ptr, w * 4, &props, &bmp) < 0) return null;
+    return bmp;
+}
+
+fn freeBitmapNative(bmp: ?*anyopaque) void {
+    const b = bmp orelse return;
+    _ = vtable(ID2D1Factory_VTable, b).Release(b);
 }
 
 const sup_scale: f32 = 0.7;
 const sup_raise: f32 = 0.5;
+pub const sub_scale: f32 = 0.75;
+const sub_drop: f32 = 0.25;
+pub const kbd_pad: f32 = 4;
+pub const kbd_box_h: f32 = 20;
+pub const kbd_radius: f32 = 6;
+
+pub fn rangeRects(lay: *anyopaque, range: DWRITE_TEXT_RANGE, out: *std.ArrayList(D2D1_RECT_F)) std.mem.Allocator.Error!void {
+    if (range.length == 0) return;
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    var stack: [16]DWRITE_HIT_TEST_METRICS = undefined;
+    var rects: []DWRITE_HIT_TEST_METRICS = &stack;
+    var heap: ?[]DWRITE_HIT_TEST_METRICS = null;
+    defer if (heap) |h| app.gpa.free(h);
+    var count: u32 = 0;
+    var hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
+    if (hr == E_NOT_SUFFICIENT_BUFFER) {
+        heap = try app.gpa.alloc(DWRITE_HIT_TEST_METRICS, count);
+        rects = heap.?;
+        hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
+    }
+    if (hr < 0) return;
+    for (rects[0..@min(count, rects.len)]) |r| {
+        try out.append(app.gpa, .{ .left = r.left, .top = r.top, .right = r.left + r.width, .bottom = r.top + r.height });
+    }
+}
 
 fn codeRects(lay: *anyopaque, content: md.Inline, out: *std.ArrayList(D2D1_RECT_F)) std.mem.Allocator.Error!void {
-    const vt = vtable(IDWriteTextLayout_VTable, lay);
-    for (content.code) |span| {
-        const range = wideRange(content.text, span);
-        if (range.length == 0) continue;
-        var stack: [16]DWRITE_HIT_TEST_METRICS = undefined;
-        var rects: []DWRITE_HIT_TEST_METRICS = &stack;
-        var heap: ?[]DWRITE_HIT_TEST_METRICS = null;
-        defer if (heap) |h| app.gpa.free(h);
-        var count: u32 = 0;
-        var hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
-        if (hr == E_NOT_SUFFICIENT_BUFFER) {
-            heap = try app.gpa.alloc(DWRITE_HIT_TEST_METRICS, count);
-            rects = heap.?;
-            hr = vt.HitTestTextRange(lay, range.startPosition, range.length, 0, 0, rects.ptr, @intCast(rects.len), &count);
-        }
-        if (hr < 0) continue;
-        const frags = rects[0..@min(count, rects.len)];
-        for (frags) |r| {
-            try out.append(app.gpa, .{ .left = r.left, .top = r.top, .right = r.left + r.width, .bottom = r.top + r.height });
-        }
-    }
+    for (content.code) |span| try rangeRects(lay, wideRange(content.text, span), out);
 }
 
 fn drawCodeBackgrounds(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, content: md.Inline) void {
@@ -496,9 +616,10 @@ fn drawCodeBackgrounds(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyop
     }
 }
 
-fn drawLayout(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, brush: *anyopaque, content: md.Inline) void {
+pub fn drawLayout(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, brush: *anyopaque, content: md.Inline) void {
     if (content.code.len > 0) drawCodeBackgrounds(vt_rt, rt, lay, x, y, content);
-    if (content.sup.len == 0) {
+    if (content.styles.len > 0) html.drawStyleBackgrounds(vt_rt, rt, lay, x, y, content);
+    if (content.sup.len == 0 and content.images.len == 0 and !html.hasStyle(content, .sub)) {
         vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
         return;
     }
@@ -525,7 +646,7 @@ fn fontOf(format: *anyopaque) app.Font {
     return .body;
 }
 
-fn vtable(comptime VT: type, obj: *anyopaque) *const VT {
+pub fn vtable(comptime VT: type, obj: *anyopaque) *const VT {
     const pp: *const *const VT = @ptrCast(@alignCast(obj));
     return pp.*;
 }
@@ -536,45 +657,82 @@ const IID_IDWriteFactory = GUID{ .Data1 = 0xb859ee5a, .Data2 = 0xd838, .Data3 = 
 // State
 pub var hinstance: ?*anyopaque = null;
 var g_hwnd: ?HWND = null;
-var g_d2d_factory: ?*anyopaque = null;
-var g_dwrite_factory: ?*anyopaque = null;
-var g_render_target: ?*anyopaque = null;
-var g_text_format: ?*anyopaque = null;
-var g_text_format_h1: ?*anyopaque = null;
-var g_text_format_h2: ?*anyopaque = null;
-var g_text_format_h3: ?*anyopaque = null;
-var g_text_format_h4: ?*anyopaque = null;
-var g_text_format_h5: ?*anyopaque = null;
-var g_text_format_h6: ?*anyopaque = null;
+pub var g_d2d_factory: ?*anyopaque = null;
+pub var g_dwrite_factory: ?*anyopaque = null;
+pub var g_render_target: ?*anyopaque = null;
+pub var g_text_format: ?*anyopaque = null;
+pub var g_text_format_h1: ?*anyopaque = null;
+pub var g_text_format_h2: ?*anyopaque = null;
+pub var g_text_format_h3: ?*anyopaque = null;
+pub var g_text_format_h4: ?*anyopaque = null;
+pub var g_text_format_h5: ?*anyopaque = null;
+pub var g_text_format_h6: ?*anyopaque = null;
 var g_text_format_code: ?*anyopaque = null;
-var g_brush_text: ?*anyopaque = null;
-var g_brush_heading: ?*anyopaque = null;
+pub var g_brush_text: ?*anyopaque = null;
+pub var g_brush_heading: ?*anyopaque = null;
 var g_brush_code_bg: ?*anyopaque = null;
 var g_brush_code_text: ?*anyopaque = null;
-var g_brush_code_span: ?*anyopaque = null;
-var g_brush_quote: ?*anyopaque = null;
-var g_brush_hr: ?*anyopaque = null;
-var g_brush_table_border: ?*anyopaque = null;
-var g_brush_stripe: ?*anyopaque = null;
+pub var g_brush_code_span: ?*anyopaque = null;
+pub var g_brush_quote: ?*anyopaque = null;
+pub var g_brush_hr: ?*anyopaque = null;
+pub var g_brush_table_border: ?*anyopaque = null;
+pub var g_brush_stripe: ?*anyopaque = null;
 var g_brush_close: ?*anyopaque = null;
 var g_brush_hl: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
 var g_brush_hl_bg: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
-var g_brush_bar: ?*anyopaque = null;
+pub var g_brush_bar: ?*anyopaque = null;
 var g_brush_bg: ?*anyopaque = null;
 var g_brush_check: ?*anyopaque = null;
 var g_brush_white: ?*anyopaque = null;
 var g_brush_err_bg: ?*anyopaque = null;
 var g_brush_err_border: ?*anyopaque = null;
-var g_alert_border: [5]?*anyopaque = @splat(null);
-var g_alert_fg: [5]?*anyopaque = @splat(null);
+pub var g_alert_border: [5]?*anyopaque = @splat(null);
+pub var g_alert_fg: [5]?*anyopaque = @splat(null);
 var g_brush_link: ?*anyopaque = null;
 var g_brush_link_sup: ?*anyopaque = null;
-var g_brush_text_sup: ?*anyopaque = null;
+pub var g_brush_text_sup: ?*anyopaque = null;
+pub var g_brush_link_sub: ?*anyopaque = null;
+pub var g_brush_text_sub: ?*anyopaque = null;
+pub var g_brush_bright: ?*anyopaque = null;
+pub var g_brush_mark_bg: ?*anyopaque = null;
 var g_brush_color_layer: ?*anyopaque = null;
 var g_dwrite_factory2: ?*anyopaque = null;
 var g_color_logged = false;
 var g_cursor_hand: ?*anyopaque = null;
 var g_over_link = false;
+/// Device pixels per layout unit of the monitor the window is on; layout is in these units and the render target scales them up.
+var g_scale: f32 = 1;
+
+pub fn matrix(tx: f32, ty: f32) D2D1_MATRIX_3X2_F {
+    return .{ .m = .{ g_scale, 0, 0, g_scale, tx * g_scale, ty * g_scale } };
+}
+
+fn user32Proc(comptime T: type, name: [*:0]const u8) ?T {
+    const module = GetModuleHandleW(L("user32.dll")) orelse return null;
+    const proc = GetProcAddress(module, name) orelse return null;
+    return @ptrCast(proc);
+}
+
+fn enablePerMonitorDpi() void {
+    if (user32Proc(*const fn (isize) callconv(.c) BOOL, "SetProcessDpiAwarenessContext")) |f| _ = f(-4);
+}
+
+fn scaleOfWindow(hwnd: HWND) f32 {
+    const f = user32Proc(*const fn (HWND) callconv(.c) u32, "GetDpiForWindow") orelse return 1;
+    const dpi = f(hwnd);
+    return if (dpi == 0) 1 else @as(f32, @floatFromInt(dpi)) / 96.0;
+}
+
+fn scaleOfSystem() f32 {
+    const f = user32Proc(*const fn () callconv(.c) u32, "GetDpiForSystem") orelse return 1;
+    const dpi = f();
+    return if (dpi == 0) 1 else @as(f32, @floatFromInt(dpi)) / 96.0;
+}
+
+fn setScale(s: f32) void {
+    g_scale = s;
+    app.images.dpi_scale = s;
+}
 
 pub fn invalidate() void {
     if (g_hwnd) |h| _ = InvalidateRect(h, null, 0);
@@ -585,31 +743,22 @@ pub fn run() void {
     initD2D();
     app.log("d2d initialized");
 
+    enablePerMonitorDpi();
+    setScale(scaleOfSystem());
     const hi: ?HINSTANCE = if (hinstance) |h| @ptrCast(h) else null;
     const class_name = L("mdview");
     _ = RegisterClassExW(&.{
-        .style = CS_HREDRAW | CS_VREDRAW,
-        .lpfnWndProc = &wndProc,
-        .hInstance = hi,
-        .hCursor = LoadCursorW(null, IDC_ARROW),
-        .lpszClassName = class_name,
+        .style = CS_HREDRAW | CS_VREDRAW, .lpfnWndProc = &wndProc,
+        .hInstance = hi, .hCursor = LoadCursorW(null, IDC_ARROW), .lpszClassName = class_name,
     });
 
     const hwnd = CreateWindowExW(
-        WS_EX_ACCEPTFILES,
-        class_name,
-        L("mdview"),
+        WS_EX_ACCEPTFILES, class_name, L("mdview"),
         WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        900,
-        700,
-        null,
-        null,
-        hi,
-        null,
+        CW_USEDEFAULT, CW_USEDEFAULT, @intFromFloat(900 * g_scale), @intFromFloat(700 * g_scale), null, null, hi, null,
     ) orelse return;
     g_hwnd = hwnd;
+    setScale(scaleOfWindow(hwnd));
 
     createRenderTarget(hwnd);
     if (g_render_target != null) app.log("render target created") else app.log("FAILED to create render target");
@@ -635,6 +784,8 @@ pub fn initD2D() void {
         _ = query(dwf, &IID_IDWriteFactory2, &g_dwrite_factory2);
     }
     if (g_d2d_factory) |f| createAlertGeometries(f);
+    app.images.create_native = createBitmapNative;
+    app.images.free_native = freeBitmapNative;
     if (g_dwrite_factory) |dwf| {
         const vt = vtable(IDWriteFactory_VTable, dwf);
         const font = L("Segoe UI");
@@ -650,13 +801,13 @@ pub fn initD2D() void {
     }
 }
 
-fn createRenderTarget(hwnd: HWND) void {
+pub fn createRenderTarget(hwnd: HWND) void {
     if (g_d2d_factory) |factory| {
         // SAFETY: written by GetClientRect
         var rc: RECT = undefined;
         _ = GetClientRect(hwnd, &rc);
         const size = D2D1_SIZE_U{ .width = @intCast(rc.right - rc.left), .height = @intCast(rc.bottom - rc.top) };
-        _ = vtable(ID2D1Factory_VTable, factory).CreateHwndRenderTarget(factory, &.{}, &.{ .hwnd = hwnd, .pixel_size = size }, &g_render_target);
+        _ = vtable(ID2D1Factory_VTable, factory).CreateHwndRenderTarget(factory, &.{ .dpi_x = 96, .dpi_y = 96 }, &.{ .hwnd = hwnd, .pixel_size = size }, &g_render_target);
         if (g_render_target) |rt| createBrushes(rt);
     }
 }
@@ -685,7 +836,7 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_stripe = solidBrush(rt, 0x151b23);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
     for (0..g_brush_hl.len) |n| {
-        const st = hl.style(@fromBackingInt(@intCast(n)));
+        const st = hl.style(@enumFromInt(n));
         if (st.fg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl[n]);
         if (st.bg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl_bg[n]);
     }
@@ -698,120 +849,51 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_link = solidBrush(rt, 0x4493f8);
     g_brush_link_sup = solidBrush(rt, 0x4493f8);
     g_brush_text_sup = solidBrush(rt, 0xc9d1d9);
+    g_brush_link_sub = solidBrush(rt, 0x4493f8);
+    g_brush_text_sub = solidBrush(rt, 0xc9d1d9);
+    g_brush_bright = solidBrush(rt, 0xf0f6fc);
+    var mark_bg = rgbColor(0xbb8009);
+    mark_bg.a = 0.15;
+    _ = vtable(ID2D1RT_VTable, rt).CreateSolidColorBrush(rt, &mark_bg, null, &g_brush_mark_bg);
     g_brush_color_layer = solidBrush(rt, 0xffffff);
     for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
-        g_alert_border[@backingInt(a) - 1] = solidBrush(rt, alerts.style(a).border);
-        g_alert_fg[@backingInt(a) - 1] = solidBrush(rt, alerts.style(a).fg);
+        g_alert_border[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).border);
+        g_alert_fg[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).fg);
     }
 }
 
 // ============================================================
 // Rendering
 // ============================================================
-fn render() void {
+pub fn render() void {
     const rt = g_render_target orelse return;
     const vt_rt = vtable(ID2D1RT_VTable, rt);
     const dwf = g_dwrite_factory orelse return;
     const vt_dw = vtable(IDWriteFactory_VTable, dwf);
 
+    resetObjects();
+    html.resetSlices();
     vt_rt.BeginDraw(rt);
     vt_rt.Clear(rt, &.{ .r = 0.051, .g = 0.067, .b = 0.090, .a = 1 });
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, 0, -app.scroll_y } });
+    vt_rt.SetTransform(rt, &matrix(0, -app.scroll_y));
 
     const padding: f32 = 40;
     const max_width = @max(app.window_width - padding * 2, 100);
     var y: f32 = padding;
     app.beginFrame();
 
-    for (app.blocks) |*block| {
-        app.noteBlock(y);
-        const inset = block.inset();
-        const x = padding + inset;
-        const w = @max(max_width - inset, 60);
-        const top = y;
-        var gap: f32 = 0;
-        const text_brush = if (block.muted()) g_brush_quote.? else g_brush_text.?;
-        for (block.marks) |l| drawMarker(vt_rt, vt_dw, rt, dwf, l.mark, padding + l.inset, y);
-
-        switch (block.kind) {
-            .h1 => {
-                y += 24;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h1.?, x, y, w, g_brush_heading.?);
-                y += 8;
-                vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, g_brush_hr.?);
-                y += 1;
-                gap = 16;
-            },
-            .h2 => {
-                y += 20;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h2.?, x, y, w, g_brush_heading.?);
-                y += 6;
-                vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 1 }, g_brush_hr.?);
-                y += 1;
-                gap = 16;
-            },
-            .h3 => {
-                y += 16;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h3.?, x, y, w, g_brush_heading.?);
-                gap = 12;
-            },
-            .h4, .h5, .h6 => {
-                y += 24;
-                const fmt = switch (block.kind) {
-                    .h4 => g_text_format_h4,
-                    .h5 => g_text_format_h5,
-                    else => g_text_format_h6,
-                };
-                const brush = if (block.kind == .h6) g_brush_quote.? else g_brush_heading.?;
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, fmt.?, x, y, w, brush);
-                gap = 16;
-            },
-            .paragraph => {
-                y += renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format.?, x, y, w, text_brush);
-                gap = block.paragraphGap();
-            },
-            .alert_title => {
-                const alert = block.frames[block.frames.len - 1].alert;
-                y += 8;
-                drawAlertIcon(vt_rt, rt, alert, x, y);
-                _ = renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h4.?, x + 24, y - 2, w - 24, g_alert_fg[@backingInt(alert) - 1].?);
-                y += 16;
-                gap = 16;
-            },
-            .error_box => {
-                y += renderErrorBox(vt_rt, vt_dw, rt, dwf, block.content, x, y, w);
-                gap = 16;
-            },
-            .code_block => {
-                y += renderCodeBlock(vt_rt, vt_dw, rt, dwf, block.content.text, block.tokens, x, y, w);
-                gap = 16;
-            },
-            .table => {
-                y += renderTable(vt_rt, vt_dw, rt, dwf, block.table, x, y, w, true, null);
-                gap = 16;
-            },
-            .hr => {
-                y += 12;
-                vt_rt.FillRectangle(rt, &.{ .left = x, .top = y, .right = x + w, .bottom = y + 2 }, g_brush_hr.?);
-                y += 2;
-                gap = 14;
-            },
-        }
-
-        for (block.frames, 0..) |f, i| {
-            if (f.kind != .quote) continue;
-            if (f.alert != .none and !f.open) y += 8;
-            const brush = if (f.alert == .none) g_brush_bar.? else g_alert_border[@backingInt(f.alert) - 1].?;
-            const bar_x = padding + block.insetBefore(i);
-            vt_rt.FillRectangle(rt, &.{ .left = bar_x, .top = top, .right = bar_x + md.quote_bar, .bottom = y + if (f.open) gap else 0 }, brush);
-        }
-        y += gap;
-    }
+    const g: Gfx = .{ .vt_rt = vt_rt, .vt_dw = vt_dw, .rt = rt, .dwf = dwf };
+    y += html.layoutBlocks(g, app.blocks, padding, max_width, y, true, true, null);
 
     app.content_height = y + padding;
+    const max_scroll = app.content_height - app.window_height + 40;
+    const clamped = if (max_scroll > 0) @min(app.scroll_y, max_scroll) else 0;
+    const scroll_moved = clamped != app.scroll_y;
+    app.scroll_y = clamped;
 
     // Close button
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, 0, 0 } });
+    vt_rt.SetTransform(rt, &matrix(0, 0));
+    if (app.tooltip) |t| drawTooltip(vt_rt, vt_dw, rt, dwf, t);
     if (g_brush_close) |brush| {
         const bx = app.window_width - 36;
         vt_rt.DrawLine(rt, .{ .x = bx + 4, .y = 12 }, .{ .x = bx + 20, .y = 28 }, brush, 1.5, null);
@@ -819,6 +901,29 @@ fn render() void {
     }
 
     _ = vt_rt.EndDraw(rt, null, null);
+    if (scroll_moved) invalidate();
+}
+
+pub const Gfx = struct { vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque };
+
+pub const BlockStyle = struct { alignment: md.Align = .none };
+
+/// Width of the text most recently laid out, which measure-only passes read to size table cells.
+pub var g_last_text_w: f32 = 0;
+
+fn drawTooltip(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: app.Tooltip) void {
+    const lay = createLayout(vt_dw, dwf, .{ .text = t.text }, g_text_format.?, 360) orelse return;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    // SAFETY: written by GetMetrics
+    var m: DWRITE_TEXT_METRICS = undefined;
+    _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
+    const w = m.widthIncludingTrailingWhitespace + 16;
+    const h = m.height + 10;
+    const x = @min(t.x + 14, app.window_width - w - 4);
+    const y = if (t.y + 22 + h > app.window_height) t.y - h - 6 else t.y + 22;
+    vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x - 1, .top = y - 1, .right = x + w + 1, .bottom = y + h + 1 }, .radiusX = 5, .radiusY = 5 }, g_brush_table_border.?);
+    vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x, .top = y, .right = x + w, .bottom = y + h }, .radiusX = 4, .radiusY = 4 }, g_brush_code_bg.?);
+    vt_rt.DrawTextLayout(rt, .{ .x = x + 8, .y = y + 5 }, lay, g_brush_text.?, 0);
 }
 
 fn solidBrush(rt: *anyopaque, hex: u24) ?*anyopaque {
@@ -836,16 +941,14 @@ fn solidBrush(rt: *anyopaque, hex: u24) ?*anyopaque {
 const D2D1_BEZIER_SEGMENT = extern struct { p1: D2D1_POINT_2F, p2: D2D1_POINT_2F, p3: D2D1_POINT_2F };
 
 const ID2D1PathGeometry_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_16: [14]*const anyopaque,
     Open: *const fn (*anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 17
 };
 
 const ID2D1GeometrySink_VTable = extern struct {
-    QueryInterface: *const anyopaque,
-    AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     SetFillMode: *const fn (*anyopaque, u32) callconv(.c) void, // 3
     _pad4: *const anyopaque,
@@ -858,24 +961,31 @@ const ID2D1GeometrySink_VTable = extern struct {
 };
 
 var g_alert_geom: [5]?*anyopaque = @splat(null);
+var g_broken_geom: ?*anyopaque = null;
 
 fn point(p: [2]f32) D2D1_POINT_2F {
     return .{ .x = p[0], .y = p[1] };
 }
 
 fn createAlertGeometries(factory: *anyopaque) void {
-    const fvt = vtable(ID2D1Factory_VTable, factory);
     for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
-        var geom: ?*anyopaque = null;
-        if (fvt.CreatePathGeometry(factory, &geom) < 0) continue;
-        const g = geom orelse continue;
-        var sink_ptr: ?*anyopaque = null;
-        if (vtable(ID2D1PathGeometry_VTable, g).Open(g, &sink_ptr) < 0) continue;
-        const sink = sink_ptr orelse continue;
-        const sv = vtable(ID2D1GeometrySink_VTable, sink);
-        sv.SetFillMode(sink, 1);
-        var open = false;
-        for (alerts.icon(a)) |op| switch (op) {
+        g_alert_geom[@intFromEnum(a) - 1] = geometryFromOps(factory, alerts.icon(a));
+    }
+    g_broken_geom = geometryFromOps(factory, alerts.brokenImage());
+}
+
+pub fn geometryFromOps(factory: *anyopaque, ops: []const alerts.Op) ?*anyopaque {
+    const fvt = vtable(ID2D1Factory_VTable, factory);
+    var geom: ?*anyopaque = null;
+    if (fvt.CreatePathGeometry(factory, &geom) < 0) return null;
+    const g = geom orelse return null;
+    var sink_ptr: ?*anyopaque = null;
+    if (vtable(ID2D1PathGeometry_VTable, g).Open(g, &sink_ptr) < 0) return null;
+    const sink = sink_ptr orelse return null;
+    const sv = vtable(ID2D1GeometrySink_VTable, sink);
+    sv.SetFillMode(sink, 1);
+    var open = false;
+    for (ops) |op| switch (op) {
             .move => |p| {
                 if (open) sv.EndFigure(sink, 0);
                 sv.BeginFigure(sink, point(p), 0);
@@ -887,30 +997,31 @@ fn createAlertGeometries(factory: *anyopaque) void {
                 sv.EndFigure(sink, 1);
                 open = false;
             },
-        };
-        if (open) sv.EndFigure(sink, 0);
-        _ = sv.Close(sink);
-        _ = sv.Release(sink);
-        g_alert_geom[@backingInt(a) - 1] = g;
-    }
+    };
+    if (open) sv.EndFigure(sink, 0);
+    _ = sv.Close(sink);
+    _ = sv.Release(sink);
+    return g;
 }
 
-fn drawAlertIcon(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, alert: md.Alert, x: f32, y: f32) void {
-    const idx = @backingInt(alert) - 1;
+pub fn drawAlertIcon(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, alert: md.Alert, x: f32, y: f32) void {
+    const idx = @intFromEnum(alert) - 1;
     const geom = g_alert_geom[idx] orelse return;
     const brush = g_alert_fg[idx] orelse return;
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, x, y - app.scroll_y } });
+    vt_rt.SetTransform(rt, &matrix(x, y - app.scroll_y));
     vt_rt.FillGeometry(rt, geom, brush, null);
-    vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, 0, -app.scroll_y } });
+    vt_rt.SetTransform(rt, &matrix(0, -app.scroll_y));
 }
 
-fn renderErrorBox(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, x: f32, y: f32, w: f32) f32 {
+pub fn renderErrorBox(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content_in: md.Inline, x: f32, y: f32, w: f32, draw: bool) f32 {
+    const content = app.images.flow(content_in);
     const lay = createLayout(vt_dw, dwf, content, g_text_format.?, @max(w - 34, 20)) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
     // SAFETY: written by GetMetrics
     var m: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
     const h = m.height + 32;
+    if (!draw) return h;
     vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x, .top = y, .right = x + w, .bottom = y + h }, .radiusX = 6, .radiusY = 6 }, g_brush_err_border.?);
     vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x + 1, .top = y + 1, .right = x + w - 1, .bottom = y + h - 1 }, .radiusX = 5, .radiusY = 5 }, g_brush_err_bg.?);
     vt_rt.DrawTextLayout(rt, .{ .x = x + 17, .y = y + 16 }, lay, g_brush_text.?, 0);
@@ -933,7 +1044,7 @@ fn fillBox(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, x: f32, y: f32, size: f
     }, brush);
 }
 
-fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, m: md.Mark, x: f32, y: f32) void {
+pub fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, m: md.Mark, x: f32, y: f32) void {
     const text = g_brush_text.?;
     switch (m.kind) {
         .none => {},
@@ -974,14 +1085,21 @@ fn drawMarker(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable,
     }
 }
 
-fn renderTextBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque) f32 {
-    const lay = createLayout(vt_dw, dwf, content, text_format, max_width) orelse return 0;
+pub fn textBlock(g: Gfx, draw: bool, content_in: md.Inline, text_format: *anyopaque, x: f32, y: f32, max_width: f32, brush: *anyopaque, style: BlockStyle) f32 {
+    const content = app.images.flow(content_in);
+    g_last_text_w = 0;
+    const lay = createLayout(g.vt_dw, g.dwf, content, text_format, max_width) orelse return 0;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    const vt = vtable(IDWriteTextLayout_VTable, lay);
+    _ = vt.SetTextAlignment(lay, alignmentCode(style.alignment));
     // SAFETY: written by GetMetrics
     var metrics: DWRITE_TEXT_METRICS = undefined;
-    _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
-    drawLayout(vt_rt, rt, lay, x, y, brush, content);
-    app.noteHit(.{ .content = content, .x = x, .y = y, .w = max_width, .h = metrics.height, .font = fontOf(text_format) });
+    _ = vt.GetMetrics(lay, &metrics);
+    g_last_text_w = metrics.widthIncludingTrailingWhitespace;
+    if (draw) {
+        drawLayout(g.vt_rt, g.rt, lay, x, y, brush, content);
+        app.noteHit(.{ .content = content, .x = x, .y = y, .w = max_width, .h = metrics.height, .font = fontOf(text_format), .alignment = style.alignment });
+    }
     return metrics.height;
 }
 
@@ -999,7 +1117,7 @@ fn formatFor(font: app.Font) ?*anyopaque {
     };
 }
 
-fn alignmentCode(a: md.Align) u32 {
+pub fn alignmentCode(a: md.Align) u32 {
     return switch (a) {
         .none, .left => 0,
         .right => 1,
@@ -1008,6 +1126,7 @@ fn alignmentCode(a: md.Align) u32 {
 }
 
 pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
+    resetObjects();
     const dwf = g_dwrite_factory orelse return null;
     const lay = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, hit.content, formatFor(hit.font) orelse return null, hit.w) orelse return null;
     defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
@@ -1028,7 +1147,7 @@ pub fn openExternal(url: []const u8) void {
     _ = ShellExecuteW(null, L("open"), wide.ptr, null, null, SW_SHOWNORMAL);
 }
 
-fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, max_width: f32) ?*anyopaque {
+pub fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: md.Inline, text_format: *anyopaque, max_width: f32) ?*anyopaque {
     if (content.text.len == 0) return null;
     const wide = std.unicode.utf8ToUtf16LeAlloc(app.gpa, content.text) catch return null;
     defer app.gpa.free(wide);
@@ -1056,6 +1175,7 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
     for (content.emoji) |span| {
         _ = vt_layout.SetFontFamilyName(lay, std.unicode.utf8ToUtf16LeStringLiteral("Segoe UI Emoji"), wideRange(content.text, span));
     }
+    for (content.styles) |s| html.applyStyle(lay, content, s, baseFontSize(text_format));
     for (content.links) |l| {
         const range = wideRange(content.text, .{ l.start, l.len });
         if (g_brush_link) |b| _ = vt_layout.SetDrawingEffect(lay, b, range);
@@ -1066,6 +1186,17 @@ fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, content: m
         _ = vt_layout.SetFontSize(lay, baseFontSize(text_format) * sup_scale, range);
         const brush = if (content.linkAt(span[0]) != null) g_brush_link_sup else g_brush_text_sup;
         if (brush) |b| _ = vt_layout.SetDrawingEffect(lay, b, range);
+    }
+    for (content.styles) |s| {
+        if (s.kind != .sub) continue;
+        const range = wideRange(content.text, s.span);
+        _ = vt_layout.SetFontSize(lay, baseFontSize(text_format) * sub_scale, range);
+        const brush = if (content.linkAt(s.span[0]) != null) g_brush_link_sub else g_brush_text_sub;
+        if (brush) |b| _ = vt_layout.SetDrawingEffect(lay, b, range);
+    }
+    for (content.images) |*im| {
+        const obj = imageObject(im, max_width) orelse continue;
+        _ = vt_layout.SetInlineObject(lay, obj, wideRange(content.text, .{ im.start, im.len }));
     }
     return lay;
 }
@@ -1086,116 +1217,12 @@ fn padCodeSpans(lay: *anyopaque, content: md.Inline, font_size: f32) void {
     }
 }
 
-const cell_pad_x: f32 = 13;
-const nested_margin: f32 = md.nested_table_margin;
-const cell_pad_y: f32 = 6;
-
-fn cellLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, t: md.Table, row: usize, col: usize, width: f32) ?*anyopaque {
-    const content = t.cell(row, col);
-    const lay = createLayout(vt_dw, dwf, content, g_text_format orelse return null, width) orelse return null;
-    const vt = vtable(IDWriteTextLayout_VTable, lay);
-    if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) _ = vt.SetFontWeight(lay, 700, wideRange(content.text, .{ 0, @intCast(content.text.len) }));
-    _ = vt.SetTextAlignment(lay, alignmentCode(t.aligns[col]));
-    return lay;
-}
-
-fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
-    const border = g_brush_table_border orelse return 0;
-    if (out_width) |o| o.* = 0;
-    if (t.rows() == 0) return 0;
-    const widths = app.gpa.alloc(f32, t.columns) catch return 0;
-    defer app.gpa.free(widths);
-    const layouts = app.gpa.alloc(?*anyopaque, t.columns) catch return 0;
-    defer app.gpa.free(layouts);
-
-    @memset(widths, 0);
-    for (0..t.rows()) |row| {
-        for (widths, 0..) |*w, col| {
-            if (t.nestedAt(row, col)) |nt| {
-                var nw: f32 = 0;
-                _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, 100000, false, &nw);
-                w.* = @max(w.*, nw);
-                continue;
-            }
-            const lay = cellLayout(vt_dw, dwf, t, row, col, 100000) orelse continue;
-            defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
-            // SAFETY: written by GetMetrics
-            var m: DWRITE_TEXT_METRICS = undefined;
-            _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
-            w.* = @max(w.*, m.widthIncludingTrailingWhitespace);
-        }
-    }
-    var table_w: f32 = 0;
-    for (widths) |*w| w.* += cell_pad_x * 2 + 1;
-    md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
-    for (widths) |w| table_w += w;
-    if (out_width) |o| o.* = table_w;
-
-    var row_y = y;
-    for (0..t.rows()) |row| {
-        var text_h: f32 = 21;
-        for (layouts, 0..) |*lay, col| {
-            lay.* = null;
-            if (t.nestedAt(row, col)) |nt| {
-                text_h = @max(text_h, renderTable(vt_rt, vt_dw, rt, dwf, nt, 0, 0, widths[col] - cell_pad_x * 2, false, null) + nested_margin);
-                continue;
-            }
-            lay.* = cellLayout(vt_dw, dwf, t, row, col, widths[col] - cell_pad_x * 2);
-            if (lay.*) |l| {
-                // SAFETY: written by GetMetrics
-                var m: DWRITE_TEXT_METRICS = undefined;
-                _ = vtable(IDWriteTextLayout_VTable, l).GetMetrics(l, &m);
-                text_h = @max(text_h, m.height);
-            }
-        }
-        const row_h = text_h + cell_pad_y * 2;
-        if (draw) {
-            if (md.Table.striped(t, row)) {
-                vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + row_h }, g_brush_stripe.?);
-            }
-        }
-        var cx = x;
-        for (layouts, widths, 0..) |lay, w, col| {
-            if (draw) {
-                if (t.nestedAt(row, col)) |nt| {
-                    _ = renderTable(vt_rt, vt_dw, rt, dwf, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
-                } else if (lay) |l| {
-                    drawLayout(vt_rt, rt, l, cx + cell_pad_x, row_y + cell_pad_y, g_brush_text.?, t.cell(row, col));
-                    app.noteHit(.{
-                        .content = t.cell(row, col),
-                        .x = cx + cell_pad_x,
-                        .y = row_y + cell_pad_y,
-                        .w = w - cell_pad_x * 2,
-                        .h = text_h,
-                        .header = (row == 0 and t.header_row) or (col == 0 and t.header_col),
-                        .alignment = t.aligns[col],
-                    });
-                }
-            }
-            if (lay) |l| _ = vtable(IDWriteTextLayout_VTable, l).Release(l);
-            cx += w;
-        }
-        if (draw) vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
-        row_y += row_h;
-    }
-    if (draw) {
-        vt_rt.FillRectangle(rt, &.{ .left = x, .top = row_y, .right = x + table_w, .bottom = row_y + 1 }, border);
-        var cx = x;
-        vt_rt.FillRectangle(rt, &.{ .left = cx, .top = y, .right = cx + 1, .bottom = row_y + 1 }, border);
-        for (widths) |w| {
-            cx += w;
-            vt_rt.FillRectangle(rt, &.{ .left = cx - 1, .top = y, .right = cx, .bottom = row_y + 1 }, border);
-        }
-    }
-    return row_y + 1 - y;
-}
-
-fn wideRange(text: []const u8, span: md.Span) DWRITE_TEXT_RANGE {
+pub fn wideRange(text: []const u8, span: md.Span) DWRITE_TEXT_RANGE {
     const start = md.utf16Offset(text, span[0]);
     return .{ .startPosition = start, .length = md.utf16Offset(text, span[0] + span[1]) - start };
 }
 
-fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, text: []const u8, toks: []const hl.Token, x: f32, y: f32, max_width: f32) f32 {
+pub fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, text: []const u8, toks: []const hl.Token, x: f32, y: f32, max_width: f32, draw: bool) f32 {
     if (text.len == 0) return 0;
     const wide = std.unicode.utf8ToUtf16LeAlloc(app.gpa, text) catch return 0;
     defer app.gpa.free(wide);
@@ -1212,12 +1239,13 @@ fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
     var metrics: DWRITE_TEXT_METRICS = undefined;
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &metrics);
     const block_height = metrics.height + 24;
+    g_last_text_w = metrics.widthIncludingTrailingWhitespace + 32;
+    if (!draw) return block_height;
 
     if (g_brush_code_bg) |bg| {
         vt_rt.FillRoundedRectangle(rt, &.{
             .rect = .{ .left = x, .top = y, .right = x + max_width, .bottom = y + block_height },
-            .radiusX = 6,
-            .radiusY = 6,
+            .radiusX = 6, .radiusY = 6,
         }, bg);
     }
     drawLineBackgrounds(vt_rt, rt, lay, text, toks, x, y + 12, max_width);
@@ -1238,7 +1266,7 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8, toks: []const hl.T
     for (toks) |tok| {
         const st = hl.style(tok.kind);
         const range = synRange(&cursor, tok.start, tok.end);
-        if (g_brush_hl[@backingInt(tok.kind)]) |brush| _ = vt.SetDrawingEffect(lay, brush, range);
+        if (g_brush_hl[@intFromEnum(tok.kind)]) |brush| _ = vt.SetDrawingEffect(lay, brush, range);
         if (st.bold) _ = vt.SetFontWeight(lay, 700, range);
         if (st.underline) _ = vt.SetUnderline(lay, 1, range);
     }
@@ -1250,7 +1278,7 @@ fn drawLineBackgrounds(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyop
     const vt = vtable(IDWriteTextLayout_VTable, lay);
     var cursor: md.Utf16Cursor = .{ .text = text };
     for (toks) |tok| {
-        const brush = g_brush_hl_bg[@backingInt(tok.kind)] orelse continue;
+        const brush = g_brush_hl_bg[@intFromEnum(tok.kind)] orelse continue;
         const range = synRange(&cursor, tok.start, tok.end);
         var stack: [16]DWRITE_HIT_TEST_METRICS = undefined;
         var rects: []DWRITE_HIT_TEST_METRICS = &stack;
@@ -1277,6 +1305,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
     switch (msg) {
         WM_PAINT => {
             render();
+            scheduleImages(hwnd);
             // SAFETY: written by BeginPaint
             var ps: PAINTSTRUCT = undefined;
             _ = BeginPaint(hwnd, &ps);
@@ -1286,8 +1315,8 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
         },
         WM_SIZE => {
             const lp: usize = @bitCast(lParam);
-            app.window_width = @floatFromInt(@as(u32, @truncate(lp & 0xFFFF)));
-            app.window_height = @floatFromInt(@as(u32, @truncate((lp >> 16) & 0xFFFF)));
+            app.window_width = @as(f32, @floatFromInt(@as(u32, @truncate(lp & 0xFFFF)))) / g_scale;
+            app.window_height = @as(f32, @floatFromInt(@as(u32, @truncate((lp >> 16) & 0xFFFF)))) / g_scale;
             if (g_render_target) |rt| {
                 _ = vtable(ID2D1RT_VTable, rt).Resize(rt, &.{
                     .width = @as(u32, @truncate(lp & 0xFFFF)),
@@ -1312,7 +1341,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const lp: usize = @bitCast(lParam);
             const x: i16 = @bitCast(@as(u16, @truncate(lp)));
             const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
-            g_over_link = app.pointerMoved(@floatFromInt(x), @floatFromInt(y));
+            g_over_link = app.pointerMoved(@as(f32, @floatFromInt(x)) / g_scale, @as(f32, @floatFromInt(y)) / g_scale);
             return 0;
         },
         WM_SETCURSOR => {
@@ -1328,14 +1357,14 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const lp: usize = @bitCast(lParam);
             const x: i16 = @bitCast(@as(u16, @truncate(lp)));
             const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
-            _ = app.mouseDown(@floatFromInt(x), @floatFromInt(y));
+            _ = app.mouseDown(@as(f32, @floatFromInt(x)) / g_scale, @as(f32, @floatFromInt(y)) / g_scale);
             return 0;
         },
         WM_LBUTTONUP => {
             const lp: usize = @bitCast(lParam);
             const x: i16 = @bitCast(@as(u16, @truncate(lp)));
             const y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
-            _ = app.mouseUp(@floatFromInt(x), @floatFromInt(y));
+            _ = app.mouseUp(@as(f32, @floatFromInt(x)) / g_scale, @as(f32, @floatFromInt(y)) / g_scale);
             return 0;
         },
         WM_XBUTTONUP => {
@@ -1371,32 +1400,33 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const raw_y: i16 = @bitCast(@as(u16, @truncate(lp >> 16)));
             var pt = POINT{ .x = raw_x, .y = raw_y };
             _ = ScreenToClient(hwnd, &pt);
-            const border: i32 = 6;
-            const w: i32 = @intFromFloat(app.window_width);
-            const h: i32 = @intFromFloat(app.window_height);
-            if (pt.x > w - 40 and pt.y < 36) {
-                PostQuitMessage(0);
-                return 0;
-            }
-            if (pt.y < border) {
-                if (pt.x < border) return HTTOPLEFT;
-                if (pt.x > w - border) return HTTOPRIGHT;
-                return HTTOP;
-            }
-            if (pt.y > h - border) {
-                if (pt.x < border) return HTBOTTOMLEFT;
-                if (pt.x > w - border) return HTBOTTOMRIGHT;
-                return HTBOTTOM;
-            }
+            const border: i32 = @intFromFloat(6 * g_scale);
+            const w: i32 = @intFromFloat(app.window_width * g_scale);
+            const h: i32 = @intFromFloat(app.window_height * g_scale);
+            if (pt.x > w - @as(i32, @intFromFloat(40 * g_scale)) and pt.y < @as(i32, @intFromFloat(36 * g_scale))) { PostQuitMessage(0); return 0; }
+            if (pt.y < border) { if (pt.x < border) return HTTOPLEFT; if (pt.x > w - border) return HTTOPRIGHT; return HTTOP; }
+            if (pt.y > h - border) { if (pt.x < border) return HTBOTTOMLEFT; if (pt.x > w - border) return HTBOTTOMRIGHT; return HTBOTTOM; }
             if (pt.x < border) return HTLEFT;
             if (pt.x > w - border) return HTRIGHT;
             if ((@as(u16, @bitCast(GetKeyState(VK_MENU))) & 0x8000) != 0) return HTCAPTION;
             return HTCLIENT;
         },
+        WM_DPICHANGED => {
+            const wp: usize = @bitCast(wParam);
+            setScale(@as(f32, @floatFromInt(@as(u16, @truncate(wp)))) / 96.0);
+            const suggested: *const RECT = @ptrFromInt(@as(usize, @bitCast(lParam)));
+            _ = SetWindowPos(hwnd, null, suggested.left, suggested.top, suggested.right - suggested.left, suggested.bottom - suggested.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            _ = InvalidateRect(hwnd, null, 0);
+            return 0;
+        },
         WM_TIMER => {
             const timer_id: usize = @bitCast(wParam);
             if (timer_id == TIMER_FILE_WATCH) app.checkFileChanged();
             if (timer_id == TIMER_SCROLL_SAVE) app.saveScrollPosition();
+            if (timer_id == TIMER_IMAGES) {
+                _ = KillTimer(hwnd, TIMER_IMAGES);
+                if (app.images.tick()) _ = InvalidateRect(hwnd, null, 0) else scheduleImages(hwnd);
+            }
             return 0;
         },
         WM_DROPFILES => {
@@ -1414,6 +1444,10 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
         },
         else => return DefWindowProcW(hwnd, msg, wParam, lParam),
     }
+}
+
+fn scheduleImages(hwnd: HWND) void {
+    if (app.images.timerDelay()) |ms| _ = SetTimer(hwnd, TIMER_IMAGES, @max(ms, 15), null);
 }
 
 fn handleDrop(hDrop: *anyopaque) void {
@@ -1556,4 +1590,111 @@ test "the code background padding takes up space on both sides of the span" {
     const want = 2 * md.code_pad_em * md.code_scale * 16;
     try testing.expectApproxEqAbs(want, padded.widthIncludingTrailingWhitespace - plain.widthIncludingTrailingWhitespace, 0.5);
     try testing.expectApproxEqAbs(want, with_pad - without, 0.5);
+}
+
+pub fn layoutSize(content: md.Inline, width: f32) DWRITE_TEXT_METRICS {
+    const dwf = g_dwrite_factory.?;
+    const lay = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, content, g_text_format.?, width).?;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    // SAFETY: written by GetMetrics
+    var m: DWRITE_TEXT_METRICS = undefined;
+    _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
+    return m;
+}
+
+test "an image scales down to the layout width and is hit like a character" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetObjects();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    try app.images.injectReady("wide.png", 1000, 500);
+    var doc = try md.parse(testing.allocator, "![w](wide.png) after");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+
+    const wide = layoutSize(content, 2000);
+    try testing.expect(wide.width >= 1000 and wide.height >= 500);
+    const narrow = layoutSize(content, 400);
+    try testing.expect(narrow.width <= 400.5);
+    try testing.expect(narrow.height >= 200 and narrow.height < 260);
+
+    const hit: app.Hit = .{ .content = content, .x = 0, .y = 0, .w = 400, .h = narrow.height };
+    const index = textIndexAt(hit, 100, 100) orelse return error.TestUnexpectedResult;
+    try testing.expect(content.imageAt(index) != null);
+}
+
+test "a missing image lays out a glyph and its alt text in the flow and a reference image resolves" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetObjects();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    var doc = try md.parse(testing.allocator, "![a long alt text](gone.png)\n\n![ref image][r]\n\n[r]: gone.png");
+    defer doc.deinit();
+    try testing.expectEqualStrings("gone.png", doc.blocks[1].content.images[0].target);
+    const deadline = app.images.now() + 5000;
+    while (app.images.now() < deadline) {
+        _ = app.images.tick();
+        if (app.images.look("gone.png", 400) == .missing) break;
+        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
+    }
+    try testing.expect(app.images.look("gone.png", 400) == .missing);
+    const alt = layoutSize(app.images.flow(doc.blocks[0].content), 400);
+    const plain = layoutSize(.{ .text = "a long alt text" }, 400);
+    try testing.expectApproxEqAbs(plain.width + broken_w, alt.width, 2);
+    try testing.expectApproxEqAbs(plain.height, alt.height, 2);
+}
+
+pub extern "user32" fn DestroyWindow(hWnd: HWND) callconv(.c) BOOL;
+
+test "a loaded image is drawn through Direct2D and its bitmap is cached" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetObjects();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    try app.images.injectReady("wide.png", 400, 200);
+    const hwnd = CreateWindowExW(0, L("STATIC"), L("t"), WS_POPUP, 0, 0, 300, 200, null, null, null, null) orelse return error.NoWindow;
+    defer _ = DestroyWindow(hwnd);
+    createRenderTarget(hwnd);
+    try testing.expect(g_render_target != null);
+    var doc = try md.parse(testing.allocator, "![w](wide.png) text");
+    defer doc.deinit();
+    app.blocks = doc.blocks;
+    app.window_width = 300;
+    app.window_height = 200;
+    app.scroll_y = 0;
+    defer {
+        app.blocks = &.{};
+        app.hits.deinit(testing.allocator);
+        app.hits = .empty;
+        app.block_y.deinit(testing.allocator);
+        app.block_y = .empty;
+    }
+    render();
+    const bm = app.images.bitmap("wide.png", .{ .w = 220, .h = 110 }) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u32, 400), bm.w);
+    try testing.expectEqual(@as(u32, 200), bm.h);
+}
+
+test "the view matrix scales layout units to device pixels" {
+    setScale(2);
+    defer setScale(1);
+    const m = matrix(3, -4).m;
+    try testing.expectEqual(@as(f32, 2), m[0]);
+    try testing.expectEqual(@as(f32, 6), m[4]);
+    try testing.expectEqual(@as(f32, -8), m[5]);
+    try testing.expectEqual(@as(f32, 2), app.images.dpi_scale);
+}
+
+
+test {
+    _ = html;
 }

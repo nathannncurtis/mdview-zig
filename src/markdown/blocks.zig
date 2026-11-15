@@ -756,14 +756,14 @@ fn normalizeLabel(a: Allocator, raw: []const u8) Allocator.Error![]const u8 {
 }
 
 const block_tags = [_][]const u8{
-    "address",  "article",  "aside",    "base",       "basefont", "blockquote", "body",   "caption",
-    "center",   "col",      "colgroup", "dd",         "details",  "dialog",     "dir",    "div",
-    "dl",       "dt",       "fieldset", "figcaption", "figure",   "footer",     "form",   "frame",
-    "frameset", "h1",       "h2",       "h3",         "h4",       "h5",         "h6",     "head",
-    "header",   "hr",       "html",     "iframe",     "legend",   "li",         "link",   "main",
-    "menu",     "menuitem", "nav",      "noframes",   "ol",       "optgroup",   "option", "p",
-    "param",    "search",   "section",  "source",     "summary",  "table",      "tbody",  "td",
-    "tfoot",    "th",       "thead",    "title",      "tr",       "track",      "ul",
+    "address",  "article", "aside",    "base",     "basefont", "blockquote", "body",     "caption",
+    "center",   "col",     "colgroup", "dd",       "details",  "dialog",     "dir",      "div",
+    "dl",       "dt",      "fieldset", "figcaption", "figure", "footer",     "form",     "frame",
+    "frameset", "h1",      "h2",       "h3",       "h4",       "h5",         "h6",       "head",
+    "header",   "hr",      "html",     "iframe",   "legend",   "li",         "link",     "main",
+    "menu",     "menuitem", "nav",     "noframes", "ol",       "optgroup",   "option",   "p",
+    "param",    "search",  "section",  "source",   "summary",  "table",      "tbody",    "td",       "tfoot",
+    "th",       "thead",   "title",    "tr",       "track",    "ul",
 };
 
 fn startsWithNoCase(s: []const u8, prefix: []const u8) bool {

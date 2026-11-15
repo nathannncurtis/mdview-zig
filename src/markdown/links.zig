@@ -10,7 +10,26 @@ pub const Link = struct {
     title: []const u8 = "",
 };
 
-pub const Image = Link;
+pub const Float = enum { none, left, right };
+
+pub const Image = struct {
+    start: u32,
+    len: u32,
+    target: []const u8,
+    title: []const u8 = "",
+    alt: []const u8 = "",
+    /// Requested size in pixels from `width`/`height` attributes; 0 for unset.
+    width: f32 = 0,
+    /// `width="50%"`: percent of the space available to the image, with `width` left 0.
+    width_pct: f32 = 0,
+    height: f32 = 0,
+    float: Float = .none,
+
+    /// The width attribute in pixels for a line `avail` wide, 0 when unset.
+    pub fn requestedWidth(self: Image, avail: f32) f32 {
+        return if (self.width_pct > 0) avail * self.width_pct / 100 else self.width;
+    }
+};
 
 pub const Def = struct { dest: []const u8, title: []const u8 };
 
@@ -592,7 +611,7 @@ pub const Action = union(enum) {
 };
 
 const openable_ext = [_][]const u8{
-    "txt",  "pdf", "png", "jpg", "jpeg", "gif",  "webp", "bmp", "ico", "csv", "tsv", "json", "xml",
+    "txt", "pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "csv", "tsv", "json", "xml",
     "yaml", "yml", "log", "rtf", "docx", "xlsx", "pptx", "odt", "ods", "odp",
 };
 
@@ -750,15 +769,15 @@ test "extended autolinks trim trailing punctuation" {
     defer arena.deinit();
     const a = arena.allocator();
     const t1 = "www.commonmark.org/a.b.";
-    try testing.expectEqualStrings("www.commonmark.org/a.b", t1[0..(try extendedAutolink(a, t1, 0)).?.end]);
+    try testing.expectEqualStrings("www.commonmark.org/a.b", t1[0 .. (try extendedAutolink(a, t1, 0)).?.end]);
     const t2 = "http://x.org/a_(b))";
-    try testing.expectEqualStrings("http://x.org/a_(b)", t2[0..(try extendedAutolink(a, t2, 0)).?.end]);
+    try testing.expectEqualStrings("http://x.org/a_(b)", t2[0 .. (try extendedAutolink(a, t2, 0)).?.end]);
     const t3 = "www.a.org/q?a=1&amp;";
-    try testing.expectEqualStrings("www.a.org/q?a=1", t3[0..(try extendedAutolink(a, t3, 0)).?.end]);
+    try testing.expectEqualStrings("www.a.org/q?a=1", t3[0 .. (try extendedAutolink(a, t3, 0)).?.end]);
     try testing.expect((try extendedAutolink(a, "www.a_b.org", 0)) == null);
     try testing.expect((try extendedAutolink(a, "xwww.a.org", 1)) == null);
     const t4 = "(www.a.org)";
-    try testing.expectEqualStrings("www.a.org", t4[1..(try extendedAutolink(a, t4, 1)).?.end]);
+    try testing.expectEqualStrings("www.a.org", t4[1 .. (try extendedAutolink(a, t4, 1)).?.end]);
 }
 
 test "percent encoding and decoding" {
