@@ -1,0 +1,47 @@
+{
+ "L_Dev_Git_0": {
+  "w": 32.8746,
+  "h": 18.9998,
+  "text": "push"
+ },
+ "L_CI_Reg_0": {
+  "w": 30.2809,
+  "h": 18.9998,
+  "text": "pass"
+ },
+ "L_CI_Dev_0": {
+  "w": 23.6091,
+  "h": 18.9998,
+  "text": "fail"
+ },
+ "diagram-flowchart-Dev-0": {
+  "w": 72.2648,
+  "h": 18.9998,
+  "text": "Developer"
+ },
+ "diagram-flowchart-Git-1": {
+  "w": 74.9679,
+  "h": 18.9998,
+  "text": "Repository"
+ },
+ "diagram-flowchart-CI-3": {
+  "w": 54.7025,
+  "h": 18.9998,
+  "text": "CI build"
+ },
+ "diagram-flowchart-Reg-5": {
+  "w": 56.9213,
+  "h": 18.9998,
+  "text": "Registry"
+ },
+ "diagram-flowchart-Deploy-9": {
+  "w": 48.6558,
+  "h": 18.9998,
+  "text": "Deploy"
+ },
+ "diagram-flowchart-Prod-11": {
+  "w": 76.796,
+  "h": 18.9998,
+  "text": "Production"
+ }
+}

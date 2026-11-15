@@ -1,0 +1,22 @@
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant W as Web
+  participant A as API
+  participant D as DB
+  U->>+W: open page
+  W->>+A: GET /items
+  A->>+D: SELECT *
+  D-->>-A: rows
+  A-->>-W: JSON
+  W-->>-U: render
+  loop every 30s
+    W->>A: poll
+    alt changed
+      A-->>W: new data
+      W->>U: refresh
+    else same
+      A-->>W: 304
+    end
+  end
+  Note over U,D: end of session

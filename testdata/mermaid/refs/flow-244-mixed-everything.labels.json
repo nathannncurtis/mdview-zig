@@ -1,0 +1,42 @@
+{
+ "diagram-S2": {
+  "w": 75.3882,
+  "h": 18.9994,
+  "text": "Group Two"
+ },
+ "diagram-S1": {
+  "w": 76.3569,
+  "h": 18.9994,
+  "text": "Group One"
+ },
+ "L_a2_b1_0": {
+  "w": 35.6395,
+  "h": 18.9994,
+  "text": "thick"
+ },
+ "diagram-flowchart-a1-0": {
+  "w": 57.9513,
+  "h": 18.9994,
+  "text": "Stadium"
+ },
+ "diagram-flowchart-a2-1": {
+  "w": 27.2179,
+  "h": 18.9994,
+  "text": "Hex"
+ },
+ "diagram-flowchart-b1-2": {
+  "w": 18.8744,
+  "h": 18.9994,
+  "text": "DB"
+ },
+ "diagram-flowchart-b2-3": {
+  "w": 25.3586,
+  "h": 18.9994,
+  "text": "Sub"
+ },
+ "diagram-flowchart-c1-9": {
+  "w": 26.2336,
+  "h": 18.9994,
+  "text": "End"
+ }
+}

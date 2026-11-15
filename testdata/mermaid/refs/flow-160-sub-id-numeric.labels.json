@@ -1,0 +1,32 @@
+{
+ "diagram-2": {
+  "w": 50.5938,
+  "h": 19,
+  "text": "Second"
+ },
+ "diagram-1": {
+  "w": 32,
+  "h": 19,
+  "text": "First"
+ },
+ "diagram-flowchart-a-0": {
+  "w": 8.4063,
+  "h": 19,
+  "text": "a"
+ },
+ "diagram-flowchart-b-1": {
+  "w": 8.9219,
+  "h": 19,
+  "text": "b"
+ },
+ "diagram-flowchart-c-2": {
+  "w": 7.9219,
+  "h": 19,
+  "text": "c"
+ },
+ "diagram-flowchart-d-3": {
+  "w": 8.9219,
+  "h": 19,
+  "text": "d"
+ }
+}
