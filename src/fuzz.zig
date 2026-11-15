@@ -156,7 +156,7 @@ test "fuzz elk.stress" {
     try std.testing.fuzz({}, elk_stress_fuzz.fuzzOne, .{ .corpus = &elk_fuzz.corpus });
 }
 
-test "fuzz mermaid.elk.spore" {
+test "fuzz elk.spore" {
     try std.testing.fuzz({}, spore_fuzz.fuzzOne, .{ .corpus = &spore_fuzz.corpus });
 }
 

@@ -144,6 +144,14 @@ jobs:
             iterations: 150K
           - target: mermaid.elk
             iterations: 200K
+          - target: elk.stress
+            iterations: 100K
+          - target: elk.force
+            iterations: 100K
+          - target: elk.spore
+            iterations: 150K
+          - target: elk.radial
+            iterations: 150K
           - target: font.parse
             iterations: 2M
           - target: image.decode
