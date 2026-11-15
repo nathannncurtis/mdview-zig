@@ -117,7 +117,7 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
 
     if (favor_straight_edges) try postProcessTwoPaths(&p);
 
-    applyPositions(&p);
+    try applyPositions(&p);
 }
 
 fn prepare(p: *Placer) Allocator.Error!void {
@@ -155,7 +155,7 @@ fn prepare(p: *Placer) Allocator.Error!void {
     @memset(p.edge_reps, null);
 }
 
-fn buildInitialAuxiliaryGraph(p: *Placer) Allocator.Error!void {
+fn buildInitialAuxiliaryGraph(p: *Placer) lg.Error!void {
     for (p.g.layers.items) |l| try transformLayer(p, l);
     try transformEdges(p);
 }
@@ -225,7 +225,7 @@ fn transformPorts(p: *Placer, ports: []*lg.LPort, reversed: bool, corners: NodeR
     _ = try p.newEdge(null, last_nnode, corners.tail, 0, ceilInt(port_surrounding.bottom + last_port.?.size.y));
 }
 
-fn transformEdges(p: *Placer) Allocator.Error!void {
+fn transformEdges(p: *Placer) lg.Error!void {
     for (p.g.layers.items) |layer| for (layer.nodes.items) |node| {
         for (node.ports.items) |port| for (port.outgoing.items) |e| {
             if (isHandledEdge(e)) try transformEdge(p, e);
@@ -233,7 +233,7 @@ fn transformEdges(p: *Placer) Allocator.Error!void {
     };
 }
 
-fn transformEdge(p: *Placer, ledge: *lg.LEdge) Allocator.Error!void {
+fn transformEdge(p: *Placer, ledge: *lg.LEdge) lg.Error!void {
     const dummy = try p.newNode(.none);
     const src_rep = p.node_reps[ix(ledge.source.?.owner.?)];
     const tgt_rep = p.node_reps[ix(ledge.target.?.owner.?)];
@@ -246,12 +246,20 @@ fn transformEdge(p: *Placer, ledge: *lg.LEdge) Allocator.Error!void {
     const tgt_delta: i32 = @intFromFloat(@max(0, src_offset - tgt_offset));
     const src_delta: i32 = @intFromFloat(@max(0, tgt_offset - src_offset));
     const weight = edgeWeight(ledge);
-    const left = try p.newEdge(ledge, dummy, p.port_map.get(src_port).?, weight, src_delta);
-    const right = try p.newEdge(ledge, dummy, p.port_map.get(tgt_port).?, weight, tgt_delta);
+    // ELK dereferences the missing port node here (a NullPointerException) for an edge at a north or south port
+    const src_node = p.port_map.get(src_port) orelse return portlessEdge();
+    const tgt_node = p.port_map.get(tgt_port) orelse return portlessEdge();
+    const left = try p.newEdge(ledge, dummy, src_node, weight, src_delta);
+    const right = try p.newEdge(ledge, dummy, tgt_node, weight, tgt_delta);
     p.edge_reps[@intCast(ledge.id)] = .{ .left = left, .right = right };
 }
 
-fn insertInLayerEdgeAuxiliaryEdges(p: *Placer) Allocator.Error!void {
+fn portlessEdge() lg.Error {
+    lg.setElkMessage("An edge at a north or south port has no network simplex node");
+    return error.ElkException;
+}
+
+fn insertInLayerEdgeAuxiliaryEdges(p: *Placer) lg.Error!void {
     for (p.g.layers.items) |l| for (l.nodes.items) |n| {
         if (n.type != .normal) continue;
         for (n.ports.items) |port| {
@@ -261,12 +269,12 @@ fn insertInLayerEdgeAuxiliaryEdges(p: *Placer) Allocator.Error!void {
     };
 }
 
-fn insertInLayerEdge(p: *Placer, in_layer_edge: *lg.LEdge) Allocator.Error!void {
+fn insertInLayerEdge(p: *Placer, in_layer_edge: *lg.LEdge) lg.Error!void {
     if (!in_layer_edge.isInLayerEdge()) return;
     const src_is_dummy = in_layer_edge.source.?.owner.?.type != .normal;
     const the_port = if (src_is_dummy) in_layer_edge.target.? else in_layer_edge.source.?;
     const dummy_node = in_layer_edge.otherPort(the_port).owner.?;
-    const port_rep = p.port_map.get(the_port).?;
+    const port_rep = p.port_map.get(the_port) orelse return portlessEdge();
     const dummy_rep = p.node_reps[ix(dummy_node)].head;
     // SAFETY: assigned before use
     var src: *NNode = undefined;
@@ -316,7 +324,7 @@ fn insertFlexibleWhereSpaceAuxiliaryEdges(p: *Placer) Allocator.Error!void {
     }
 }
 
-fn applyPositions(p: *Placer) void {
+fn applyPositions(p: *Placer) lg.Error!void {
     for (p.g.layers.items) |l| for (l.nodes.items) |lnode| {
         const node_rep = p.node_reps[ix(lnode)];
         const min_y: f64 = @floatFromInt(node_rep.head.layer);
@@ -329,7 +337,7 @@ fn applyPositions(p: *Placer) void {
         if (flexible_node and nf.isFlexiblePorts()) {
             for (lnode.ports.items) |port| {
                 if (port.side == .east or port.side == .west) {
-                    const nnode = p.port_map.get(port).?;
+                    const nnode = p.port_map.get(port) orelse return portlessEdge();
                     port.pos.y = @as(f64, @floatFromInt(nnode.layer)) - min_y;
                 }
             }
@@ -412,7 +420,7 @@ fn orderTwoPath(path: *Path) void {
     }
 }
 
-fn preferStraightEdges(p: *Placer) Allocator.Error!void {
+fn preferStraightEdges(p: *Placer) lg.Error!void {
     const a = p.a;
     p.node_state = try a.alloc(i32, p.node_count);
     for (p.g.layers.items) |l| for (l.nodes.items) |n| {
@@ -431,7 +439,11 @@ fn preferStraightEdges(p: *Placer) Allocator.Error!void {
 
         var last: ?*lg.LEdge = null;
         for (path.items, 0..) |cur, i| {
-            const cur_rep = p.edge_reps[@intCast(cur.id)].?;
+            // ELK dereferences a missing edge representation here (a NullPointerException)
+            const cur_rep = p.edge_reps[@intCast(cur.id)] orelse {
+                lg.setElkMessage("An edge on a straight path has no network simplex representation");
+                return error.ElkException;
+            };
             // SAFETY: assigned before use
             var weight: f64 = undefined;
             if (last == null or i + 1 == path.items.len) {

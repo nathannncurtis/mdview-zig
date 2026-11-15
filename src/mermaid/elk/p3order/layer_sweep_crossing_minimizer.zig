@@ -54,7 +54,7 @@ pub const LayerSweepCrossingMinimizer = struct {
                     .no_counter => try self.minimizeCrossingsNoCounter(gd),
                     .with_counter => _ = try self.minimizeCrossingsWithCounter(gd),
                 }
-                if (gd.has_parent) setPortOrderOnParentGraph(gd);
+                if (gd.has_parent) try setPortOrderOnParentGraph(gd);
             }
         }
         for (self.graph_info_holders.items) |gd| {
@@ -62,12 +62,12 @@ pub const LayerSweepCrossingMinimizer = struct {
         }
     }
 
-    fn setPortOrderOnParentGraph(gd: *GraphInfoHolder) void {
+    fn setPortOrderOnParentGraph(gd: *GraphInfoHolder) lg.Error!void {
         if (gd.has_external_ports) {
             // ELK dereferences a missing best sweep here and fails; keep the parent untouched instead
             const best = gd.getBestSweep() orelse return;
-            sortPortsByDummyPositionsInLastLayer(best.node_order, gd.parent.?, true);
-            sortPortsByDummyPositionsInLastLayer(best.node_order, gd.parent.?, false);
+            try sortPortsByDummyPositionsInLastLayer(best.node_order, gd.parent.?, true);
+            try sortPortsByDummyPositionsInLastLayer(best.node_order, gd.parent.?, false);
             gd.parent.?.p.port_constraints = .fixed_order;
         }
     }
@@ -180,7 +180,7 @@ pub const LayerSweepCrossingMinimizer = struct {
             _ = try nested.cross_minimizer.setFirstLayerOrder(order, forward);
         }
         const improved = try self.sweepReducingCrossings(nested, forward, first_sweep);
-        sortPortsByDummyPositionsInLastLayer(nested.current_node_order, nested.parent.?, forward);
+        try sortPortsByDummyPositionsInLastLayer(nested.current_node_order, nested.parent.?, forward);
         return improved;
     }
 
@@ -232,7 +232,7 @@ pub const LayerSweepCrossingMinimizer = struct {
     }
 };
 
-fn sortPortsByDummyPositionsInLastLayer(order: [][]*lg.LNode, parent: *lg.LNode, on_right_most_layer: bool) void {
+fn sortPortsByDummyPositionsInLastLayer(order: [][]*lg.LNode, parent: *lg.LNode, on_right_most_layer: bool) lg.Error!void {
     const last_layer = order[if (on_right_most_layer) order.len - 1 else 0];
     var j: isize = if (on_right_most_layer) 0 else @as(isize, @intCast(last_layer.len)) - 1;
     if (last_layer[@intCast(j)].type != .external_port) return;
@@ -242,7 +242,14 @@ fn sortPortsByDummyPositionsInLastLayer(order: [][]*lg.LNode, parent: *lg.LNode,
         const on_side = if (on_right_most_layer) port.side == .east else port.side == .west;
         if (on_side and port.p.inside_connections) {
             if (j < 0 or j >= last_layer.len) break;
-            slot.* = last_layer[@intCast(j)].p.origin.port;
+            // ELK casts the origin to a port here; a long edge dummy in the layer throws a ClassCastException
+            slot.* = switch (last_layer[@intCast(j)].p.origin) {
+                .port => |origin_port| origin_port,
+                else => {
+                    lg.setElkMessage("The last layer holds a node that is not an external port dummy");
+                    return error.ElkException;
+                },
+            };
             j += step;
         }
     }

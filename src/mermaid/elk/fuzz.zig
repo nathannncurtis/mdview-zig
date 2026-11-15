@@ -41,10 +41,41 @@ fn isAncestor(parents: []const ?usize, anc: usize, node: usize) bool {
     return false;
 }
 
+// A graph of at most 24 nodes must never need this much memory.
+const Capped = struct {
+    child: std.mem.Allocator,
+    used: usize = 0,
+
+    const limit = 256 << 20;
+
+    fn allocator(self: *Capped) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = std.mem.Allocator.noResize, .remap = std.mem.Allocator.noRemap, .free = free } };
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
+        const self: *Capped = @ptrCast(@alignCast(ctx));
+        if (self.used + len > limit) return null;
+        const p = self.child.rawAlloc(len, alignment, ra) orelse return null;
+        self.used += len;
+        return p;
+    }
+
+    fn free(ctx: *anyopaque, buf: []u8, alignment: std.mem.Alignment, ra: usize) void {
+        const self: *Capped = @ptrCast(@alignCast(ctx));
+        self.child.rawFree(buf, alignment, ra);
+        self.used -= buf.len;
+    }
+};
+
 pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
     var buf: [max_input]u8 = undefined;
     const input = buf[0..smith.slice(&buf)];
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    try runBytes(std.testing.allocator, input);
+}
+
+pub fn runBytes(child: std.mem.Allocator, input: []const u8) anyerror!void {
+    var capped: Capped = .{ .child = child };
+    var arena = std.heap.ArenaAllocator.init(capped.allocator());
     defer arena.deinit();
     const a = arena.allocator();
     var r: Reader = .{ .bytes = input };
@@ -134,11 +165,28 @@ pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
         .orient_feedback_edges = flags & 8 == 0,
         .straighten_edges = flags & 16 == 0,
     };
-    const res = mermaid.layout(a, nodes, edges.items, cfg) catch return;
+    const res = mermaid.layout(a, nodes, edges.items, cfg) catch |err| {
+        if (err == error.OutOfMemory) return err;
+        return;
+    };
     for (res.nodes) |nd| {
         try std.testing.expect(std.math.isFinite(nd.x) and std.math.isFinite(nd.y));
     }
     for (res.edges) |ed| for (ed.points) |p| {
         try std.testing.expect(std.math.isFinite(p.x) and std.math.isFinite(p.y));
     };
+}
+
+test "StretchWidth on an empty group with a zero height does not loop" {
+    var capped: Capped = .{ .child = std.testing.allocator };
+    var arena = std.heap.ArenaAllocator.init(capped.allocator());
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]mermaid.Node{
+        .{ .id = "g", .is_group = true, .label_text = "g", .label_w = 60, .label_h = 22, .padding = 8 },
+        .{ .id = "n", .width = 50, .height = 30 },
+    };
+    const edges = [_]mermaid.Edge{.{ .id = "e", .start = "g", .end = "n", .arrow_type_end = "arrow_point" }};
+    const res = mermaid.layout(a, &nodes, &edges, .{ .elk = .{ .layering_strategy = "STRETCH_WIDTH" } });
+    try std.testing.expectError(error.ElkException, res);
 }

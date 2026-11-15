@@ -82,6 +82,11 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
     }
 
     for (infos.items) |*info| {
+        // an edge that runs against the layer direction (a cyclic graph the cycle breaker left alone) has no median layer
+        if (info.totalDummyCount() < 1) {
+            lg.setElkMessage("A label dummy sits on an edge that runs against the layer direction");
+            return error.ElkException;
+        }
         const lower_median = @divTrunc(info.totalDummyCount() - 1, 2);
         try assignLayer(info, info.leftmost_layer_id + lower_median);
         updateLongEdgeSourceLabelDummyInfo(info);
