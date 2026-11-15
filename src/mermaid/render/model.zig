@@ -84,7 +84,8 @@ pub const Config = struct {
     /// The values the flowchart code reads, taken from the config Mermaid's core resolved for this diagram.
     pub fn fromCore(c: *const core_config.Config) Config {
         const v = &c.vars;
-        const html = c.htmlLabels();
+        // drawn through ELK, node labels follow only the top-level htmlLabels (the references keep them HTML under flowchart.htmlLabels false); edge labels follow flowchart.htmlLabels
+        const node_html = if (std.mem.eql(u8, c.str("layout") orelse "", "dagre")) c.htmlLabels() else if (c.get("htmlLabels")) |hv| (hv == .null or core_config.evaluate(hv)) else true;
         return .{
             .font_family = v.str("fontFamily") orelse c.str("fontFamily") orelse text.default_family,
             .font_size = pxSize(v.str("fontSize")) orelse c.num("fontSize") orelse 16,
@@ -97,8 +98,8 @@ pub const Config = struct {
             .min_node_width = c.num("flowchart.minNodeWidth") orelse 120,
             .title_top_margin = c.num("flowchart.titleTopMargin") orelse 25,
             .use_max_width = c.boolean("flowchart.useMaxWidth") orelse true,
-            .html_labels = html,
-            .node_html_labels = html,
+            .html_labels = c.htmlLabels(),
+            .node_html_labels = node_html,
             .dark_theme = v.get("darkMode").truthy() or isDarkTheme(c.str("theme") orelse ""),
             .node_border = v.str("nodeBorder") orelse "",
             .cluster_bkg = v.str("clusterBkg") orelse "",

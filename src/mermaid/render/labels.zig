@@ -317,6 +317,12 @@ fn lineExtra(font_size: f64, atoms: []const Atom) f64 {
     return (below + above) * font_size / 16;
 }
 
+// GitHub's frame has no KaTeX stylesheet: a label that is only $$...$$ keeps an empty katex span, 16.859375px tall at 16px.
+fn isMathOnly(s: []const u8) bool {
+    const t = std.mem.trim(u8, s, " ");
+    return t.len >= 4 and std.mem.startsWith(u8, t, "$$") and std.mem.endsWith(u8, t, "$$") and std.mem.indexOf(u8, t[2 .. t.len - 2], "$$") == null;
+}
+
 pub const Laid = struct { lines: []Line, w: f64, h: f64 };
 
 pub fn layout(ctx: *const model.Ctx, a: Allocator, html: []const u8, width: f64) Allocator.Error!Laid {
@@ -570,8 +576,8 @@ pub fn createText(ctx0: *const model.Ctx, parent: *El, text0: []const u8, opts: 
     const markdown = std.mem.eql(u8, opts.label_type, "markdown");
     const html = if (markdown) try markdownToHtml(a, text) else try plainBreaks(a, text);
     const width = opts.width orelse default_width;
-    var laid = try layout(ctx, a, html, width);
-    if (laid.w != width and laid.w < opts.min_width) laid.w = opts.min_width;
+    var laid = if (isMathOnly(text)) Laid{ .lines = &.{}, .w = 0, .h = 16.859375 * ctx.cfg.font_size / 16 } else try layout(ctx, a, html, width);
+    if (laid.w < opts.min_width) laid.w = opts.min_width;
 
     const g = try parent.insert("g");
     const label_class = if (opts.is_node) "nodeLabel" else "edgeLabel";
