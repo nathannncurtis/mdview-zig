@@ -31,3 +31,7 @@ ELK Java 0.9.1 (tag v0.9.1 of eclipse/elk) is the version elkjs 0.9.3 is built f
 ## e2e/cases.json
 
 216 flowchart cases from `testdata/mermaid/refs` (the default ELK path of 12.2.0). Each holds the layout input as Mermaid's renderer builds it (nodes in layout order with parent, group flag, shape, measured size or group title size, subgraph direction; edges with start, end, label size and arrow types) and what the reference SVG shows (node translates, cluster rects, edge `data-points`, edge label centres). The input comes from the same capture run as the fixtures above (the recorded `elkGraph` before it is trimmed), the expected values are read from the reference SVGs by a scratch Node script. `src/mermaid/elk/e2e_test.zig` runs `mermaid.layout` on each case and compares.
+
+## radial-*.json
+
+`radial-real-*` are 25 of the inputs above with the root `elk.algorithm` changed to `radial`; `radial-syn-*` are 62 seeded synthetic graphs (trees, forests, DAGs with a shared child, a cycle outside the root's tree, edge and node labels, nested nodes, every `elk.radial.*` option, `elk.position`, `elk.spacing.nodeNode`, padding, fixed graph size). `output` is what elkjs 0.9.3 returned. They are checked by `src/mermaid/elk/radial/test.zig`, not by the layered test.
