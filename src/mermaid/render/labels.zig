@@ -513,7 +513,7 @@ fn svgText(ctx0: *const model.Ctx, ctx: *const model.Ctx, parent: *El, text: []c
         const r = try g.insert("rect");
         try r.setAttr("class", "background");
         _ = try r.attrNum("x", x0 - pad);
-        _ = try r.attrNum("y", -pad);
+        _ = try r.attrNum("y", g.y_off - pad);
         _ = try r.attrNum("width", w + 2 * pad);
         _ = try r.attrNum("height", h + 2 * pad);
         try r.setAttr("style", if (opts.is_node) "stroke: none" else try rectStyle(a, opts.style));
