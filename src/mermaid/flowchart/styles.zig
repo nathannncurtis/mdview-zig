@@ -157,7 +157,7 @@ pub fn css(ctx: *core.Ctx) core.Error![]const u8 {
         \\
     , .{
         .ff = try text(a, t, "fontFamily"),
-        .nt = try text(a, t, "nodeTextColor"),
+        .nt = if (t.get("nodeTextColor").truthy()) try text(a, t, "nodeTextColor") else try text(a, t, "textColor"),
         .title = try text(a, t, "titleColor"),
         .main = try text(a, t, "mainBkg"),
         .border = try text(a, t, "nodeBorder"),

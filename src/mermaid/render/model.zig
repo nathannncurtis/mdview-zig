@@ -42,6 +42,10 @@ pub fn testConfig(a: Allocator) Config {
 
 pub const SubGraphTitleMargin = struct { top: f64 = 0, bottom: f64 = 0 };
 
+fn isDarkTheme(name: []const u8) bool {
+    return std.mem.eql(u8, name, "dark") or std.mem.endsWith(u8, name, "-dark") or std.mem.indexOf(u8, name, "-dark-") != null;
+}
+
 pub const Config = struct {
     font_family: []const u8,
     font_size: f64,
@@ -90,7 +94,7 @@ pub const Config = struct {
             .use_max_width = c.boolean("flowchart.useMaxWidth") orelse true,
             .html_labels = html,
             .node_html_labels = html,
-            .dark_theme = v.get("darkMode").truthy(),
+            .dark_theme = v.get("darkMode").truthy() or isDarkTheme(c.str("theme") orelse ""),
             .node_border = v.str("nodeBorder") orelse "",
             .cluster_bkg = v.str("clusterBkg") orelse "",
             .cluster_border = v.str("clusterBorder") orelse "",
