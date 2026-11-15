@@ -329,7 +329,7 @@ fn snippetLine(a: Allocator, buffer: []const u8, line_start: usize, line_end: us
     return .{ .str = out.items, .pos = @intCast(position - start + @as(isize, @intCast(head.len))) };
 }
 
-fn padStart(a: Allocator, n: usize, width: usize) Allocator.Error![]const u8 {
+fn padStart(a: Allocator, n: isize, width: usize) Allocator.Error![]const u8 {
     const digits = try std.fmt.allocPrint(a, "{d}", .{n});
     if (digits.len >= width) return digits;
     const out = try a.alloc(u8, width);
@@ -340,6 +340,7 @@ fn padStart(a: Allocator, n: usize, width: usize) Allocator.Error![]const u8 {
 
 /// js-yaml's `makeSnippet` with its default options (indent 1, 3 lines before, 2 after, 79 columns).
 fn makeSnippet(a: Allocator, buffer: []const u8, position: usize, mark_line: usize) Allocator.Error![]const u8 {
+    const line: isize = @intCast(mark_line);
     var starts: std.ArrayList(usize) = .empty;
     var ends: std.ArrayList(usize) = .empty;
     try starts.append(a, 0);
@@ -370,7 +371,7 @@ fn makeSnippet(a: Allocator, buffer: []const u8, position: usize, mark_line: usi
         if (cur < k) break;
         const rel: isize = @as(isize, @intCast(position)) - @as(isize, @intCast(starts.items[cur] - starts.items[cur - k]));
         const l = try snippetLine(a, buffer, starts.items[cur - k], end_of(ends.items, buffer, cur - k), rel, max_line);
-        try before.append(a, try std.fmt.allocPrint(a, " {s} | {s}\n", .{ try padStart(a, mark_line - k + 1, no_len), l.str }));
+        try before.append(a, try std.fmt.allocPrint(a, " {s} | {s}\n", .{ try padStart(a, line - @as(isize, @intCast(k)) + 1, no_len), l.str }));
     }
     var b = before.items.len;
     while (b > 0) {
@@ -379,7 +380,7 @@ fn makeSnippet(a: Allocator, buffer: []const u8, position: usize, mark_line: usi
     }
 
     const l = try snippetLine(a, buffer, starts.items[cur], end_of(ends.items, buffer, cur), @intCast(position), max_line);
-    try result.print(a, " {s} | {s}\n", .{ try padStart(a, mark_line + 1, no_len), l.str });
+    try result.print(a, " {s} | {s}\n", .{ try padStart(a, line + 1, no_len), l.str });
     try result.appendNTimes(a, '-', 1 + no_len + 3 + l.pos);
     try result.appendSlice(a, "^\n");
 
@@ -388,7 +389,7 @@ fn makeSnippet(a: Allocator, buffer: []const u8, position: usize, mark_line: usi
         if (cur + k >= ends.items.len) break;
         const rel: isize = @as(isize, @intCast(position)) - (@as(isize, @intCast(starts.items[cur])) - @as(isize, @intCast(starts.items[cur + k])));
         const al = try snippetLine(a, buffer, starts.items[cur + k], end_of(ends.items, buffer, cur + k), rel, max_line);
-        try result.print(a, " {s} | {s}\n", .{ try padStart(a, mark_line + k + 1, no_len), al.str });
+        try result.print(a, " {s} | {s}\n", .{ try padStart(a, line + @as(isize, @intCast(k)) + 1, no_len), al.str });
     }
     if (result.items.len > 0 and result.items[result.items.len - 1] == '\n') _ = result.pop();
     return result.items;
@@ -525,4 +526,12 @@ test "scalar typing equals js-yaml's on the captured corpus" {
             return e;
         };
     }
+}
+
+test "snippet line numbers survive NUL bytes that lineCol does not count" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const s = try makeSnippet(arena.allocator(), "\x00\x00\x00abc", 5, 0);
+    try std.testing.expect(std.mem.indexOf(u8, s, " -2 | ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, s, " 1 | ") != null);
 }
