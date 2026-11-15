@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="80" viewBox="0 0 140 80">
+  <defs>
+    <pattern id="dots" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="5" cy="5" r="3" fill="#e91e63"/></pattern>
+    <pattern id="stripe" width="0.25" height="1" patternUnits="objectBoundingBox" patternContentUnits="objectBoundingBox" patternTransform="rotate(30)"><rect width="0.12" height="1" fill="#3f51b5"/></pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#d84315"/></marker>
+    <marker id="dot" markerWidth="4" markerHeight="4" refX="2" refY="2"><circle cx="2" cy="2" r="2" fill="#00695c"/></marker>
+  </defs>
+  <rect x="4" y="4" width="50" height="40" fill="url(#dots)" stroke="#333"/>
+  <rect x="62" y="4" width="50" height="40" fill="url(#stripe)"/>
+  <path d="M8 74 L40 54 L70 70 L100 52" fill="none" stroke="#455a64" stroke-width="2" marker-start="url(#dot)" marker-mid="url(#dot)" marker-end="url(#arrow)"/>
+  <polyline points="112,76 126,50 134,70" fill="none" stroke="#6a1b9a" stroke-width="1.5" marker-end="url(#arrow)"/>
+</svg>
