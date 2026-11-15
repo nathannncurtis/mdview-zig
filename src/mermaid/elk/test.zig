@@ -28,7 +28,7 @@ test {
 const node_tol = 0.5;
 const point_tol = 1.0;
 
-const Stats = struct {
+pub const Stats = struct {
     graphs: usize = 0,
     failed: usize = 0,
     nodes: usize = 0,
@@ -48,12 +48,12 @@ fn num(v: Value) f64 {
     };
 }
 
-fn field(v: Value, name: []const u8) ?Value {
+pub fn field(v: Value, name: []const u8) ?Value {
     if (v != .object) return null;
     return v.object.get(name);
 }
 
-const Cmp = struct {
+pub const Cmp = struct {
     a: std.mem.Allocator,
     name: []const u8,
     stats: *Stats,
@@ -65,14 +65,14 @@ const Cmp = struct {
         if (self.errors <= 12) std.debug.print("  {s}: " ++ fmt ++ "\n", .{self.name} ++ args);
     }
 
-    fn collectEdges(self: *Cmp, out: Value) !void {
+    pub fn collectEdges(self: *Cmp, out: Value) !void {
         if (field(out, "edges")) |es| for (es.array.items) |e| {
             try self.expected_edges.put(field(e, "id").?.string, e);
         };
         if (field(out, "children")) |cs| for (cs.array.items) |c| try self.collectEdges(c);
     }
 
-    fn nodes(self: *Cmp, got: *const eg.ElkNode, want: Value) void {
+    pub fn nodes(self: *Cmp, got: *const eg.ElkNode, want: Value) void {
         self.stats.nodes += 1;
         const wx = num(field(want, "x") orelse .null);
         const wy = num(field(want, "y") orelse .null);
@@ -167,6 +167,7 @@ test "elk layout matches elkjs on the fixtures" {
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".json")) continue;
+        if (std.mem.startsWith(u8, entry.name, "force-")) continue;
         try names.append(gpa, try gpa.dupe(u8, entry.name));
     }
     std.mem.sort([]u8, names.items, {}, struct {

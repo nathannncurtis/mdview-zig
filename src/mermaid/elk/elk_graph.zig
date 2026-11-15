@@ -3,6 +3,8 @@ const lg = @import("lgraph.zig");
 const Allocator = std.mem.Allocator;
 const Vec = lg.Vec;
 
+pub const ForceModel = enum { fruchterman_reingold, eades };
+
 // Layout options as set on an ELK graph element. null = not set (Java hasProperty false), so copying onto an
 // LGraph element (copyProperties) only overrides what was given.
 pub const Options = struct {
@@ -80,6 +82,14 @@ pub const Options = struct {
     spacing_ports_surrounding: ?lg.Margin = null,
     spacing_comment_comment: ?f64 = null,
     spacing_comment_node: ?f64 = null,
+    force_model: ?ForceModel = null,
+    force_iterations: ?i32 = null,
+    force_repulsive_power: ?i32 = null,
+    force_temperature: ?f64 = null,
+    force_repulsion: ?f64 = null,
+    interactive: ?bool = null,
+    omit_node_micro_layout: ?bool = null,
+    priority: ?i32 = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
 
@@ -173,6 +183,14 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.spacing.portsSurrounding", "spacing_ports_surrounding" },
     .{ "org.eclipse.elk.spacing.commentComment", "spacing_comment_comment" },
     .{ "org.eclipse.elk.spacing.commentNode", "spacing_comment_node" },
+    .{ "org.eclipse.elk.force.model", "force_model" },
+    .{ "org.eclipse.elk.force.iterations", "force_iterations" },
+    .{ "org.eclipse.elk.force.repulsivePower", "force_repulsive_power" },
+    .{ "org.eclipse.elk.force.temperature", "force_temperature" },
+    .{ "org.eclipse.elk.force.repulsion", "force_repulsion" },
+    .{ "org.eclipse.elk.interactive", "interactive" },
+    .{ "org.eclipse.elk.omitNodeMicroLayout", "omit_node_micro_layout" },
+    .{ "org.eclipse.elk.priority", "priority" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.
