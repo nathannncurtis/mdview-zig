@@ -1272,7 +1272,7 @@ fn fillIcon(cr: *c.cairo_t, o: alerts.Octicon, x: f32, y: f32, col: Color) void 
         .cubic => |q| c.cairo_curve_to(cr, x + q[0], y + q[1], x + q[2], y + q[3], x + q[4], y + q[5]),
         .close => c.cairo_close_path(cr),
     };
-    c.cairo_set_fill_rule(cr, c.CAIRO_FILL_RULE_WINDING);
+    c.cairo_set_fill_rule(cr, c.CAIRO_FILL_RULE_EVEN_ODD);
     c.cairo_fill(cr);
 }
 
@@ -1286,7 +1286,25 @@ fn drawButton(cr: *c.cairo_t, frame: view.Rect, b: view.Button, copied: bool) vo
     c.cairo_fill(cr);
     const name = if (b == .copy and copied) "check" else view.iconName(b);
     const icon = std.meta.stringToEnum(alerts.Octicon, name) orelse return;
-    fillIcon(cr, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, hexColor(view.iconColor(b)));
+    fillIcon(cr, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, hexColor(view.iconColor(b, copied)));
+}
+
+/// GitHub's "Copied!" bubble under the copy button, fading in over 0.1s.
+fn drawCopiedTip(cr: *c.cairo_t, button: view.Rect) void {
+    const layout = c.pango_cairo_create_layout(cr) orelse return;
+    defer c.g_object_unref(layout);
+    setInline(layout, .{ .text = "Copied!" }, null, "Sans 9");
+    const size = layoutPixelSize(layout);
+    const r = view.tipRect(button, size[0]);
+    c.cairo_push_group(cr);
+    drawRoundedRect(cr, r.x, r.y, r.w, r.h, view.tip_radius);
+    setColor(cr, hexColor(view.tip_bg));
+    c.cairo_fill(cr);
+    setColor(cr, hexColor(view.tip_text));
+    c.cairo_move_to(cr, r.x + view.tip_pad_x, r.y + (r.h - size[1]) / 2);
+    c.pango_cairo_show_layout(cr, layout);
+    c.cairo_pop_group_to_source(cr);
+    c.cairo_paint_with_alpha(cr, app.copiedAlpha());
 }
 
 /// A rendered diagram in its frame with GitHub's controls; the frame clips what zoom and pan push out of it. A frame in the
@@ -1309,6 +1327,7 @@ fn drawDiagram(cr: *c.cairo_t, source: []const u8, x: f32, y: f32, w: f32, size:
         if (view.isAction(b) and in_dialog) continue;
         drawButton(cr, frame, b, copied);
     }
+    if (copied and !in_dialog) drawCopiedTip(cr, view.buttonRect(frame, .copy));
     return fh;
 }
 
@@ -1340,11 +1359,22 @@ fn offScreen(r: view.Rect) bool {
 /// The dialog of the expand button over a dimmed page.
 pub fn drawDialog(cr: *c.cairo_t) void {
     const d = app.dialog orelse return;
+    c.cairo_push_group(cr);
+    defer {
+        c.cairo_pop_group_to_source(cr);
+        c.cairo_paint_with_alpha(cr, app.dialogAlpha());
+    }
     const dim = hexColor(view.modal_backdrop);
     c.cairo_set_source_rgba(cr, dim.r, dim.g, dim.b, view.modal_backdrop_alpha);
     c.cairo_rectangle(cr, 0, 0, app.window_width, app.window_height);
     c.cairo_fill(cr);
     const box = view.modalRect(app.window_width, app.window_height, d.frame_h);
+    for (0..view.shadow_rings) |i| {
+        const ring = view.shadowRing(i);
+        drawRoundedRect(cr, box.x - ring.grow, box.y - ring.grow, box.w + 2 * ring.grow, box.h + 2 * ring.grow, 6 + ring.grow);
+        c.cairo_set_source_rgba(cr, 0, 0, 0, ring.alpha);
+        c.cairo_fill(cr);
+    }
     drawRoundedRect(cr, box.x, box.y, box.w, box.h, 6);
     setColor(cr, hexColor(view.modal_border));
     c.cairo_fill(cr);

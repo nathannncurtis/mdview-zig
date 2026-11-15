@@ -1108,3 +1108,10 @@ test "the copy button puts the source on the clipboard" {
     const n = try std.unicode.utf16LeToUtf8(&buf, std.mem.span(text));
     try testing.expectEqualStrings("graph TD\r\nA-->B\r\n", buf[0..n]);
 }
+
+test "GitHub's font stack resolves to Segoe UI, the family the error box and every other text is drawn in" {
+    // SAFETY: written by nameAscii
+    var buf: [64]u8 = undefined;
+    const primary = @import("font").resolve(testing.io, view.github_font_stack, 400, false).primary;
+    try std.testing.expect(std.ascii.eqlIgnoreCase("Segoe UI", primary.nameAscii(1, &buf) orelse return error.TestUnexpectedResult));
+}

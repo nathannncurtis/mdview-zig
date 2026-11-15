@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="60" viewBox="0 0 120 60"><defs>
+<mask id="m1" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="#fff"/><circle cx=".5" cy=".5" r=".3" fill="#000"/></mask>
+<mask id="m2" x="0" y="0" width="1" height="1"><linearGradient id="lg"><stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><rect x="60" y="0" width="60" height="60" fill="url(#lg)"/></mask></defs>
+<rect x="5" y="5" width="50" height="50" fill="#e65100" mask="url(#m1)"/>
+<rect x="60" y="5" width="55" height="50" fill="#006064" mask="url(#m2)"/></svg>

@@ -57,7 +57,8 @@ pub fn iconName(b: Button) []const u8 {
     return if (b == .reset) "sync" else @tagName(b);
 }
 
-pub fn iconColor(b: Button) u24 {
+pub fn iconColor(b: Button, copied: bool) u24 {
+    if (b == .copy and copied) return check_icon;
     return if (isAction(b)) action_icon else frame_icon;
 }
 
@@ -153,6 +154,79 @@ pub fn closeRect(m: Rect) Rect {
     return .{ .x = m.x + m.w - 33, .y = m.y + 1, .w = 32, .h = 34 };
 }
 
+/// The "Copied!" tooltip under the copy button: GitHub's `tooltipped-s` bubble.
+pub const tip_bg: u24 = 0x3d444d;
+pub const tip_text: u24 = 0xffffff;
+pub const tip_font_px: f32 = 12;
+pub const tip_pad_x: f32 = 8;
+pub const tip_h: f32 = 27.5;
+pub const tip_radius: f32 = 6;
+pub const tip_top: f32 = 39;
+pub const tip_fade_ms: f32 = 100;
+pub const copy_feedback_ms: i64 = 2000;
+pub const check_icon: u24 = 0x3fb950;
+
+pub fn tipRect(button: Rect, text_w: f32) Rect {
+    const w = text_w + 2 * tip_pad_x;
+    return .{ .x = button.x + button.w / 2 - w / 2, .y = button.y + tip_top, .w = w, .h = tip_h };
+}
+
+/// The dialog's `fade-in` runs 0.3s ease-in-out; the tooltip's `tooltip-appear` 0.1s ease-in.
+pub const dialog_fade_ms: f32 = 300;
+
+/// The y of a CSS cubic-bezier(x1, y1, x2, y2) timing function at progress `t`.
+pub fn ease(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) f32 {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    var lo: f32 = 0;
+    var hi: f32 = 1;
+    for (0..24) |_| {
+        const mid = (lo + hi) / 2;
+        if (bezier(x1, x2, mid) < t) lo = mid else hi = mid;
+    }
+    return bezier(y1, y2, (lo + hi) / 2);
+}
+
+fn bezier(p1: f32, p2: f32, s: f32) f32 {
+    const u = 1 - s;
+    return 3 * u * u * s * p1 + 3 * u * s * s * p2 + s * s * s;
+}
+
+pub fn easeInOut(t: f32) f32 {
+    return ease(0.42, 0, 0.58, 1, t);
+}
+
+pub fn easeIn(t: f32) f32 {
+    return ease(0.42, 0, 1, 1, t);
+}
+
+/// `box-shadow: 0 0 18px rgba(0, 0, 0, .4)` of the dialog as stacked translucent rings, outermost first.
+pub const shadow_blur: f32 = 18;
+pub const shadow_alpha: f32 = 0.4;
+pub const shadow_rings = 9;
+
+pub const Ring = struct { grow: f32, alpha: f32 };
+
+fn shadowCoverage(d: f32) f32 {
+    const sigma = shadow_blur / 2;
+    return shadow_alpha * 0.5 * (1 - erf(d / (sigma * std.math.sqrt2)));
+}
+
+fn erf(x: f32) f32 {
+    const t = 1 / (1 + 0.3275911 * @abs(x));
+    const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * @exp(-x * x);
+    return if (x < 0) -y else y;
+}
+
+/// Ring `i` grows the dialog's rectangle by `grow` and fills it with `alpha`; painted in order they add up to the blur.
+pub fn shadowRing(i: usize) Ring {
+    const step = shadow_blur / shadow_rings;
+    const grow = shadow_blur - step * @as(f32, @floatFromInt(i));
+    const target = shadowCoverage(grow - step / 2);
+    const outer = if (i == 0) 0 else shadowCoverage(grow - step / 2 + step);
+    return .{ .grow = grow, .alpha = 1 - (1 - target) / (1 - outer) };
+}
+
 pub const Pt = [2]f32;
 pub const spinner_segments = 24;
 pub const spinner_arc_points = 9;
@@ -190,6 +264,9 @@ pub const error_top: f32 = 21;
 pub const error_left: f32 = 17;
 pub const error_title_gap: f32 = 16;
 pub const error_bg: u24 = 0x0d1117;
+
+/// The `font-family` GitHub sets on the error box; the backends draw text in the family this resolves to on their platform.
+pub const github_font_stack = "\"Mona Sans VF\", -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Noto Sans Backtick Fix\", \"Noto Sans\", Helvetica, Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\"";
 
 pub const docs_url = "https://docs.github.com/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams#creating-mermaid-diagrams";
 pub const error_title = "Unable to render rich display";
@@ -331,4 +408,36 @@ test "the error body collapses white space, leaves a blank line and ends in the 
         e.body,
     );
     try std.testing.expectEqualStrings(docs_url, e.body[e.link_start..][0..e.link_len]);
+}
+
+test "easing starts at 0, ends at 1 and ease-in-out is symmetric" {
+    try std.testing.expectEqual(@as(f32, 0), easeInOut(0));
+    try std.testing.expectEqual(@as(f32, 1), easeIn(1));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), easeInOut(0.5), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1), easeInOut(0.25) + easeInOut(0.75), 0.001);
+    try std.testing.expect(easeIn(0.5) < 0.5);
+}
+
+test "the shadow rings add up to half the alpha at the edge and fade out to nothing" {
+    var cover: f32 = 0;
+    var last_alpha: f32 = 0;
+    for (0..shadow_rings) |i| {
+        const r = shadowRing(i);
+        try std.testing.expect(r.alpha >= 0 and r.alpha < 0.2);
+        try std.testing.expect(r.grow <= shadow_blur and r.grow > 0);
+        last_alpha = r.alpha;
+        cover = 1 - (1 - cover) * (1 - r.alpha);
+        if (i > 0) try std.testing.expect(r.grow < shadowRing(i - 1).grow);
+    }
+    try std.testing.expect(last_alpha > 0);
+    try std.testing.expectApproxEqAbs(shadow_alpha * 0.5, cover, 0.03);
+}
+
+test "the tooltip sits centred 39 below the top of the button" {
+    const b: Rect = .{ .x = 1000, .y = 100, .w = 34, .h = 34 };
+    const t = tipRect(b, 41.19);
+    try std.testing.expectApproxEqAbs(@as(f32, 57.19), t.w, 0.01);
+    try std.testing.expectApproxEqAbs(@as(f32, 1017) - t.w / 2, t.x, 0.01);
+    try std.testing.expectEqual(@as(f32, 139), t.y);
+    try std.testing.expectEqual(@as(f32, 27.5), t.h);
 }

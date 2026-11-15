@@ -141,6 +141,22 @@ const D2D1_SIZE_U = extern struct { width: u32, height: u32 };
 pub const D2D1_RECT_F = extern struct { left: f32, top: f32, right: f32, bottom: f32 };
 const D2D1_ROUNDED_RECT = extern struct { rect: D2D1_RECT_F, radiusX: f32, radiusY: f32 };
 const D2D1_MATRIX_3X2_F = extern struct { m: [6]f32 };
+const D2D1_LAYER_PARAMETERS = extern struct {
+    content_bounds: D2D1_RECT_F,
+    mask: ?*anyopaque,
+    mask_aa: u32,
+    mask_transform: D2D1_MATRIX_3X2_F,
+    opacity: f32,
+    opacity_brush: ?*anyopaque,
+    options: u32,
+};
+const BrushVT = extern struct {
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
+    Release: *const anyopaque,
+    GetFactory: *const anyopaque,
+    SetOpacity: *const fn (*anyopaque, f32) callconv(.c) void,
+};
 const D2D1_BITMAP_PROPERTIES = extern struct { pixel_format: extern struct { format: u32, alpha_mode: u32 }, dpi_x: f32, dpi_y: f32 };
 const D2D1_RENDER_TARGET_PROPERTIES = extern struct {
     type: u32 = 0, pixel_format: extern struct { format: u32 = 0, alpha_mode: u32 = 0 } = .{},
@@ -204,7 +220,10 @@ pub const ID2D1RT_VTable = extern struct {
     DrawTextLayout: *const fn (*anyopaque, D2D1_POINT_2F, *anyopaque, *anyopaque, u32) callconv(.c) void, // 28
     DrawGlyphRun: *const fn (*anyopaque, D2D1_POINT_2F, *const DWRITE_GLYPH_RUN, *anyopaque, u32) callconv(.c) void, // 29
     SetTransform: *const fn (*anyopaque, *const D2D1_MATRIX_3X2_F) callconv(.c) void, // 30
-    _pad31_44: [14]*const anyopaque,
+    _pad31_39: [9]*const anyopaque,
+    PushLayer: *const fn (*anyopaque, *const D2D1_LAYER_PARAMETERS, ?*anyopaque) callconv(.c) void, // 40
+    PopLayer: *const fn (*anyopaque) callconv(.c) void, // 41
+    _pad42_44: [3]*const anyopaque,
     PushAxisAlignedClip: *const fn (*anyopaque, *const D2D1_RECT_F, u32) callconv(.c) void, // 45
     PopAxisAlignedClip: *const fn (*anyopaque) callconv(.c) void, // 46
     Clear: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 47
@@ -554,7 +573,7 @@ var g_octicon_geom: [std.enums.values(alerts.Octicon).len]?*anyopaque = @splat(n
 
 fn fillIcon(g: Gfx, o: alerts.Octicon, x: f32, y: f32, brush: *anyopaque, sy: f32) void {
     const slot = &g_octicon_geom[@intFromEnum(o)];
-    if (slot.* == null) slot.* = geometryFromOps(g_d2d_factory orelse return, alerts.octicon(o));
+    if (slot.* == null) slot.* = geometryFill(g_d2d_factory orelse return, alerts.octicon(o), 0);
     g.vt_rt.SetTransform(g.rt, &matrix(x, y - sy));
     g.vt_rt.FillGeometry(g.rt, slot.* orelse return, brush, null);
     g.vt_rt.SetTransform(g.rt, &matrix(0, -sy));
@@ -566,10 +585,44 @@ fn drawButton(g: Gfx, frame: view.Rect, b: view.Button, sy: f32, copied: bool) v
     const r = view.buttonRect(frame, b);
     g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x, .top = r.y, .right = r.x + r.w, .bottom = r.y + r.h }, .radiusX = view.button_radius, .radiusY = view.button_radius }, border);
     g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x + 1, .top = r.y + 1, .right = r.x + r.w - 1, .bottom = r.y + r.h - 1 }, .radiusX = view.button_radius - 1, .radiusY = view.button_radius - 1 }, fill);
-    const brush = (if (view.isAction(b)) g_brush_action_icon else g_brush_bright) orelse return;
+    const brush = (if (b == .copy and copied) g_brush_check_icon else if (view.isAction(b)) g_brush_action_icon else g_brush_bright) orelse return;
     const name = if (b == .copy and copied) "check" else view.iconName(b);
     const icon = std.meta.stringToEnum(alerts.Octicon, name) orelse return;
     fillIcon(g, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, brush, sy);
+}
+
+fn pushOpacity(g: Gfx, alpha: f32) bool {
+    if (alpha >= 1) return false;
+    const inf = std.math.floatMax(f32);
+    g.vt_rt.PushLayer(g.rt, &.{
+        .content_bounds = .{ .left = -inf, .top = -inf, .right = inf, .bottom = inf },
+        .mask = null,
+        .mask_aa = 0,
+        .mask_transform = .{ .m = .{ 1, 0, 0, 1, 0, 0 } },
+        .opacity = alpha,
+        .opacity_brush = null,
+        .options = 0,
+    }, null);
+    return true;
+}
+
+fn popOpacity(g: Gfx, pushed: bool) void {
+    if (pushed) g.vt_rt.PopLayer(g.rt);
+}
+
+/// GitHub's "Copied!" bubble under the copy button, fading in over 0.1s.
+fn drawCopiedTip(g: Gfx, button: view.Rect) void {
+    const lay = createLayout(g.vt_dw, g.dwf, .{ .text = "Copied!" }, g_text_format.?, 200) orelse return;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    _ = vtable(IDWriteTextLayout_VTable, lay).SetFontSize(lay, view.tip_font_px, .{ .startPosition = 0, .length = 7 });
+    // SAFETY: written by GetMetrics
+    var m: DWRITE_TEXT_METRICS = undefined;
+    _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
+    const r = view.tipRect(button, m.widthIncludingTrailingWhitespace);
+    const pushed = pushOpacity(g, app.copiedAlpha());
+    defer popOpacity(g, pushed);
+    fillRect(g, r, view.tip_radius, g_brush_table_border orelse return);
+    g.vt_rt.DrawTextLayout(g.rt, .{ .x = r.x + view.tip_pad_x, .y = r.y + (r.h - m.height) / 2 }, lay, g_brush_white orelse return, 0);
 }
 
 /// A rendered diagram in its frame with GitHub's controls; the frame clips what zoom and pan push out of it. A frame in the
@@ -590,6 +643,7 @@ pub fn drawDiagram(g: Gfx, source: []const u8, frame: view.Rect, size: app.image
         if (view.isAction(b) and in_dialog) continue;
         drawButton(g, frame, b, sy, copied);
     }
+    if (copied and !in_dialog) drawCopiedTip(g, view.buttonRect(frame, .copy));
 }
 
 /// The block of a diagram that has not rendered: GitHub's spinner, 40 down from the top and centred.
@@ -620,8 +674,15 @@ pub fn drawDialog(g: Gfx) void {
     const border = g_brush_table_border orelse return;
     const bg = g_brush_bg orelse return;
     const icon = g_brush_action_icon orelse return;
+    const pushed = pushOpacity(g, app.dialogAlpha());
+    defer popOpacity(g, pushed);
     g.vt_rt.FillRectangle(g.rt, &.{ .left = 0, .top = 0, .right = app.window_width, .bottom = app.window_height }, backdrop);
     const box = view.modalRect(app.window_width, app.window_height, d.frame_h);
+    if (g_brush_shadow) |shadow| for (0..view.shadow_rings) |i| {
+        const ring = view.shadowRing(i);
+        vtable(BrushVT, shadow).SetOpacity(shadow, ring.alpha);
+        fillRect(g, .{ .x = box.x - ring.grow, .y = box.y - ring.grow, .w = box.w + 2 * ring.grow, .h = box.h + 2 * ring.grow }, 6 + ring.grow, shadow);
+    };
     fillRect(g, box, 6, border);
     fillRect(g, .{ .x = box.x + 1, .y = box.y + 1, .w = box.w - 2, .h = box.h - 2 }, 5, bg);
     const close = view.closeRect(box);
@@ -833,6 +894,8 @@ var g_brush_button: ?*anyopaque = null;
 var g_brush_action_icon: ?*anyopaque = null;
 var g_brush_backdrop: ?*anyopaque = null;
 var g_brush_spin_dim: ?*anyopaque = null;
+var g_brush_shadow: ?*anyopaque = null;
+var g_brush_check_icon: ?*anyopaque = null;
 var g_brush_check: ?*anyopaque = null;
 var g_brush_white: ?*anyopaque = null;
 var g_brush_err_bg: ?*anyopaque = null;
@@ -995,6 +1058,8 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_bg = solidBrush(rt, 0x0d1117);
     g_brush_button = solidBrush(rt, view.button_bg);
     g_brush_action_icon = solidBrush(rt, view.action_icon);
+    g_brush_shadow = solidBrush(rt, 0x000000);
+    g_brush_check_icon = solidBrush(rt, view.check_icon);
     var backdrop = rgbColor(view.modal_backdrop);
     backdrop.a = view.modal_backdrop_alpha;
     _ = vt.CreateSolidColorBrush(rt, &backdrop, null, &g_brush_backdrop);
@@ -1135,6 +1200,11 @@ fn createAlertGeometries(factory: *anyopaque) void {
 }
 
 pub fn geometryFromOps(factory: *anyopaque, ops: []const alerts.Op) ?*anyopaque {
+    return geometryFill(factory, ops, 1);
+}
+
+/// `mode` is the Direct2D fill mode: 0 alternate (even-odd), 1 winding.
+fn geometryFill(factory: *anyopaque, ops: []const alerts.Op, mode: u32) ?*anyopaque {
     const fvt = vtable(ID2D1Factory_VTable, factory);
     var geom: ?*anyopaque = null;
     if (fvt.CreatePathGeometry(factory, &geom) < 0) return null;
@@ -1143,7 +1213,7 @@ pub fn geometryFromOps(factory: *anyopaque, ops: []const alerts.Op) ?*anyopaque 
     if (vtable(ID2D1PathGeometry_VTable, g).Open(g, &sink_ptr) < 0) return null;
     const sink = sink_ptr orelse return null;
     const sv = vtable(ID2D1GeometrySink_VTable, sink);
-    sv.SetFillMode(sink, 1);
+    sv.SetFillMode(sink, mode);
     var open = false;
     for (ops) |op| switch (op) {
             .move => |p| {

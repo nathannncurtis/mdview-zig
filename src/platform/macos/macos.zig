@@ -1080,7 +1080,7 @@ fn fillIcon(ctx: c.CGContextRef, o: alerts.Octicon, x: CGFloat, screen_y: CGFloa
     };
     c.CGContextSetRGBFillColor(ctx, col.r, col.g, col.b, 1.0);
     c.CGContextAddPath(ctx, path);
-    c.CGContextFillPath(ctx);
+    c.CGContextEOFillPath(ctx);
 }
 
 fn drawButton(ctx: c.CGContextRef, frame: view.Rect, b: view.Button, copied: bool) void {
@@ -1095,7 +1095,33 @@ fn drawButton(ctx: c.CGContextRef, frame: view.Rect, b: view.Button, copied: boo
     c.CGContextFillPath(ctx);
     const name = if (b == .copy and copied) "check" else view.iconName(b);
     const icon = std.meta.stringToEnum(alerts.Octicon, name) orelse return;
-    fillIcon(ctx, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, view.iconColor(b));
+    fillIcon(ctx, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, view.iconColor(b, copied));
+}
+
+/// GitHub's "Copied!" bubble under the copy button, fading in over 0.1s.
+fn drawCopiedTip(ctx: c.CGContextRef, button: view.Rect) void {
+    const font = createFont("Helvetica Neue", view.tip_font_px, false, false);
+    defer c.CFRelease(font);
+    const attr = createRichAttrStr(.{ .text = "Copied!" }, font, text_color, 200) orelse return;
+    defer c.CFRelease(attr);
+    const size = suggestSize(@ptrCast(attr), 200);
+    const r = view.tipRect(button, @floatCast(size.width));
+    const bg = colorOf(view.tip_bg);
+    c.CGContextSetAlpha(ctx, app.copiedAlpha());
+    c.CGContextBeginTransparencyLayer(ctx, null);
+    c.CGContextSetRGBFillColor(ctx, bg.r, bg.g, bg.b, 1.0);
+    drawRoundedRect(ctx, cgBox(r), view.tip_radius);
+    c.CGContextFillPath(ctx);
+    const white = colorOf(view.tip_text);
+    const text = createRichAttrStr(.{ .text = "Copied!" }, font, white, 200) orelse {
+        c.CGContextEndTransparencyLayer(ctx);
+        c.CGContextSetAlpha(ctx, 1.0);
+        return;
+    };
+    defer c.CFRelease(text);
+    _ = measureAndDrawAttrStr(ctx, @ptrCast(text), r.x + view.tip_pad_x, g_height - (r.y + (r.h - size.height) / 2), 200);
+    c.CGContextEndTransparencyLayer(ctx);
+    c.CGContextSetAlpha(ctx, 1.0);
 }
 
 /// A rendered diagram in its frame with GitHub's controls; the frame clips what zoom and pan push out of it. A frame in the
@@ -1120,6 +1146,7 @@ fn drawDiagram(ctx: c.CGContextRef, source: []const u8, x: CGFloat, screen_y: CG
         if (view.isAction(b) and in_dialog) continue;
         drawButton(ctx, frame, b, copied);
     }
+    if (copied and !in_dialog) drawCopiedTip(ctx, view.buttonRect(frame, .copy));
     return fh;
 }
 
@@ -1146,10 +1173,22 @@ fn drawSpinner(ctx: c.CGContextRef, block: view.Rect) void {
 /// The dialog of the expand button over a dimmed page.
 pub fn drawDialog(ctx: c.CGContextRef) void {
     const d = app.dialog orelse return;
+    c.CGContextSetAlpha(ctx, app.dialogAlpha());
+    c.CGContextBeginTransparencyLayer(ctx, null);
+    defer {
+        c.CGContextEndTransparencyLayer(ctx);
+        c.CGContextSetAlpha(ctx, 1.0);
+    }
     const dim = colorOf(view.modal_backdrop);
     c.CGContextSetRGBFillColor(ctx, dim.r, dim.g, dim.b, view.modal_backdrop_alpha);
     c.CGContextFillRect(ctx, cgRect(0, 0, app.window_width, app.window_height));
     const box = view.modalRect(app.window_width, app.window_height, d.frame_h);
+    for (0..view.shadow_rings) |i| {
+        const ring = view.shadowRing(i);
+        c.CGContextSetRGBFillColor(ctx, 0, 0, 0, ring.alpha);
+        drawRoundedRect(ctx, cgBox(.{ .x = box.x - ring.grow, .y = box.y - ring.grow, .w = box.w + 2 * ring.grow, .h = box.h + 2 * ring.grow }), 6 + ring.grow);
+        c.CGContextFillPath(ctx);
+    }
     const border = colorOf(view.modal_border);
     const bg = colorOf(view.modal_bg);
     c.CGContextSetRGBFillColor(ctx, border.r, border.g, border.b, 1.0);

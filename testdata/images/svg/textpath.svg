@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="140" height="90" viewBox="0 0 140 90" font-family="mdview Sans">
+  <defs><path id="arc" d="M10 60 A 50 50 0 0 1 130 60"/><path id="ring" d="M46 48 a24 24 0 1 1 48 0 a24 24 0 1 1 -48 0z"/></defs>
+  <path d="M10 60 A 50 50 0 0 1 130 60" fill="none" stroke="#cfd8dc"/>
+  <text font-size="13" fill="#1a237e"><textPath xlink:href="#arc" startOffset="50%" text-anchor="middle">Curved text on a path</textPath></text>
+  <text font-size="9" fill="#b71c1c" font-weight="bold"><textPath href="#ring">Around the ring 1 2 3 4</textPath></text>
+  <text x="70" y="84" font-size="9" text-anchor="middle" fill="#37474f">plain baseline</text>
+</svg>

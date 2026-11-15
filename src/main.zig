@@ -98,15 +98,27 @@ pub var dialog: ?Dialog = null;
 /// A dialog's frame keeps its own zoom and pan.
 pub const dialog_salt: u64 = 0x6469616c6f67;
 
-const copy_feedback_ms: i64 = 2000;
 var copied_key: u64 = 0;
-var copied_until: i64 = 0;
+var copied_at: i64 = -1_000_000;
+var dialog_since: i64 = 0;
 
 /// True for two seconds after the copy button of the diagram was pressed, while its icon is a check mark.
 pub fn isCopied(key: u64) bool {
-    const live = copied_key == key and images.now() < copied_until;
-    if (live) images.animate(100);
+    const live = copied_key == key and images.now() - copied_at < view.copy_feedback_ms;
+    if (live) images.animate(16);
     return live;
+}
+
+/// How far the "Copied!" tooltip has faded in.
+pub fn copiedAlpha() f32 {
+    return view.easeIn(@as(f32, @floatFromInt(images.now() - copied_at)) / view.tip_fade_ms);
+}
+
+/// How far the dialog has faded in.
+pub fn dialogAlpha() f32 {
+    const t = @as(f32, @floatFromInt(images.now() - dialog_since)) / view.dialog_fade_ms;
+    if (t < 1) images.animate(16);
+    return view.easeInOut(t);
 }
 
 pub fn closeDialog() void {
@@ -129,11 +141,14 @@ fn diagramButtonAt(px: f32, py: f32) ?DiagramButton {
 
 fn pressDiagramButton(d: DiagramButton) void {
     switch (d.button) {
-        .expand => dialog = .{ .source = d.source, .frame_h = d.frame_h },
+        .expand => {
+            dialog = .{ .source = d.source, .frame_h = d.frame_h };
+            dialog_since = images.now();
+        },
         .copy => {
             platform.setClipboard(d.source);
             copied_key = d.key;
-            copied_until = images.now() + copy_feedback_ms;
+            copied_at = images.now();
         },
         else => view.press(images.viewState(d.key), d.button),
     }

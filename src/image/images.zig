@@ -5,7 +5,7 @@ const svg = @import("svg.zig");
 const links = @import("../markdown/links.zig");
 const scale = @import("scale.zig");
 const md = @import("../markdown/markdown.zig");
-const font = @import("../font/font.zig");
+const font = @import("font");
 const mermaid = @import("mermaid");
 const view = mermaid.view;
 
@@ -918,9 +918,12 @@ fn sameRegion(a: Region, b: Region) bool {
 /// `bytes` with the root viewBox narrowed to `r`; a root without one is taken to start at the origin and span `size`.
 fn regionSvg(a: std.mem.Allocator, bytes: []const u8, size: Size, r: Region) std.mem.Allocator.Error![]u8 {
     const tag_end = std.mem.indexOfScalar(u8, bytes, '>') orelse bytes.len;
+    const tag = bytes[0..tag_end];
     var vb: [4]f32 = .{ 0, 0, size.w, size.h };
-    var cut: [2]usize = .{ tag_end, tag_end };
-    if (std.mem.indexOf(u8, bytes[0..tag_end], "viewBox=\"")) |at| {
+    var cut: [2]usize = .{ if (tag_end > 0 and bytes[tag_end - 1] == '/') tag_end - 1 else tag_end, 0 };
+    cut[1] = cut[0];
+    var lead: []const u8 = " ";
+    if (std.mem.indexOf(u8, tag, "viewBox=\"")) |at| {
         const from = at + "viewBox=\"".len;
         const to = std.mem.indexOfScalarPos(u8, bytes, from, '"') orelse tag_end;
         var it = std.mem.tokenizeAny(u8, bytes[from..to], " ,");
@@ -929,13 +932,17 @@ fn regionSvg(a: std.mem.Allocator, bytes: []const u8, size: Size, r: Region) std
             if (n < 4) vb[n] = std.fmt.parseFloat(f32, tok) catch vb[n];
         }
         cut = .{ at, to + 1 };
+        lead = "";
     }
-    return std.fmt.allocPrint(a, "{s}viewBox=\"{d} {d} {d} {d}\"{s}", .{
+    const par: []const u8 = if (std.mem.indexOf(u8, tag, "preserveAspectRatio") == null) " preserveAspectRatio=\"none\"" else "";
+    return std.fmt.allocPrint(a, "{s}{s}viewBox=\"{d} {d} {d} {d}\"{s}{s}", .{
         bytes[0..cut[0]],
+        lead,
         vb[0] + r.u0 * vb[2],
         vb[1] + r.v0 * vb[3],
         (r.u1 - r.u0) * vb[2],
         (r.v1 - r.v0) * vb[3],
+        par,
         bytes[cut[1]..],
     });
 }
@@ -1372,10 +1379,10 @@ test "the region of an SVG is its root viewBox narrowed, or the whole size when 
     const half: Region = .{ .u0 = 0.25, .v0 = 0.5, .u1 = 0.75, .v1 = 1 };
     const with = try regionSvg(a, "<svg id=\"d\" viewBox=\"-36 -36 440 600\" width=\"100%\"><g/></svg>", .{ .w = 1, .h = 1 }, half);
     defer a.free(with);
-    try testing.expectEqualStrings("<svg id=\"d\" viewBox=\"74 264 220 300\" width=\"100%\"><g/></svg>", with);
+    try testing.expectEqualStrings("<svg id=\"d\" viewBox=\"74 264 220 300\" preserveAspectRatio=\"none\" width=\"100%\"><g/></svg>", with);
     const without = try regionSvg(a, "<svg id=\"d\"><g/></svg>", .{ .w = 400, .h = 200 }, half);
     defer a.free(without);
-    try testing.expectEqualStrings("<svg id=\"d\"viewBox=\"100 100 200 100\"><g/></svg>", without);
+    try testing.expectEqualStrings("<svg id=\"d\" viewBox=\"100 100 200 100\" preserveAspectRatio=\"none\"><g/></svg>", without);
     try testing.expect(sameRegion(half, half));
     try testing.expect(!sameRegion(half, .{}));
 }
@@ -1393,4 +1400,50 @@ test "only the visible part of a zoomed diagram is rendered, at the size it is s
     const whole = visibleRegion(.{ .x = 50, .y = 0, .w = 200, .h = 100 }, frame).?;
     try testing.expect(sameRegion(whole[1], .{}));
     try testing.expect(visibleRegion(.{ .x = 400, .y = 0, .w = 200, .h = 100 }, frame) == null);
+}
+
+fn expectCrop(bytes: []const u8, size: Size, r: Region, fw: u32, fh: u32) !void {
+    const a = testing.allocator;
+    const whole = try regionSvg(a, bytes, size, .{});
+    defer a.free(whole);
+    var full = try svg.render(a, whole, fw, fh);
+    defer full.deinit(a);
+    const x0: u32 = @intFromFloat(@round(r.u0 * @as(f32, @floatFromInt(fw))));
+    const y0: u32 = @intFromFloat(@round(r.v0 * @as(f32, @floatFromInt(fh))));
+    const x1: u32 = @intFromFloat(@round(r.u1 * @as(f32, @floatFromInt(fw))));
+    const y1: u32 = @intFromFloat(@round(r.v1 * @as(f32, @floatFromInt(fh))));
+    const narrowed = try regionSvg(a, bytes, size, r);
+    defer a.free(narrowed);
+    var part = try svg.render(a, narrowed, x1 - x0, y1 - y0);
+    defer part.deinit(a);
+    var off_by_much: usize = 0;
+    var sum: usize = 0;
+    for (0..y1 - y0) |y| for (0..x1 - x0) |x| {
+        const p = part.frames[0].rgba[(y * (x1 - x0) + x) * 4 ..][0..4];
+        const q = full.frames[0].rgba[((y + y0) * fw + x + x0) * 4 ..][0..4];
+        var worst: u8 = 0;
+        for (p, q) |u, v| worst = @max(worst, if (u > v) u - v else v - u);
+        sum += worst;
+        if (worst > 48) off_by_much += 1;
+    };
+    const n = (x1 - x0) * (y1 - y0);
+    try testing.expect(off_by_much * 100 <= n);
+    try testing.expect(sum <= n * 3);
+}
+
+const crop_art =
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" viewBox=\"-40 -40 480 320\" style=\"max-width: 480px;\">" ++
+    "<rect x=\"0\" y=\"0\" width=\"120\" height=\"60\" fill=\"#c33\" stroke=\"#fff\" stroke-width=\"3\"/>" ++
+    "<circle cx=\"220\" cy=\"120\" r=\"70\" fill=\"#36c\"/>" ++
+    "<path d=\"M10 200 L200 240 L390 160\" fill=\"none\" stroke=\"#3a3\" stroke-width=\"6\"/>" ++
+    "<path fill-rule=\"evenodd\" d=\"M300 20h80v80h-80zM320 40h40v40h-40z\" fill=\"#fc0\"/></svg>";
+
+test "a narrowed viewBox rendered to the output size equals a crop of the full render" {
+    try expectCrop(crop_art, .{ .w = 480, .h = 320 }, .{ .u0 = 0.25, .v0 = 0.125, .u1 = 0.75, .v1 = 0.875 }, 480, 320);
+    try expectCrop(crop_art, .{ .w = 480, .h = 320 }, .{ .u0 = 0, .v0 = 0.5, .u1 = 0.5, .v1 = 1 }, 960, 640);
+}
+
+test "a root without a viewBox, as the info diagram has, crops the same way" {
+    const bare = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" style=\"max-width: 400px;\"><rect width=\"400\" height=\"200\" fill=\"#222\"/><circle cx=\"150\" cy=\"90\" r=\"60\" fill=\"#c33\"/></svg>";
+    try expectCrop(bare, .{ .w = 400, .h = 200 }, .{ .u0 = 0.25, .v0 = 0.25, .u1 = 1, .v1 = 0.75 }, 400, 200);
 }
