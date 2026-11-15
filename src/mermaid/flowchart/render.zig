@@ -8,7 +8,6 @@ const nodes_mod = @import("../render/nodes.zig");
 const edges_mod = @import("../render/edges.zig");
 const markers = @import("../render/markers.zig");
 const dagre = @import("../dagre/layout.zig");
-const layout_mod = @import("../layout.zig");
 const elk = @import("../elk/mermaid.zig");
 const line_jump = @import("../render/line_jump.zig");
 const intersect_mod = @import("../render/intersect.zig");
