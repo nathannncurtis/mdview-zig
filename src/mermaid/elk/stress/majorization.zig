@@ -3,11 +3,41 @@ const eg = @import("../elk_graph.zig");
 const fg = @import("fgraph.zig");
 const Allocator = std.mem.Allocator;
 
-// StressMajorization (Gansner, Koren, North). Dijkstra scans for the nearest open node instead of using a priority
-// queue: the distances come out the same.
-// shortcut: O(n^2) per source, so O(n^3) all pairs; switch to a heap when graphs reach thousands of nodes.
+// StressMajorization (Gansner, Koren, North). The Dijkstra queue is GWT's java.util.PriorityQueue, which elkjs ships:
+// removing an element whose key was just lowered only sifts down, so the distances differ from a textbook Dijkstra.
 
 const unreachable_dist: f64 = 2147483647;
+
+fn heapOffer(a: Allocator, heap: *std.ArrayList(usize), dist: []const f64, e: usize) Allocator.Error!void {
+    var node = heap.items.len;
+    try heap.append(a, e);
+    while (node > 0) {
+        const child = node;
+        node = (node - 1) / 2;
+        if (dist[heap.items[node]] <= dist[e]) {
+            heap.items[child] = e;
+            return;
+        }
+        heap.items[child] = heap.items[node];
+    }
+    heap.items[node] = e;
+}
+
+fn heapRemoveAt(heap: *std.ArrayList(usize), dist: []const f64, index: usize) void {
+    const last = heap.pop().?;
+    if (index >= heap.items.len) return;
+    heap.items[index] = last;
+    var node = index;
+    const size = heap.items.len;
+    while (node * 2 + 1 < size) {
+        var smallest = node * 2 + 1;
+        if (smallest + 1 < size and dist[heap.items[smallest + 1]] < dist[heap.items[smallest]]) smallest += 1;
+        if (dist[last] < dist[heap.items[smallest]]) break;
+        heap.items[node] = heap.items[smallest];
+        node = smallest;
+    }
+    heap.items[node] = last;
+}
 
 pub const Majorization = struct {
     g: *const fg.FGraph,
@@ -39,22 +69,27 @@ pub const Majorization = struct {
             try incident[e.target.id].append(a, e);
         }
         const mark = try a.alloc(bool, n);
+        var heap: std.ArrayList(usize) = .empty;
         for (g.nodes.items) |source| {
             const dist = m.apsp[source.id * n ..][0..n];
             @memset(mark, false);
             @memset(dist, unreachable_dist);
             dist[source.id] = 0;
-            for (0..n) |_| {
-                var u: usize = n;
-                for (0..n) |i| {
-                    if (!mark[i] and (u == n or dist[i] < dist[u])) u = i;
-                }
+            heap.clearRetainingCapacity();
+            for (g.nodes.items) |nd| try heapOffer(a, &heap, dist, nd.id);
+            while (heap.items.len > 0) {
+                const u = heap.items[0];
+                heapRemoveAt(&heap, dist, 0);
                 mark[u] = true;
                 for (incident[u].items) |e| {
                     const v = if (e.source.id == u) e.target.id else e.source.id;
                     if (mark[v]) continue;
                     const d = dist[u] + (e.origin.opts.stress_desired_edge_length orelse common);
-                    if (d < dist[v]) dist[v] = d;
+                    if (d < dist[v]) {
+                        dist[v] = d;
+                        if (std.mem.findScalar(usize, heap.items, v)) |i| heapRemoveAt(&heap, dist, i);
+                        try heapOffer(a, &heap, dist, v);
+                    }
                 }
             }
         }

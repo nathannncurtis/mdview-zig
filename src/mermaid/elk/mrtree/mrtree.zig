@@ -2,7 +2,7 @@ const std = @import("std");
 const lg = @import("../lgraph.zig");
 const eg = @import("../elk_graph.zig");
 const util = @import("../util.zig");
-const nls = @import("../graph/node_label_size.zig");
+const node_labels = @import("../force/node_labels.zig");
 const transferrer = @import("../graph/elk_graph_layout_transferrer.zig");
 const t = @import("tree.zig");
 const phases = @import("phases.zig");
@@ -12,13 +12,13 @@ const TNode = t.TNode;
 const TEdge = t.TEdge;
 const TGraph = t.TGraph;
 
-// TreeLayoutProvider. The random seed option is never read by MrTree. Not carried over: node label placement of
-// NodeMicroLayout (only the node size it computes) and the interactive and compaction options.
+// TreeLayoutProvider. The random seed option is never read by MrTree. Not carried over: the interactive and
+// compaction options.
 pub fn layout(a: Allocator, node: *eg.ElkNode) lg.Error!void {
     const cfg = config(node);
     if (cfg.compaction) return error.Unsupported;
     if (cfg.routing_mode == .none) return error.Unsupported;
-    microLayout(node);
+    if (!(node.opts.omit_node_micro_layout orelse false)) node_labels.microLayout(node);
     var graph = try importGraph(a, node, &cfg);
     const components = try split(a, &graph, &cfg);
     for (components) |c| try doLayout(a, c, &cfg);
@@ -42,16 +42,6 @@ fn config(n: *const eg.ElkNode) t.Config {
     if (o.padding) |v| c.padding = v;
     if (o.direction) |v| c.direction = v;
     return c;
-}
-
-fn microLayout(node: *eg.ElkNode) void {
-    for (node.children.items) |c| {
-        const sc = c.opts.node_size_constraints orelse continue;
-        if (!(sc.ports or sc.port_labels or sc.node_labels or sc.minimum_size)) continue;
-        const m = nls.minimumNodeSize(c);
-        c.width = m.x;
-        c.height = m.y;
-    }
 }
 
 fn isHierarchical(e: *const eg.ElkEdge) bool {
