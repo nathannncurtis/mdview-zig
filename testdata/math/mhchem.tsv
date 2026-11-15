@@ -1,0 +1,395 @@
+ce	H2O	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	2H2 + O2 -> 2H2O	{2\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}} {}+{} \mathrm{O}{\vphantom{A}}_{\smash[t]{2}} {}\mathrel{\longrightarrow}{} 2\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	SO4^2-	{\mathrm{SO}{\vphantom{A}}_{\smash[t]{4}}{\vphantom{A}}^{2-}}
+ce	Na+ + Cl- -> NaCl	{\mathrm{Na}{\vphantom{A}}^{+} {}+{} \mathrm{Cl}{\vphantom{A}}^{-} {}\mathrel{\longrightarrow}{} \mathrm{NaCl}}
+ce	A ->[x] B	{\mathrm{A} {}\mathrel{\xrightarrow{\mathrm{x}}}{} \mathrm{B}}
+ce	A ->[x][y] B	{\mathrm{A} {}\mathrel{\xrightarrow[{\mathrm{y}}]{\mathrm{x}}}{} \mathrm{B}}
+ce	CO2 + C -> 2 CO	{\mathrm{CO}{\vphantom{A}}_{\smash[t]{2}} {}+{} \mathrm{C} {}\mathrel{\longrightarrow}{} 2\,\mathrm{CO}}
+ce	Hg^2+ ->C[ ]A	{\mathrm{Hg}{\vphantom{A}}^{2+} {}\mathrel{\longrightarrow}{} \mathrm{A}}
+ce	Hg^2+ ->[I-] HgI2 ->[I-] [Hg^{II}I4]^2-	{\mathrm{Hg}{\vphantom{A}}^{2+} {}\mathrel{\xrightarrow{\mathrm{I}{\vphantom{A}}^{-}}}{} \mathrm{HgI}{\vphantom{A}}_{\smash[t]{2}} {}\mathrel{\xrightarrow{\mathrm{I}{\vphantom{A}}^{-}}}{} [\mathrm{Hg}{\vphantom{A}}^{\mathrm{II}}\mathrm{I}{\vphantom{A}}_{\smash[t]{4}}]{\vphantom{A}}^{2-}}
+ce	Zn^2+  <=>[+ 2OH-][+ 2H+]  $\underset{\text{amphoteric hydroxide}}{\ce{Zn(OH)2 v}}$  <=>[+ 2OH-][+ 2H+]  $\underset{\text{tetrahydroxozincate}}{\ce{[Zn(OH)4]^2-}}$	{\mathrm{Zn}{\vphantom{A}}^{2+} {}\mathrel{\underset{\lower6mu{ {}+{} 2\,\mathrm{H}{\vphantom{A}}^{+}}}{\overset{ {}+{} 2\,\mathrm{OH}{\vphantom{A}}^{-}}{\longrightleftharpoons}}}{} \underset{\text{amphoteric hydroxide}}{\ce{Zn(OH)2 v}}  {}\mathrel{\underset{\lower6mu{ {}+{} 2\,\mathrm{H}{\vphantom{A}}^{+}}}{\overset{ {}+{} 2\,\mathrm{OH}{\vphantom{A}}^{-}}{\longrightleftharpoons}}}{} \underset{\text{tetrahydroxozincate}}{\ce{[Zn(OH)4]^2-}} }
+ce	CH4 + 2O2 -> CO2 + 2H2O	{\mathrm{CH}{\vphantom{A}}_{\smash[t]{4}} {}+{} 2\,\mathrm{O}{\vphantom{A}}_{\smash[t]{2}} {}\mathrel{\longrightarrow}{} \mathrm{CO}{\vphantom{A}}_{\smash[t]{2}} {}+{} 2\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	^{227}_{90}Th+	{{\vphantom{A}}^{\hphantom{227}}_{\hphantom{90}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{227}}_{\vphantom{2}\llap{\smash[t]{90}}}\mathrm{Th}{\vphantom{A}}^{+}}
+ce	^227_90Th+	{{\vphantom{A}}^{\hphantom{227}}_{\hphantom{90}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{227}}_{\vphantom{2}\llap{\smash[t]{90}}}\mathrm{Th}{\vphantom{A}}^{+}}
+ce	^{0}_{-1}n^{-}	{{\vphantom{A}}^{\hphantom{0}}_{\hphantom{-1}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{0}}_{\vphantom{2}\llap{\smash[t]{-1}}}\mathrm{n}{\vphantom{A}}^{-}}
+ce	$n$ Cl2	{n \,\mathrm{Cl}{\vphantom{A}}_{\smash[t]{2}}}
+ce	A <-> B	{\mathrm{A} {}\mathrel{\longleftrightarrow}{} \mathrm{B}}
+ce	A <--> B	{\mathrm{A} {}\mathrel{\longleftrightarrows}{} \mathrm{B}}
+ce	A <=> B	{\mathrm{A} {}\mathrel{\longrightleftharpoons}{} \mathrm{B}}
+ce	A <=>> B	{\mathrm{A} {}\mathrel{\longRightleftharpoons}{} \mathrm{B}}
+ce	A <<=> B	{\mathrm{A} {}\mathrel{\longLeftrightharpoons}{} \mathrm{B}}
+ce	A <- B	{\mathrm{A} {}\mathrel{\longleftarrow}{} \mathrm{B}}
+ce	A --> B	{\mathrm{A}~{-} {}\mathrel{\longrightarrow}{} \mathrm{B}}
+ce	A + B	{\mathrm{A} {}+{} \mathrm{B}}
+ce	A - B	{\mathrm{A} {}-{} \mathrm{B}}
+ce	A = B	{\mathrm{A} {}={} \mathrm{B}}
+ce	A < B	{\mathrm{A} {}<{} \mathrm{B}}
+ce	A > B	{\mathrm{A} {}>{} \mathrm{B}}
+ce	A v	{\mathrm{A} \downarrow{} }
+ce	A ^	{\mathrm{A} \uparrow{} }
+ce	CuSO4*5H2O	{\mathrm{CuSO}{\vphantom{A}}_{\smash[t]{4}}\,{\cdot}\,5\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	CuSO4 . 5 H2O	{\mathrm{CuSO}{\vphantom{A}}_{\smash[t]{4}}\,{\cdot}\,5\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	H2O(l)	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}\mskip2mu (\mathrm{l})}
+ce	NaCl(aq)	{\mathrm{NaCl}\mskip2mu (\mathrm{aq})}
+ce	CO2(g)	{\mathrm{CO}{\vphantom{A}}_{\smash[t]{2}}\mskip2mu (\mathrm{g})}
+ce	Fe(s)	{\mathrm{Fe}\mskip2mu (\mathrm{s})}
+ce	Fe^3+(aq)	{\mathrm{Fe}{\vphantom{A}}^{3+}\mskip2mu (\mathrm{aq})}
+ce	Na+(aq) + Cl-(aq)	{\mathrm{Na}{\vphantom{A}}^{+}\mskip2mu (\mathrm{aq}) {}+{} \mathrm{Cl}{\vphantom{A}}^{-}\mskip2mu (\mathrm{aq})}
+ce	C6H5-CH3	{\mathrm{C}{\vphantom{A}}_{\smash[t]{6}}\mathrm{H}{\vphantom{A}}_{\smash[t]{5}}{-}\mathrm{CH}{\vphantom{A}}_{\smash[t]{3}}}
+ce	CH3-CH2-OH	{\mathrm{CH}{\vphantom{A}}_{\smash[t]{3}}{-}\mathrm{CH}{\vphantom{A}}_{\smash[t]{2}}{-}\mathrm{OH}}
+ce	CH3CH=CH2	{\mathrm{CH}{\vphantom{A}}_{\smash[t]{3}}\mathrm{CH}{=}\mathrm{CH}{\vphantom{A}}_{\smash[t]{2}}}
+ce	HC#CH	{\mathrm{HC}{\equiv}\mathrm{CH}}
+ce	C6H6	{\mathrm{C}{\vphantom{A}}_{\smash[t]{6}}\mathrm{H}{\vphantom{A}}_{\smash[t]{6}}}
+ce	C6H5-OH	{\mathrm{C}{\vphantom{A}}_{\smash[t]{6}}\mathrm{H}{\vphantom{A}}_{\smash[t]{5}}{-}\mathrm{OH}}
+ce	R-C(=O)-OH	{\mathrm{R}{-}\mathrm{C}({=}\mathrm{O}){-}\mathrm{OH}}
+ce	CH3-CH=CH-CH3	{\mathrm{CH}{\vphantom{A}}_{\smash[t]{3}}{-}\mathrm{CH}{=}\mathrm{CH}{-}\mathrm{CH}{\vphantom{A}}_{\smash[t]{3}}}
+ce	A-B	{\mathrm{A}{-}\mathrm{B}}
+ce	A=B	{\mathrm{A}{=}\mathrm{B}}
+ce	A#B	{\mathrm{A}{\equiv}\mathrm{B}}
+ce	A~B	{\mathrm{A}~\mathrm{B}}
+ce	A~-B	{\mathrm{A}~{-}\mathrm{B}}
+ce	A~=B	{\mathrm{A}~{=}\mathrm{B}}
+ce	A-~-B	{\mathrm{A}{-}~{-}\mathrm{B}}
+ce	A...B	{\mathrm{A}{{\cdot}{\cdot}{\cdot}}\mathrm{B}}
+ce	A....B	{\mathrm{A}\,{\cdot}\,\ldots \mathrm{B}}
+ce	A->B	{\mathrm{A} {}\mathrel{\longrightarrow}{} \mathrm{B}}
+ce	A<-B	{\mathrm{A} {}\mathrel{\longleftarrow}{} \mathrm{B}}
+ce	\bond{-}	{{-}}
+ce	\bond{=}	{{=}}
+ce	\bond{#}	{{\equiv}}
+ce	\bond{~}	{{\tripledash}}
+ce	\bond{...}	{{{\cdot}{\cdot}{\cdot}}}
+ce	A\bond{-}B	{\mathrm{A}{-}\mathrm{B}}
+ce	1/2 O2	{\mathchoice{\textstyle\frac{1}{2}}{\frac{1}{2}}{\frac{1}{2}}{\frac{1}{2}}\,\mathrm{O}{\vphantom{A}}_{\smash[t]{2}}}
+ce	1/2O2	{\mathchoice{\textstyle\frac{1}{2}}{\frac{1}{2}}{\frac{1}{2}}{\frac{1}{2}}\,\mathrm{O}{\vphantom{A}}_{\smash[t]{2}}}
+ce	0.5 O2	{0.5\,\mathrm{O}{\vphantom{A}}_{\smash[t]{2}}}
+ce	2 H2 + O2	{2\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}} {}+{} \mathrm{O}{\vphantom{A}}_{\smash[t]{2}}}
+ce	3 H2O	{3\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	H+	{\mathrm{H}{\vphantom{A}}^{+}}
+ce	OH-	{\mathrm{OH}{\vphantom{A}}^{-}}
+ce	H3O+	{\mathrm{H}{\vphantom{A}}_{\smash[t]{3}}\mathrm{O}{\vphantom{A}}^{+}}
+ce	NH4+	{\mathrm{NH}{\vphantom{A}}_{\smash[t]{4}}{\vphantom{A}}^{+}}
+ce	SO4^{2-}	{\mathrm{SO}{\vphantom{A}}_{\smash[t]{4}}{\vphantom{A}}^{2-}}
+ce	PO4^{3-}	{\mathrm{PO}{\vphantom{A}}_{\smash[t]{4}}{\vphantom{A}}^{3-}}
+ce	Fe^{3+}	{\mathrm{Fe}{\vphantom{A}}^{3+}}
+ce	Fe^{III}	{\mathrm{Fe}{\vphantom{A}}^{\mathrm{III}}}
+ce	Fe^III	{\mathrm{Fe}{\vphantom{A}}^{\mathrm{I}}\mathrm{II}}
+ce	Fe^{II}	{\mathrm{Fe}{\vphantom{A}}^{\mathrm{II}}}
+ce	Mn^{VII}O4-	{\mathrm{Mn}{\vphantom{A}}^{\mathrm{VII}}\mathrm{O}{\vphantom{A}}_{\smash[t]{4}}{\vphantom{A}}^{-}}
+ce	O^{-II}	{\mathrm{O}{\vphantom{A}}^{\mathrm{-II}}}
+ce	^{18}O	{{\vphantom{A}}^{\hphantom{18}}_{\hphantom{}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{18}}_{\vphantom{2}\llap{\smash[t]{}}}\mathrm{O}}
+ce	^{14}C	{{\vphantom{A}}^{\hphantom{14}}_{\hphantom{}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{14}}_{\vphantom{2}\llap{\smash[t]{}}}\mathrm{C}}
+ce	^{14}_{6}C	{{\vphantom{A}}^{\hphantom{14}}_{\hphantom{6}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{14}}_{\vphantom{2}\llap{\smash[t]{6}}}\mathrm{C}}
+ce	_{6}^{14}C	{{\vphantom{A}}^{\hphantom{14}}_{\hphantom{6}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{14}}_{\vphantom{2}\llap{\smash[t]{6}}}\mathrm{C}}
+ce	^14_6C	{{\vphantom{A}}^{\hphantom{14}}_{\hphantom{6}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{14}}_{\vphantom{2}\llap{\smash[t]{6}}}\mathrm{C}}
+ce	{}^{14}C	{\mkern2mu{\vphantom{A}}^{\hphantom{14}}_{\hphantom{}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{14}}_{\vphantom{2}\llap{\smash[t]{}}}\mathrm{C}}
+ce	{}^1H	{\mkern2mu{\vphantom{A}}^{\hphantom{1}}_{\hphantom{}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{1}}_{\vphantom{2}\llap{\smash[t]{}}}\mathrm{H}}
+ce	H_2O	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	H_{2}O	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	H2O2	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}{\vphantom{A}}_{\smash[t]{2}}}
+ce	Al2(SO4)3	{\mathrm{Al}{\vphantom{A}}_{\smash[t]{2}}(\mathrm{SO}{\vphantom{A}}_{\smash[t]{4}}){\vphantom{A}}_{\smash[t]{3}}}
+ce	Ca(OH)2	{\mathrm{Ca}(\mathrm{OH}){\vphantom{A}}_{\smash[t]{2}}}
+ce	[Cu(NH3)4]^2+	{[\mathrm{Cu}(\mathrm{NH}{\vphantom{A}}_{\smash[t]{3}}){\vphantom{A}}_{\smash[t]{4}}]{\vphantom{A}}^{2+}}
+ce	[Fe(CN)6]^{4-}	{[\mathrm{Fe}(\mathrm{CN}){\vphantom{A}}_{\smash[t]{6}}]{\vphantom{A}}^{4-}}
+ce	{[Cu(NH3)4]^2+}	{{\mathrm{[Cu(NH3)4]^2+}}}
+ce	(NH4)2SO4	{(\mathrm{NH}{\vphantom{A}}_{\smash[t]{4}}){\vphantom{A}}_{\smash[t]{2}}\mathrm{SO}{\vphantom{A}}_{\smash[t]{4}}}
+ce	K4[Fe(CN)6]	{\mathrm{K}{\vphantom{A}}_{\smash[t]{4}}[\mathrm{Fe}(\mathrm{CN}){\vphantom{A}}_{\smash[t]{6}}]}
+ce	\ce{H2O}	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	\color{red}{H2O}	{{\color{red}{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}}}
+ce	\color{red}H2O	{\color{red}\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	{\color{red}H2O}	{{\color{red}\text{H2O}}}
+ce	\frac{1}{2}O2	{\frac{1}{2}\mathrm{O}{\vphantom{A}}_{\smash[t]{2}}}
+ce	\frac{1}{2} O2	{\frac{1}{2}~\mathrm{O}{\vphantom{A}}_{\smash[t]{2}}}
+ce	\overset{a}{B}	{\overset{\mathrm{a}}{\mathrm{B}}}
+ce	\underset{a}{B}	{\underset{\mathrm{a}}{\mathrm{B}}}
+ce	\underbrace{AB}_{x}	{\underbrace{\mathrm{AB}}_{\mathrm{x}}}
+ce	A\,B	{\mathrm{A}\,\mathrm{B}}
+ce	A\ B	{\mathrm{A}\ \mathrm{B}}
+ce	$\alpha$-Fe	{\alpha \text{-}\mathrm{Fe}}
+ce	\alpha-Fe	{\mathrm{\alpha}\text{-}\mathrm{Fe}}
+ce	$\mu$ g	{\mu ~\mathrm{g}}
+ce	\mu	{\mathrm{\mu}}
+ce	H2O \pu{5 mol}	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}{5~\mathrm{mol}}}
+ce	pH	{\mathrm{pH}}
+ce	pOH	{\mathrm{pOH}}
+ce	pK	{\mathrm{pK}}
+ce	p-Cymene	{p \text{-}\mathrm{Cymene}}
+ce	iPr	{\mathrm{iPr}}
+ce	iBu	{\mathrm{iBu}}
+ce	1s2 2s2 2p6	{1\mathrm{s}{\vphantom{A}}_{\smash[t]{2}}~2\mathrm{s}{\vphantom{A}}_{\smash[t]{2}}~2\mathrm{p}{\vphantom{A}}_{\smash[t]{6}}}
+ce	2p	{2\mathrm{p}}
+ce	3d10	{3\mathrm{d}{\vphantom{A}}_{\smash[t]{10}}}
+ce	sp3	{\mathrm{sp}{\vphantom{A}}_{\smash[t]{3}}}
+ce	e-	{\mathrm{e}{\vphantom{A}}^{-}}
+ce	e^-	{\mathrm{e}{\vphantom{A}}^{-}}
+ce	e-	{\mathrm{e}{\vphantom{A}}^{-}}
+ce	n^0	{\mathrm{n}{\vphantom{A}}^{0}}
+ce	^0n	{{\vphantom{A}}^{\hphantom{0}}_{\hphantom{}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{0}}_{\vphantom{2}\llap{\smash[t]{}}}\mathrm{n}}
+ce	\hline	\hline 
+ce	A & B	\mathrm{A}& \mathrm{B}
+ce	A \\ B	\mathrm{A}\\ \mathrm{B}
+ce	A, B, C	{\mathrm{A}{,}\mkern6mu \mathrm{B}{,}\mkern6mu \mathrm{C}}
+ce	A,B	{\mathrm{A}{,}\mkern3mu \mathrm{B}}
+ce	A; B	{\mathrm{A}{;}\mkern6mu \mathrm{B}}
+ce	(v)	{ \downarrow{} }
+ce	(^)	{ \uparrow{} }
+ce	A (v)	{\mathrm{A} \downarrow{} }
+ce	A (^)	{\mathrm{A} \uparrow{} }
+ce	A v B	{\mathrm{A} \downarrow{} ~\mathrm{B}}
+ce	NaOH(aq) + HCl(aq) -> NaCl(aq) + H2O(l)	{\mathrm{NaOH}\mskip2mu (\mathrm{aq}) {}+{} \mathrm{HCl}\mskip2mu (\mathrm{aq}) {}\mathrel{\longrightarrow}{} \mathrm{NaCl}\mskip2mu (\mathrm{aq}) {}+{} \mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}\mskip2mu (\mathrm{l})}
+ce	2 NaOH + H2SO4 -> Na2SO4 + 2 H2O	{2\,\mathrm{NaOH} {}+{} \mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{SO}{\vphantom{A}}_{\smash[t]{4}} {}\mathrel{\longrightarrow}{} \mathrm{Na}{\vphantom{A}}_{\smash[t]{2}}\mathrm{SO}{\vphantom{A}}_{\smash[t]{4}} {}+{} 2\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	C + O2 -> CO2 ^	{\mathrm{C} {}+{} \mathrm{O}{\vphantom{A}}_{\smash[t]{2}} {}\mathrel{\longrightarrow}{} \mathrm{CO}{\vphantom{A}}_{\smash[t]{2}} \uparrow{} }
+ce	CaCO3 -> CaO + CO2 ^	{\mathrm{CaCO}{\vphantom{A}}_{\smash[t]{3}} {}\mathrel{\longrightarrow}{} \mathrm{CaO} {}+{} \mathrm{CO}{\vphantom{A}}_{\smash[t]{2}} \uparrow{} }
+ce	Ag+ + Cl- -> AgCl v	{\mathrm{Ag}{\vphantom{A}}^{+} {}+{} \mathrm{Cl}{\vphantom{A}}^{-} {}\mathrel{\longrightarrow}{} \mathrm{AgCl} \downarrow{} }
+ce	AgCl v	{\mathrm{AgCl} \downarrow{} }
+ce	2 Na + 2 H2O -> 2 NaOH + H2 ^	{2\,\mathrm{Na} {}+{} 2\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O} {}\mathrel{\longrightarrow}{} 2\,\mathrm{NaOH} {}+{} \mathrm{H}{\vphantom{A}}_{\smash[t]{2}} \uparrow{} }
+ce	N2 + 3H2 <=> 2NH3	{\mathrm{N}{\vphantom{A}}_{\smash[t]{2}} {}+{} 3\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}} {}\mathrel{\longrightleftharpoons}{} 2\,\mathrm{NH}{\vphantom{A}}_{\smash[t]{3}}}
+ce	N2 + 3 H2 <=>[Fe] 2 NH3	{\mathrm{N}{\vphantom{A}}_{\smash[t]{2}} {}+{} 3\,\mathrm{H}{\vphantom{A}}_{\smash[t]{2}} {}\mathrel{\overset{\mathrm{Fe}}{\longrightleftharpoons}}{} 2\,\mathrm{NH}{\vphantom{A}}_{\smash[t]{3}}}
+ce	CO2 + H2O <=> H2CO3	{\mathrm{CO}{\vphantom{A}}_{\smash[t]{2}} {}+{} \mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O} {}\mathrel{\longrightleftharpoons}{} \mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{CO}{\vphantom{A}}_{\smash[t]{3}}}
+ce	A ->[$\Delta$] B	{\mathrm{A} {}\mathrel{\xrightarrow{\Delta }}{} \mathrm{B}}
+ce	A ->[\Delta] B	{\mathrm{A} {}\mathrel{\xrightarrow{\mathrm{\Delta}}}{} \mathrm{B}}
+ce	A ->[heat] B	{\mathrm{A} {}\mathrel{\xrightarrow{\mathrm{heat}}}{} \mathrm{B}}
+ce	A ->[{text}] B	{\mathrm{A} {}\mathrel{\xrightarrow{{\text{text}}}}{} \mathrm{B}}
+ce	A ->C[$\Delta$] B	{\mathrm{A} {}\mathrel{\xrightarrow{\Delta }}{} \mathrm{B}}
+ce	A ->T[text] B	{\mathrm{A} {}\mathrel{\xrightarrow{\text{text}}}{} \mathrm{B}}
+ce	A ->M[$x$] B	{\mathrm{A} {}\mathrel{\xrightarrow{$x$ }}{} \mathrm{B}}
+ce	A ->CT[x] B	{\mathrm{A} {}\mathrel{\longrightarrow}{} \mathrm{CT}[\mathrm{x}]~\mathrm{B}}
+ce	{	{{}
+ce	}	{}}
+ce	A}	{\mathrm{A}}}
+ce	{A	{{\mathrm{A}}
+ce	^{	{{\vphantom{A}}^{{}}
+ce	$	{$}
+ce	$A	{$\mathrm{A}}
+ce	\color{	{\color{}
+ce	\bond{	{\bond{}
+ce	\frac{1}	{\frac{1}}
+ce	\unknown	{\unknown}
+ce	\x{a}{b}	{\x{a}{b}}
+ce	\x{a}	{\x{a}}
+ce	\x	{\x}
+ce	[(...)]	{[(\ldots )]}
+ce	[A]	{[\mathrm{A}]}
+ce	A[B]	{\mathrm{A}[\mathrm{B}]}
+ce	A->[B	{\mathrm{A} {}\mathrel{\longrightarrow}{} [\mathrm{B}}
+ce	+	{{+}}
+ce	-	{ {}-{} }
+ce	++	{{+} {}+{} }
+ce	--	{{-}{-}}
+ce	+-	{{+} {}-{} }
+ce	A+-B	{\mathrm{A}{\vphantom{A}}^{+}{-}\mathrm{B}}
+ce	A +- B	{\mathrm{A} {}\pm{} \mathrm{B}}
+ce	A \pm B	{\mathrm{A} {}\pm{} \mathrm{B}}
+ce	A $\pm$ B	{\mathrm{A} {}\pm{} \mathrm{B}}
+ce	A $\approx$ B	{\mathrm{A} {}\approx{} \mathrm{B}}
+ce	A << B	{\mathrm{A} {}\ll{} \mathrm{B}}
+ce	A >> B	{\mathrm{A} {}\gg{} \mathrm{B}}
+ce	A \approx B	{\mathrm{A} {}\approx{} \mathrm{B}}
+ce	…	{\ldots }
+ce	A...	{\mathrm{A}{{\cdot}{\cdot}{\cdot}}}
+ce	A…B	{\mathrm{A}{{\cdot}{\cdot}{\cdot}}\mathrm{B}}
+ce	−	{ {}-{} }
+ce	A−B	{\mathrm{A}{-}\mathrm{B}}
+ce	A–B	{\mathrm{A}{-}\mathrm{B}}
+ce	H2O ... H2O	{\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}~\ldots ~\mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	100 g	{100\,\mathrm{g}}
+ce	100 mL	{100\,\mathrm{mL}}
+ce	0.1 M	{0.1\,\mathrm{M}}
+ce	1.5e-3 M	{1.5\,\mathrm{e}\text{-}3\,\mathrm{M}}
+ce	10^3	{10{\vphantom{A}}^{3}}
+ce	$10^3$	{10^3 }
+ce	A_{(aq)}	{\mathrm{A}{\vphantom{A}}_{\smash[t]{\mskip1mu (\mathrm{aq})}}}
+ce	A_(aq)	{\mathrm{A}{\vphantom{A}}_{\smash[t]{(}}\mathrm{aq})}
+ce	A(aq)	{\mathrm{A}\mskip2mu (\mathrm{aq})}
+ce	A(aq)(s)	{\mathrm{A}(\mathrm{aq})\mskip2mu (\mathrm{s})}
+ce	A(l)	{\mathrm{A}\mskip2mu (\mathrm{l})}
+ce	A(g)	{\mathrm{A}\mskip2mu (\mathrm{g})}
+ce	A(cr)	{\mathrm{A}\mskip2mu (\mathrm{cr})}
+ce	A($l$)	{\mathrm{A}(l )}
+ce	A(\ca $a$)	{\mathrm{A}\mskip2mu ({\sim}a )}
+ce	\ca A	{{\sim}\mathrm{A}}
+ce	\ca100	{{\sim}100}
+ce	~A	{~\mathrm{A}}
+ce	x	{\mathrm{x}}
+ce	i	{\mathrm{i}}
+ce	x2	{\mathrm{x}{\vphantom{A}}_{\smash[t]{2}}}
+ce	A x B	{\mathrm{A}~x\,\mathrm{B}}
+ce	1x	{1\,\mathrm{x}}
+ce	2 x 3	{2\,\mathrm{x}~3}
+ce	KV	{\mathrm{KV}}
+ce	K,V	{\mathrm{K}{,}\mkern3mu \mathrm{V}}
+ce	H^+(aq)	{\mathrm{H}{\vphantom{A}}^{+}\mskip2mu (\mathrm{aq})}
+ce	H^+ + OH^- -> H2O	{\mathrm{H}{\vphantom{A}}^{+} {}+{} \mathrm{OH}{\vphantom{A}}^{-} {}\mathrel{\longrightarrow}{} \mathrm{H}{\vphantom{A}}_{\smash[t]{2}}\mathrm{O}}
+ce	Na^+	{\mathrm{Na}{\vphantom{A}}^{+}}
+ce	Cl^-	{\mathrm{Cl}{\vphantom{A}}^{-}}
+ce	O^2-	{\mathrm{O}{\vphantom{A}}^{2-}}
+ce	S^2-	{\mathrm{S}{\vphantom{A}}^{2-}}
+ce	O^{2-}	{\mathrm{O}{\vphantom{A}}^{2-}}
+ce	O^2	{\mathrm{O}{\vphantom{A}}^{2}}
+ce	O^-	{\mathrm{O}{\vphantom{A}}^{-}}
+ce	O^+	{\mathrm{O}{\vphantom{A}}^{+}}
+ce	O^+-	{\mathrm{O}{\vphantom{A}}^{+-}}
+ce	O^{+-}	{\mathrm{O}{\vphantom{A}}^{+-}}
+ce	O^{+/-}	{\mathrm{O}{\vphantom{A}}^{+/-}}
+ce	A^-	{\mathrm{A}{\vphantom{A}}^{-}}
+ce	A^	{\mathrm{A}}
+ce	A_	{\mathrm{A}}
+ce	^	{ \uparrow{} }
+ce	_	
+ce	A_B	{\mathrm{A}{\vphantom{A}}_{\smash[t]{\mathrm{B}}}}
+ce	A_1	{\mathrm{A}{\vphantom{A}}_{\smash[t]{1}}}
+ce	A_{1}	{\mathrm{A}{\vphantom{A}}_{\smash[t]{1}}}
+ce	A_x	{\mathrm{A}{\vphantom{A}}_{\smash[t]{x }}}
+ce	A^x	{\mathrm{A}{\vphantom{A}}^{{\times}}}
+ce	A^{x}	{\mathrm{A}{\vphantom{A}}^{{\times}}}
+ce	A^$x$	{\mathrm{A}{\vphantom{A}}^{x }}
+ce	A_$x$	{\mathrm{A}{\vphantom{A}}_{\smash[t]{x }}}
+ce	A^\alpha	{\mathrm{A}{\vphantom{A}}^{\mathrm{\alpha}}}
+ce	A_\alpha	{\mathrm{A}{\vphantom{A}}_{\smash[t]{\mathrm{\alpha}}}}
+ce	A^\frac{1}{2}	{\mathrm{A}{\vphantom{A}}^{\frac{1}{2}}}
+ce	A_\frac{1}{2}	{\mathrm{A}{\vphantom{A}}_{\smash[t]{\frac{1}{2}}}}
+ce	A^\mathrm{x}{y}	{\mathrm{A}{\vphantom{A}}^{\mathrm{x}{y}}}
+ce	A_{\mathrm{x}}	{\mathrm{A}{\vphantom{A}}_{\smash[t]{\mathrm{x}}}}
+ce	'	{{\vphantom{A}}^{\prime }}
+ce	A'	{\mathrm{A}{\vphantom{A}}^{\prime }}
+ce	A''	{\mathrm{A}{\vphantom{A}}^{\prime \prime }}
+ce	A'B	{\mathrm{A}{\vphantom{A}}^{\prime }\mathrm{B}}
+pu	123 kJ/mol	{123~\mathrm{kJ}/\mathrm{mol}}
+pu	5	{5}
+pu	1.5e-3 mol L-1	{1.5\cdot 10^{-3}~\mathrm{mol}\mkern3mu \mathrm{L^{-1}}}
+pu	1.5e3 mol L-1	{1.5\cdot 10^{3}~\mathrm{mol}\mkern3mu \mathrm{L^{-1}}}
+pu	1e3	{1\cdot 10^{3}}
+pu	+1.5	{+1.5}
+pu	-1.5	{-1.5}
+pu	+-1.5	{\pm 1.5}
+pu	+/-1.5	{\pm 1.5}
+pu	\pm 1.5	{\pm 1.5}
+pu	1.5(3)	{1.5(3)}
+pu	1.5(3) cm	{1.5(3)~\mathrm{cm}}
+pu	1.5 x 10^3 cm	{1.5\times 10^{3}~\mathrm{cm}}
+pu	1.5*10^3 cm	{1.5\cdot 10^{3}~\mathrm{cm}}
+pu	1.5\times 10^3 cm	{1.5\times 10^{3}~\mathrm{cm}}
+pu	1.5 \times 10^{3} cm	{1.5\times 10^{{3}}~\mathrm{cm}}
+pu	10^3	{10^{3}}
+pu	10^{-3}	{10^{{-3}}}
+pu	1,5	{1{,}5}
+pu	1.5	{1.5}
+pu	1000 g	{1000~\mathrm{g}}
+pu	10000 g	{10\mkern2mu 000~\mathrm{g}}
+pu	1000000 g	{1\mkern2mu 000\mkern2mu 000~\mathrm{g}}
+pu	1234567.89 g	{1\mkern2mu 234\mkern2mu 567.89~\mathrm{g}}
+pu	0.0001 g	{0.0001~\mathrm{g}}
+pu	kg m2 s-2	{\mathrm{kg}\mkern3mu \mathrm{m^{2}}\mkern3mu \mathrm{s^{-2}}}
+pu	kg.m2.s-2	{\mathrm{kg}\mkern1mu{\cdot}\mkern1mu \mathrm{m^{2}}\mkern1mu{\cdot}\mkern1mu \mathrm{s^{-2}}}
+pu	kg*m2*s-2	{\mathrm{kg}\mkern1mu{\cdot}\mkern1mu \mathrm{m^{2}}\mkern1mu{\cdot}\mkern1mu \mathrm{s^{-2}}}
+pu	kg m^2 s^-2	{\mathrm{kg}\mkern3mu \mathrm{m^{2}}\mkern3mu \mathrm{s^{-2}}}
+pu	kg m^{2} s^{-2}	{\mathrm{kg}\mkern3mu \mathrm{m^{2}}\mkern3mu \mathrm{s^{-2}}}
+pu	m/s	{\mathrm{m}/\mathrm{s}}
+pu	m//s	{\mathchoice{\textstyle\frac{\mathrm{m}}{\mathrm{s}}}{\frac{\mathrm{m}}{\mathrm{s}}}{\frac{\mathrm{m}}{\mathrm{s}}}{\frac{\mathrm{m}}{\mathrm{s}}}}
+pu	m / s	{\mathrm{m}/\mathrm{s}}
+pu	m // s	{\mathchoice{\textstyle\frac{\mathrm{m}}{\mathrm{s}}}{\frac{\mathrm{m}}{\mathrm{s}}}{\frac{\mathrm{m}}{\mathrm{s}}}{\frac{\mathrm{m}}{\mathrm{s}}}}
+pu	kg/m^3	{\mathrm{kg}/\mathrm{m^{3}}}
+pu	J/(mol K)	{\mathrm{J}\,/\,(\mathrm{mol}\mkern3mu \mathrm{K)}}
+pu	J/(mol*K)	{\mathrm{J}\,/\,(\mathrm{mol}\mkern1mu{\cdot}\mkern1mu \mathrm{K)}}
+pu	J mol-1 K-1	{\mathrm{J}\mkern3mu \mathrm{mol^{-1}}\mkern3mu \mathrm{K^{-1}}}
+pu	mol L-1	{\mathrm{mol}\mkern3mu \mathrm{L^{-1}}}
+pu	mol/L	{\mathrm{mol}/\mathrm{L}}
+pu	mol//L	{\mathchoice{\textstyle\frac{\mathrm{mol}}{\mathrm{L}}}{\frac{\mathrm{mol}}{\mathrm{L}}}{\frac{\mathrm{mol}}{\mathrm{L}}}{\frac{\mathrm{mol}}{\mathrm{L}}}}
+pu	g/mol	{\mathrm{g}/\mathrm{mol}}
+pu	g//mol	{\mathchoice{\textstyle\frac{\mathrm{g}}{\mathrm{mol}}}{\frac{\mathrm{g}}{\mathrm{mol}}}{\frac{\mathrm{g}}{\mathrm{mol}}}{\frac{\mathrm{g}}{\mathrm{mol}}}}
+pu	g / mol	{\mathrm{g}/\mathrm{mol}}
+pu	°C	{\mathrm{{}^{\circ}C}}
+pu	25 °C	{25~\mathrm{{}^{\circ}C}}
+pu	25^oC	{25~\mathrm{{}^{\circ}C}}
+pu	25^{o}C	{25~\mathrm{{}^{\circ}C}}
+pu	25 °F	{25~\mathrm{{}^{\circ}F}}
+pu	25^oF	{25~\mathrm{{}^{\circ}F}}
+pu	25^{o}F	{25~\mathrm{{}^{\circ}F}}
+pu	100 K	{100~\mathrm{K}}
+pu	1 atm	{1~\mathrm{atm}}
+pu	1 bar	{1~\mathrm{bar}}
+pu	1 Pa	{1~\mathrm{Pa}}
+pu	1 kPa	{1~\mathrm{kPa}}
+pu	1 MPa	{1~\mathrm{MPa}}
+pu	1 eV	{1~\mathrm{eV}}
+pu	1 mol	{1~\mathrm{mol}}
+pu	1 mmol	{1~\mathrm{mmol}}
+pu	1 µmol	{1~\mathrm{µmol}}
+pu	1 \mu mol	{1~\mathrm{\mu mol}}
+pu	1 {\mu}mol	{1~\mathrm{{\mu}mol}}
+pu	{1} {mol}	{1\mkern3mu \mathrm{mol}}
+pu	{kg} {m}	{\mathrm{kg}\mkern3mu \mathrm{m}}
+pu	kg {m}	{\mathrm{kg}\mkern3mu \mathrm{m}}
+pu	{kg m}	{\mathrm{kg}\mkern3mu \mathrm{m}}
+pu	\ce{H2O}	{\mathrm{\ce{H2O}}}
+pu	\pu{1 mol}	{\mathrm{\pu{1 mol}}}
+pu	1 \ce{H2O}	{1~\mathrm{\ce{H2O}}}
+pu	a b	{\mathrm{a}\mkern3mu \mathrm{b}}
+pu	a  b	{\mathrm{a}\mkern3mu \mkern3mu \mathrm{b}}
+pu	a	{\mathrm{a}}
+pu	{	{\mathrm{{}}
+pu	}	{\mathrm{}}}
+pu	{a	{\mathrm{{a}}
+pu	a}	{\mathrm{a}}}
+pu	^	{\mathrm{^}}
+pu	-	{-}
+pu	+	{+}
+pu	/	{\mathrm{/}}
+pu	//	{\mathrm{/}}
+pu	*	{\mkern1mu{\cdot}\mkern1mu }
+pu	.	{\mkern1mu{\cdot}\mkern1mu }
+pu	,	{\mathrm{,}}
+pu	1 /	{1~\mathrm{/}}
+pu	1 //	{1~\mathrm{/}}
+pu	/ 1	{\mathrm{/}\mkern3mu \mathrm{1}}
+pu	// 1	{\mathrm{/}/1}
+pu	1 * 2	{1~\mkern1mu{\cdot}\mkern1mu \mathrm{2}}
+pu	1 . 2	{1~\mkern1mu{\cdot}\mkern1mu \mathrm{2}}
+pu	1 x 2	{1~\mathrm{x}\mkern3mu \mathrm{2}}
+pu	1 \times 2	{1~\mathrm{\times 2}}
+pu	1 \cdot 2	{1~\mathrm{\cdot 2}}
+pu	a \cdot b	{\mathrm{a}\mkern3mu \mathrm{\cdot b}}
+pu	a\cdot b	{\mathrm{a\cdot b}}
+pu	\x	{\mathrm{\x}}
+pu	\x{a}	{\mathrm{\x{a}}}
+pu	\x{a}{b}	{\mathrm{\x{a}{b}}}
+pu	\frac{1}{2}	{\mathrm{\frac{1}{2}}}
+pu	1/2	{1~\mathrm{/^{2}}}
+pu	1/2 mol	{1~\mathrm{/^{2}}\mkern3mu \mathrm{mol}}
+pu	1 / 2 mol	{1~\mathrm{/}\mkern3mu \mathrm{2}\mkern3mu \mathrm{mol}}
+pu	0.5 mol	{0.5~\mathrm{mol}}
+pu	.5 mol	{.5~\mathrm{mol}}
+pu	5. mol	{5~\mkern1mu{\cdot}\mkern1mu \mathrm{mol}}
+pu	5.5.5 mol	{5.5~\mkern1mu{\cdot}\mkern1mu \mathrm{5}\mkern3mu \mathrm{mol}}
+pu	-5 mol	{-5~\mathrm{mol}}
+pu	+5 mol	{+5~\mathrm{mol}}
+pu	e3	{10^{3}}
+pu	5e	{5~\mathrm{e}}
+pu	5e3e	{5\cdot 10^{3}~\mathrm{e}}
+pu	5E3	{5\times 10^{3}}
+pu	5e+3	{5\cdot 10^{+3}}
+pu	5e-3	{5\cdot 10^{-3}}
+pu	5e{3}	{5\cdot 10^{{3}}}
+pu	5e{-3}	{5\cdot 10^{{-3}}}
+pu	5 e 3	{5~\mathrm{e}\mkern3mu \mathrm{3}}
+pu	5(3)	{5(3)}
+pu	5(3.5)	{5(3.5)}
+pu	5(.5)	{5(.5)}
+pu	5()	{5()}
+pu	5(	{5(}
+pu	5)	{5)}
+pu	(5)	{(5)}
+pu	[5]	{[5]}
+pu	{5}	{\mathrm{5}}
+pu	(5 mol)	{(5~\mathrm{mol)}}
+pu	[5 mol]	{[5~\mathrm{mol]}}
+pu	{5 mol}	{\mathrm{5}\mkern3mu \mathrm{mol}}
+pu	(a)(b)	{(\mathrm{a)(b)}}
+pu	[a][b]	{[\mathrm{a][b]}}
+pu	{a}{b}	{\mathrm{{a}{b}}}
+pu	a(b)	{\mathrm{a(b)}}
+pu	a[b]	{\mathrm{a[b]}}
+pu	a{b}	{\mathrm{a{b}}}
+pu	(a)b	{(\mathrm{a)b}}
+pu	[a]b	{[\mathrm{a]b}}
+pu	{a}b	{\mathrm{{a}b}}

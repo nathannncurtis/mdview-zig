@@ -1,0 +1,67 @@
+{
+ "diagram-flowchart-R-0": {
+  "w": 32.1875,
+  "h": 19,
+  "text": "Root"
+ },
+ "diagram-flowchart-C0-2": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 0"
+ },
+ "diagram-flowchart-C1-4": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 1"
+ },
+ "diagram-flowchart-C2-6": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 2"
+ },
+ "diagram-flowchart-C3-8": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 3"
+ },
+ "diagram-flowchart-C4-10": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 4"
+ },
+ "diagram-flowchart-C5-12": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 5"
+ },
+ "diagram-flowchart-C6-14": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 6"
+ },
+ "diagram-flowchart-C7-16": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 7"
+ },
+ "diagram-flowchart-C8-18": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 8"
+ },
+ "diagram-flowchart-C9-20": {
+  "w": 49.7188,
+  "h": 19,
+  "text": "Child 9"
+ },
+ "diagram-flowchart-C10-22": {
+  "w": 58.1094,
+  "h": 19,
+  "text": "Child 10"
+ },
+ "diagram-flowchart-C11-24": {
+  "w": 58.1094,
+  "h": 19,
+  "text": "Child 11"
+ }
+}

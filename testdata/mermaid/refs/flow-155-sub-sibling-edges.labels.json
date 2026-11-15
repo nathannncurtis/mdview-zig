@@ -1,0 +1,32 @@
+{
+ "diagram-B": {
+  "w": 9.0625,
+  "h": 19,
+  "text": "B"
+ },
+ "diagram-A": {
+  "w": 9.4375,
+  "h": 19,
+  "text": "A"
+ },
+ "diagram-flowchart-a1-0": {
+  "w": 16.7969,
+  "h": 19,
+  "text": "a1"
+ },
+ "diagram-flowchart-a2-1": {
+  "w": 16.7969,
+  "h": 19,
+  "text": "a2"
+ },
+ "diagram-flowchart-b1-2": {
+  "w": 17.3125,
+  "h": 19,
+  "text": "b1"
+ },
+ "diagram-flowchart-b2-3": {
+  "w": 17.3125,
+  "h": 19,
+  "text": "b2"
+ }
+}

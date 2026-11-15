@@ -1,0 +1,11 @@
+sequenceDiagram
+  loop outer
+    alt cond
+      A->>B: x
+      opt maybe
+        B->>A: y
+      end
+    else other
+      A->>B: z
+    end
+  end

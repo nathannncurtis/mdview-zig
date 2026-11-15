@@ -1,0 +1,47 @@
+{
+ "L_Chk_Proc_0": {
+  "w": 23.0938,
+  "h": 19,
+  "text": "yes"
+ },
+ "L_Chk_Err_0": {
+  "w": 17.3281,
+  "h": 19,
+  "text": "no"
+ },
+ "diagram-flowchart-Start-0": {
+  "w": 35.0156,
+  "h": 19,
+  "text": "Start"
+ },
+ "diagram-flowchart-In-1": {
+  "w": 76.8437,
+  "h": 19,
+  "text": "Read input"
+ },
+ "diagram-flowchart-Chk-3": {
+  "w": 40.625,
+  "h": 19,
+  "text": "Valid?"
+ },
+ "diagram-flowchart-Proc-5": {
+  "w": 52.5781,
+  "h": 19,
+  "text": "Process"
+ },
+ "diagram-flowchart-Err-7": {
+  "w": 77.7188,
+  "h": 19,
+  "text": "Show error"
+ },
+ "diagram-flowchart-Out-11": {
+  "w": 91.1719,
+  "h": 19,
+  "text": "Write output"
+ },
+ "diagram-flowchart-End-13": {
+  "w": 26.2344,
+  "h": 19,
+  "text": "End"
+ }
+}

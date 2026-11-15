@@ -1,0 +1,58 @@
+name: mermaid-data
+
+on:
+  pull_request:
+    paths:
+      - tools/gen/gen_segment.zig
+      - tools/gen/gen_mermaid_config.zig
+      - src/mermaid/segment_data.zig
+      - src/mermaid/config_defaults.zig
+      - .github/workflows/mermaid-data.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Regenerates the committed Mermaid tables from the pinned upstream files and fails if they differ;
+# the regenerated files are uploaded so a difference can be committed from the artifact.
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UCD: https://www.unicode.org/Public/17.0.0/ucd
+      SCHEMA: https://raw.githubusercontent.com/mermaid-js/mermaid/mermaid@12.2.0/packages/mermaid/src/schemas/config.schema.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: bash .github/scripts/setup-zig.sh
+      - name: Download the pinned upstream data
+        run: |
+          mkdir -p "$RUNNER_TEMP/up" "$RUNNER_TEMP/out"
+          cd "$RUNNER_TEMP/up"
+          get() { curl -sSfL --retry 3 --retry-delay 5 -o "$1" "$2"; }
+          get GraphemeBreakProperty.txt "$UCD/auxiliary/GraphemeBreakProperty.txt"
+          get WordBreakProperty.txt "$UCD/auxiliary/WordBreakProperty.txt"
+          get emoji-data.txt "$UCD/emoji/emoji-data.txt"
+          get DerivedCoreProperties.txt "$UCD/DerivedCoreProperties.txt"
+          get config.schema.yaml "$SCHEMA"
+          sha256sum -c - <<'SUMS'
+          d6b51d1d2ae5c33b451b7ed994b48f1f4dc62b2272a5831e7fd418514a6bae89  GraphemeBreakProperty.txt
+          72274cac1e6b919507db35655c3e175aa27274668a1ece95c28d2069f2ad9852  WordBreakProperty.txt
+          2cb2bb9455cda83e8481541ecf5b6dfda66a3bb89efa3fa7c5297eccf607b72b  emoji-data.txt
+          24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08  DerivedCoreProperties.txt
+          855e6fbb5d278f190f15a7660b44dca6a4699ca8077ab8b35579a4e8a64be019  config.schema.yaml
+          SUMS
+      - name: Regenerate
+        run: |
+          up="$RUNNER_TEMP/up"; out="$RUNNER_TEMP/out"
+          zig build gen-segment -- "$up/GraphemeBreakProperty.txt" "$up/WordBreakProperty.txt" "$up/emoji-data.txt" "$up/DerivedCoreProperties.txt" "$out/segment_data.zig"
+          zig build gen-mermaid-config -- "$up/config.schema.yaml" "$out/config_defaults.zig"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mermaid-data
+          path: ${{ runner.temp }}/out
+      - name: Compare with the committed tables
+        run: |
+          diff -u src/mermaid/segment_data.zig "$RUNNER_TEMP/out/segment_data.zig"
+          diff -u src/mermaid/config_defaults.zig "$RUNNER_TEMP/out/config_defaults.zig"

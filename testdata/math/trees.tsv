@@ -1,0 +1,82 @@
+\frac{a}{b}	(frac [a] [b])
+\text{if }x	(text "if ") x
+\sum_{i=1}^{n} i	(ss (op:display:large ∑:op) ^[n] _[i =:rel 1] display) i
+\left( x \right)	(fenced () x)
+\sqrt{x}	(sqrt x)
+\mathrm{d}x	(rm d) x
+\mathbb{R}	(bb R)
+\mathcal{L}	(cal L)
+\mathbf{v}	(bf v)
+\hat{x}	(accent ^ x)
+\left[ x \right]	(fenced [] x)
+\operatorname{tr}(A)	(op:side (rm t r)) (:open A ):close
+\int_0^1 f	(ss (op:side:large ∫:op) ^[1] _[0]) f
+\begin{cases} a & b \\ c & d \end{cases}	(cases:{. | a & b | c & d)
+\begin{aligned} a &= b \\ c &= d \end{aligned}	(aligned | a & =:rel b | c & =:rel d)
+\left\{ x \right\}	(fenced {} x)
+\prod_{i} x	(ss (op:display:large ∏:op) _[i] display) x
+\bar{x}	(accent ¯ x)
+\begin{array}{cc} a & b \end{array}	(array | a & b)
+\dfrac{a}{b}	(frac:display [a] [b])
+\lim_{x\to 0} f	(ss (op:display l i m) _[x →:rel 0] display) f
+\begin{bmatrix} a & b \end{bmatrix}	(bmatrix:[] | a & b)
+\begin{pmatrix} a & b \end{pmatrix}	(pmatrix:() | a & b)
+\tilde{x}	(accent ~ x)
+\overline{x}	(overline x)
+\boldsymbol{x}	(bsym x)
+\underbrace{x}_{n}	(ss (stack:brace _⏟ x) _[n] above)
+\vec{v}	(accent → v)
+\binom{n}{k}	(frac:0:() [n] [k])
+\begin{align} a &= b \end{align}	(align_eq | a & =:rel b)
+\xrightarrow{f}	(xarrow → ^[f])
+\begin{equation} a \end{equation}	(a)
+\mathfrak{g}	(frak g)
+\color{red}x	(color:red x)
+\mathsf{A}	(sf A)
+\begin{matrix} a & b \end{matrix}	(matrix | a & b)
+\begin{gathered} a \\ b \end{gathered}	(gathered | a | b)
+\overset{a}{b}	(stack ^[a] b)
+\substack{a \\ b}	(subarray | a | b)
+\newcommand{\R}{\mathbb{R}}\R	(bb R)
+\textcolor{red}{x}	(color:red x)
+x'	(ss x ^[′])
+x'^2	(ss x ^[′ 2])
+x_1'	(ss x ^[′] _[1])
+x^2_3	(ss x ^[2] _[3])
+{a \over b}	((frac [a] [b]))
+{a \choose b}	((frac:0:() [a] [b]))
+\sum\limits_{i}^{n}	(ss (op:above:large ∑:op) ^[n] _[i] above)
+\sin^2 x	(ss (op:side s i n) ^[2]) x
+\operatorname*{argmax}_x	(ss (op:display (rm a r g m a x)) _[x] display)
+\left( a \middle| b \right)	(fenced () a (mid |) b)
+\bigl( x \bigr)	(big1:open () x (big1:close ))
+\sqrt[3]{x}	(sqrt n[3] x)
+\frac12	(frac [1] [2])
+a \dots + b	a ⋯:inner +:bin b
+a \dots b	a …:inner b
+\not=	≠:rel
+\not\in	∉:rel
+\text{a $x$ b}	((text "a ") (x) (text " b"))
+\hspace{1em}x\!y	(sp 1) x (sp -0.16666667) y
+{\bf a} b	((bf a)) b
+\displaystyle\frac{a}{b}	(display (frac [a] [b]))
+a\bmod b	a (rel (rm m o d)) b
+\boxed{x}	(box ((display (x))))
+\genfrac{(}{)}{0pt}{}{a}{b}	(frac:0:() [a] [b])
+\cfrac{a}{b}	(frac [(text a)] [(text b)])
+\mathop{x}\limits^a	(ss (op:above x) ^[a] above)
+\foo x	(undef \foo) x
+\newcommand{\a}[2][d]{#2#1}\a{y}\a[q]{z}	y d z q
+\def\a#1#2{#2#1}\a xy	y x
+\let\b=\frac \b{a}{b}	(frac [a] [b])
+\begin{matrix} a \\ \end{matrix}	(matrix | a)
+\begin{array}{c|cc} \hline a & b & c \\ \hline \end{array}	(array | a & b & c)
+\begin{cases} 1 & x>0 \\ 0 & \text{else} \end{cases}	(cases:{. | 1 & x >:rel 0 | 0 & (text "else"))
+\begin{aligned} a &= b \\ &= c \end{aligned}	(aligned | a & =:rel b |  & =:rel c)
+\begin{smallmatrix} a & b \end{smallmatrix}	(smallmatrix | a & b)
+\begin{subarray}{c} a \\ b \end{subarray}	(subarray | a | b)
+\overbrace{a}^{b}	(ss (stack:brace ^⏞ a) ^[b] above)
+\xrightarrow[b]{a}	(xarrow → ^[a] _[b])
+\textcolor[rgb]{1,0,0}{x}	(color:#ff0000 x)
+\color{red} x y	(color:red x y)
+a \tag{1}	a

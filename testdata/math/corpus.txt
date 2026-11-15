@@ -1,0 +1,1562 @@
+x^2
+x_1
+x_1^2
+x^{2}_{1}
+a^b^c
+a_b_c
+a^{b^c}
+x'
+x''
+x'''
+x''''
+x'^2
+x^2'
+x_1'
+x'_1
+x^
+x_
+{x^}
+^2
+_1
+\frac{a}{b}
+\frac12
+\frac 1 2
+\frac{1}
+\frac 1
+\frac
+\dfrac{a}{b}
+\tfrac{a}{b}
+\cfrac{a}{b}
+\cfrac[l]{a}{b}
+\cfrac[x]{a}{b}
+\binom{n}{k}
+\dbinom{n}{k}
+\tbinom{n}{k}
+\genfrac{(}{)}{0pt}{}{a}{b}
+\genfrac{[}{]}{1pt}{0}{a}{b}
+\genfrac{(}{)}{0pt}{9}{a}{b}
+\genfrac{foo}{)}{0pt}{}{a}{b}
+a \over b
+{a \over b}
+a \over b \over c
+{a \atop b}
+{n \choose k}
+{a \brace b}
+{a \brack b}
+{a \above 2pt b}
+{a \overwithdelims() b}
+{a \atopwithdelims[] b}
+{a \abovewithdelims() 1pt b}
+{a \above b}
+\sqrt{x}
+\sqrt x
+\sqrt[3]{x}
+\sqrt[n]{x}
+\sqrt[3
+\sqrt[3]
+\sqrt
+\sqrt\frac{1}{2}
+\root 3 \of x
+\root 3 x
+\sum_{i=1}^n i
+\sum\limits_{i=1}^n i
+\int_0^1 f
+\int\limits_0^1 f
+\sum\nolimits_a^b
+\prod_{i}
+\lim_{x \to 0} f
+\lim\limits_x
+\sin x
+\sin^2 x
+\operatorname{foo}(x)
+\operatorname*{argmax}_x
+\operatorname{arg-min}
+\operatorname
+\limits
+a\limits
+x\nolimits
+\bigcup_i A_i
+\oint_C
+\left( x \right)
+\left[ x \right]
+\left\{ x \right\}
+\left\lbrace x \right\rbrace
+\left. x \right|
+\left| x \right.
+\left\langle x \right\rangle
+\left< x \right>
+\left\lfloor x \right\rfloor
+\left\| x \right\|
+\left( a \middle| b \right)
+\left( a \middle\| b \middle| c \right)
+\left( x
+\left
+\left(
+\left\foo x \right)
+\left( x \right
+\right)
+\left( x \right) \right)
+{ \right) }
+\left( } \right)
+\left( \end{matrix} \right)
+\left( a & b \right)
+\big( x \big)
+\Big[ x \Big]
+\bigg\{ x \bigg\}
+\Bigg| x \Bigg|
+\bigl( x \bigr)
+\Biggl[ x \Biggr]
+\bigm| x
+\big
+\big x
+\big{(}
+\hat{x}
+\hat x
+\widehat{xy}
+\tilde{x}
+\widetilde{xy}
+\bar{x}
+\vec{x}
+\dot{x}
+\ddot{x}
+\dddot{x}
+\acute{x}
+\grave{x}
+\breve{x}
+\check{x}
+\mathring{x}
+\overline{xy}
+\underline{xy}
+\overrightarrow{AB}
+\overleftarrow{AB}
+\overbrace{abc}^{n}
+\underbrace{abc}_{n}
+\overbrace{abc}^n_m
+\overline{x}^2
+\overset{a}{=}
+\underset{a}{=}
+\stackrel{a}{=}
+\overunderset{a}{b}{=}
+\xrightarrow{abc}
+\xleftarrow[b]{a}
+\xrightarrow[b]
+\mathbf{x}
+\mathrm{d}x
+\mathbb{R}
+\mathcal{L}
+\mathfrak{g}
+\mathsf{A}
+\mathtt{A}
+\mathit{abc}
+\mathscr{A}
+\mathnormal{x}
+\boldsymbol{x}
+\boldsymbol{\alpha}
+\bf x
+\rm x
+{\bf x}
+\text{abc}
+\text{a $x$ b}
+\text{a \$ b}
+\text{a \alpha}
+\text{a
+\text{$x}
+\text{\(x\) and}
+\textbf{abc}
+\textit{abc}
+\textrm{abc}
+\mbox{abc}
+\hbox{abc}
+\fbox{abc}
+\boxed{x}
+\boxed
+\phantom{x}
+\vphantom{x}
+\hphantom{x}
+\smash{x}
+\smash[t]{x}
+\smash[b]{x}
+\not=
+\not\in
+\not\equiv
+\not x
+\not{=}
+\ne
+\neq
+\notin
+\mathbin{x}
+\mathrel{x}
+\mathop{x}
+\mathop{x}_a
+\mathopen{x}
+\mathclose{x}
+\mathpunct{x}
+\mathinner{x}
+\mathord{x}
+\dots
+\dots+
+\dots,
+\ldots
+\cdots
+\vdots
+\ddots
+\dotsc
+\dotsb
+\,
+\:
+\;
+\!
+\
+\quad
+\qquad
+\enspace
+~
+a~b
+\hspace{1em}
+\hspace{1foo}
+\hspace 1em
+\hspace
+\kern 1em
+\kern1em
+\kern-1em
+\kern{1em}
+\mkern 3mu
+\hskip 2pt
+\rule{1em}{2pt}
+\rule[1pt]{1em}{2pt}
+\rule{1em}
+\Rule{1em}{2pt}{1pt}
+\displaystyle x
+\textstyle x
+\scriptstyle x
+\scriptscriptstyle x
+{\displaystyle x}
+\tiny x
+\small x
+\large x
+\Huge x
+\color{red} x
+\color{red}{x}
+{\color{blue} x} y
+\textcolor{red}{x}
+\textcolor{#ff0000}{x}
+\textcolor{Blue}{x}
+\textcolor[rgb]{1,0,0}{x}
+\textcolor[RGB]{255,0,0}{x}
+\textcolor[gray]{0.5}{x}
+\textcolor[HTML]{ff0000}{x}
+\textcolor[rgb]{1,0}{x}
+\textcolor[rgb]{2,0,0}{x}
+\textcolor[rgb]{a,0,0}{x}
+\textcolor[RGB]{256,0,0}{x}
+\textcolor[RGB]{1.5,0,0}{x}
+\textcolor[gray]{2}{x}
+\textcolor[gray]{x}{x}
+\textcolor{foo}{x}
+\colorbox{yellow}{abc}
+\fcolorbox{red}{yellow}{abc}
+\color
+\mathchoice{a}{b}{c}{d}
+\mathchoice{a}{b}{c}
+\tag{1} x
+\tag*{(1)} x
+\tag{1} \tag{2}
+\label{a} x
+\nonumber x
+\notag x
+\begin{matrix} a & b \\ c & d \end{matrix}
+\begin{pmatrix} a & b \\ c & d \end{pmatrix}
+\begin{bmatrix} a \end{bmatrix}
+\begin{Bmatrix} a \end{Bmatrix}
+\begin{vmatrix} a \end{vmatrix}
+\begin{Vmatrix} a \end{Vmatrix}
+\begin{smallmatrix} a & b \end{smallmatrix}
+\begin{cases} a & b \\ c & d \end{cases}
+\begin{aligned} a &= b \\ c &= d \end{aligned}
+\begin{align} a &= b \\ c &= d \end{align}
+\begin{align*} a &= b \end{align*}
+\begin{gather} a \\ b \end{gather}
+\begin{gathered} a \\ b \end{gathered}
+\begin{split} a &= b \end{split}
+\begin{multline} a \\ b \end{multline}
+\begin{multline} a & b \end{multline}
+\begin{alignat}{2} a & b \end{alignat}
+\begin{alignat}{x} a & b \end{alignat}
+\begin{alignat} a & b \end{alignat}
+\begin{equation} a \end{equation}
+\begin{equation*} a \end{equation*}
+\begin{equation} \begin{align} a \end{align} \end{equation}
+\begin{align} \begin{equation} a \end{equation} \end{align}
+\begin{array}{cc} a & b \\ \hline c & d \end{array}
+\begin{array}{c|c} a & b \end{array}
+\begin{array}{|c|c|} \hline a & b \\ \hline \end{array}
+\begin{array}[t]{c} a \end{array}
+\begin{array} a \end{array}
+\begin{array}
+\begin{subarray}{c} a \\ b \end{subarray}
+\substack{a \\ b}
+\sum_{\substack{i \\ j}}
+\begin{matrix} a \\ \end{matrix}
+\begin{matrix} \\ \end{matrix}
+\begin{matrix}
+\begin{matrix} a
+\begin{matrix} a \end{pmatrix}
+\begin{matrix} a } \end{matrix}
+\begin{matrix} a \right) \end{matrix}
+\begin{foo} a \end{foo}
+\begin{matrix} a \\[2pt] b \end{matrix}
+\begin{matrix} a \\[foo] b \end{matrix}
+\begin{matrix} a \hline b \end{matrix}
+\hline
+a \hline
+\end{matrix}
+\end{foo}
+\begin{matrix}\end{matrix}
+\begin
+\begin{}
+\begin{ma\trix}
+a & b
+a \\ b
+{a & b}
+&
+\\
+\newline
+\cr
+\newcommand{\a}{x}\a
+\newcommand\a{x}\a
+\newcommand{\a}[1]{x#1}\a{y}
+\newcommand{\a}[2]{#2#1}\a{y}{z}
+\newcommand{\a}[2][d]{#2#1}\a{y}
+\newcommand{\a}[2][d]{#2#1}\a[q]{y}
+\newcommand{\a}[1]{#1}\a
+\newcommand{\a}[1]{#1}\a{
+\newcommand{\a}[1]{#2}\a{x}
+\newcommand{\a}[x]{}
+\newcommand{\a}[10]{}
+\newcommand{ab}{x}
+\newcommand{\a b}{x}
+\newcommand{\a}
+\newcommand
+\newcommand{\a}{x}\newcommand{\a}{y}\a
+\renewcommand{\frac}{x}\frac
+\renewcommand{\a}{x}\a
+\providecommand{\a}{x}\a
+\newcommand{\a}{\b}\newcommand{\b}{x}\a
+\newcommand{\a}{\a}\a
+\newcommand{\a}{\a\a}\a
+\def\a{x}\a
+\def\a#1{x#1}\a y
+\def\a#1#2{#2#1}\a xy
+\def\a#2{x}
+\def\a#1#3{x}
+\def\a#x{x}
+\def\a
+\def
+\def a{x}
+\def\a{x
+\let\a=\alpha \a
+\let\a\alpha \a
+\let\a=x \a
+\let\a={x}
+\let\a=\undefinedcs \a
+\let\a
+\let
+\let a=x
+\let\a=\b
+\let\b=\frac \b{a}{b}
+\def\a{x}\let\b=\a \b
+\newcommand{\R}{\mathbb{R}}x\in\R
+\newcommand{\a}{\newcommand{\b}{x}}\a\b
+\def\a{\def\b{x}}\a\b
+\iff
+\implies
+\impliedby
+\bmod
+a \bmod b
+a \pmod b
+a \mod b
+a \pod b
+\mathstrut
+\foo
+\foo x
+\alpha\foo
+x\foo^2
+\@
+\\ a
+\;\foo
+#
+a # b
+x$y
+$
+\text{#}
+x^#
+1.5
+.5
+1,000
+12.
+1..2
+x.y
+a+b
+a-b
+a*b
+a/b
+a=b
+a<b
+a>b
+a|b
+a:b
+a,b
+a;b
+a!b
+a?b
+(a)
+[a]
+\{a\}
+\lbrace a \rbrace
+\| a \|
+\vert a \vert
+\lvert a \rvert
+\lVert a \rVert
+\langle a \rangle
+\lfloor a \rfloor
+\lceil a \rceil
+\alpha\beta\gamma\delta\epsilon\varepsilon\zeta\eta\theta\vartheta
+\Gamma\Delta\Theta\Lambda\Xi\Pi\Sigma\Upsilon\Phi\Psi\Omega
+\infty\partial\nabla\forall\exists\emptyset\varnothing
+\leq\geq\neq\approx\equiv\sim\simeq\cong\propto\ll\gg
+\leftarrow\rightarrow\Leftarrow\Rightarrow\leftrightarrow\Leftrightarrow\mapsto
+\to\gets\longrightarrow\Longrightarrow
+\pm\mp\times\div\cdot\ast\star\circ\bullet
+\cap\cup\subset\supset\subseteq\supseteq\in\ni\notin
+\land\lor\lnot\neg\wedge\vee
+\hbar\ell\Re\Im\aleph
+\angle\triangle\square\blacksquare\checkmark
+\therefore\because\Box
+\ldotp\cdotp\colon
+\leqslant\geqslant\nleq\ngeq\lneq\gneq
+\mathbb{N}\mathbb{Z}\mathbb{Q}\mathbb{C}
+\textcolor{red}{\alpha}
+\frac{\partial f}{\partial x}
+e^{i\pi}+1=0
+\int_{-\infty}^{\infty} e^{-x^2}\,dx=\sqrt{\pi}
+\sum_{n=1}^{\infty}\frac{1}{n^2}=\frac{\pi^2}{6}
+\left(\frac{a}{b}\right)^2
+\begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix}
+f(x)=\begin{cases} 1 & x>0 \\ 0 & \text{otherwise} \end{cases}
+\hat{\beta}=(X^TX)^{-1}X^Ty
+\vec{a}\cdot\vec{b}
+\lim_{n\to\infty}\left(1+\frac1n\right)^n
+\mathcal{O}(n\log n)
+\underbrace{1+1+\cdots+1}_{n}
+\xrightarrow[\text{below}]{\text{above}}
+\newcommand{\vect}[1]{\boldsymbol{#1}}\vect{x}
+\let\a=\undefinedcs
+\let\b=\zzz x
+x^\right)
+x^&
+x^\over
+\left( x^\right)
+x^\end{matrix}
+\begin{matrix} x^\\ \end{matrix}
+x^\middle|
+\begin{matrix} x^& \end{matrix}
+x_}
+{x_}
+\frac{x^}{y}
+\frac{x^}{y
+\left( \right
+\left( x \middle
+\sqrt[
+\frac{a}{
+\text{a}^
+\text{a}_{
+a \over
+\over
+{\over}
+\left( a \over b \right)
+\begin{matrix} a \over b \end{matrix}
+\hspace{}
+\hspace{ 1 em }
+\hspace{+1.5em}
+\hspace{.5em}
+\hspace{5.em}
+\hspace 1 em
+\hspace 1,5em
+\kern - 1em
+\kern--1em
+\kern1emx
+\kern1em x
+\overline
+\overline{
+\mathbf
+\mathbf{x
+\mathbf}
+\color{red
+\color[rgb
+\color[rgb]
+\textcolor{red}
+\textcolor{red}{
+\fbox
+\fbox{a
+\left\right
+\left)\right(
+\middle|
+\left( \middle
+\begin{array}{c
+\begin{array}{c}
+\begin{array}{}
+\begin{array}{cc} a \end{array}
+\begin{array}{c} a & b \end{array}
+\begin{array}{@{}c@{}} a \end{array}
+\begin{array}{p{2cm}} a \end{array}
+\begin{matrix} a & \end{matrix}
+\begin{matrix} & a \end{matrix}
+\begin{matrix} a \\ \\ b \end{matrix}
+\begin{matrix} a \\ \\ \end{matrix}
+\begin{matrix} \hline a \end{matrix}
+\begin{matrix} a & \hline b \end{matrix}
+\begin{matrix} a \\ \hline \end{matrix}
+\begin{cases} a \text{ if } b \end{cases}
+\begin{cases} a & b & c \end{cases}
+\begin{align} a & b & c \end{align}
+\begin{aligned}[t] a \end{aligned}
+\begin{alignedat}{2} a \end{alignedat}
+\begin{alignedat}[t]{2} a \end{alignedat}
+\begin{alignedat}[t] a \end{alignedat}
+\begin{subarray}{c} a \end{subarray}
+\begin{subarray} a \end{subarray}
+\begin{smallmatrix} a \end{smallmatrix}
+\begin{matrix}[t] a \end{matrix}
+\begin{equation} a & b \end{equation}
+\begin{equation} a \\ b \end{equation}
+\begin{equation} a
+\begin{equation} a \end{align}
+\begin{align} a \end{equation}
+\begin{align*} \tag{1} a \end{align*}
+\begin{align} \tag{1} a \\ \tag{2} b \end{align}
+\begin{equation} \tag{1} a \end{equation}
+\begin{matrix} \tag{1} a \end{matrix}
+\tag
+\tag{
+\label
+\nonumber \nonumber
+a \atop
+\sum_a^b^c
+\sum^a^b
+\sum_a_b
+\sum\limits\limits
+\sum\limits^a_b
+x^a_b^c
+x_a^b_c
+{}^a
+{}_a
+\mathop{}^a
+\sqrt[]{x}
+\sqrt[ ]{x}
+\sqrt{}
+\sqrt[3]{}
+\frac{}{}
+\left( \right)
+\left. \right.
+x^\alpha
+x^{\prime}
+x_{i,j}^{(k)}
+x^2y^3
+x_i^2+y_j^2
+{x^2}^3
+x^{2^{3^4}}
+\frac{\frac{a}{b}}{\frac{c}{d}}
+\frac{a}{b}\frac{c}{d}
+\frac{1}{2}x
+\frac{x^2}{y_1}
+a_{n+1}=a_n+\frac{1}{n}
+\sqrt{\frac{a}{b}}
+\sqrt[3]{\sqrt{x}}
+\sqrt{x^2+y^2}
+\sum_{i=1}^{n}\sum_{j=1}^{m}a_{ij}
+\int_a^b\int_c^d f(x,y)\,dx\,dy
+\iint_D f
+\iiint_V f
+\oint_C \mathbf{F}\cdot d\mathbf{r}
+\prod_{k=1}^{n}(1+x_k)
+\bigcup_{i=1}^{n}A_i
+\bigcap_{i\in I}A_i
+\lim_{x\to\infty}\frac{1}{x}=0
+\limsup_{n\to\infty}a_n
+\max_{x\in X}f(x)
+\min\{a,b\}
+\arg\max_{\theta}\ell(\theta)
+\sin\theta\cos\theta
+\sin^{-1}x
+\ln x+\log_{10}y
+\exp\left(-\frac{x^2}{2\sigma^2}\right)
+\det\begin{pmatrix}a&b\\c&d\end{pmatrix}
+\begin{vmatrix}a&b\\c&d\end{vmatrix}=ad-bc
+\begin{bmatrix}1&2&3\\4&5&6\\7&8&9\end{bmatrix}
+\begin{pmatrix}\cos\theta&-\sin\theta\\\sin\theta&\cos\theta\end{pmatrix}
+\begin{pmatrix}\begin{pmatrix}a\end{pmatrix}&b\end{pmatrix}
+A=\begin{bmatrix}a_{11}&\cdots&a_{1n}\\\vdots&\ddots&\vdots\\a_{m1}&\cdots&a_{mn}\end{bmatrix}
+\left(\begin{array}{cc}a&b\\c&d\end{array}\right)
+\begin{array}{|c|c|}\hline a&b\\\hline c&d\\\hline\end{array}
+\begin{array}{ll}a&b\\c&d\end{array}
+\begin{array}{rcl}x&=&y\\z&=&w\end{array}
+\begin{aligned}f(x)&=x^2\\g(x)&=x^3\end{aligned}
+\begin{align}a&=b+c\\&=d\end{align}
+\begin{align*}a&=b\\c&=d\end{align*}
+\begin{gather}a=b\\c=d\end{gather}
+\begin{cases}x&\text{if }x>0\\-x&\text{otherwise}\end{cases}
+\begin{cases}1,&x\ge0\\0,&x<0\end{cases}
+\left\{\begin{array}{ll}a&b\\c&d\end{array}\right.
+\left.\frac{df}{dx}\right|_{x=0}
+\left\lVert x\right\rVert_2
+\left\langle\psi\middle|\phi\right\rangle
+\left(\sum_{i}x_i\right)^2
+\Bigl(\frac{a}{b}\Bigr)
+\bigl\lvert x\bigr\rvert
+\left[\frac{1}{2}\right]
+\hat{\theta}_{MLE}
+\hat{\mathbf{x}}
+\vec{F}=m\vec{a}
+\dot{x}+\ddot{x}
+\bar{X}_n
+\widehat{AB}
+\tilde{f}
+\overline{AB}
+\underline{x}
+\overbrace{a+b+c}^{3}
+\underbrace{a+b+c}_{3}
+\overbrace{a+\underbrace{b+c}_{2}}^{3}
+\xrightarrow{f}
+\xrightarrow[g]{f}
+A\xleftarrow{h}B
+\overset{\text{def}}{=}
+\underset{x\to0}{\lim}
+\stackrel{!}{=}
+\mathbb{E}[X]
+\mathbb{P}(A\mid B)
+\mathcal{N}(\mu,\sigma^2)
+\mathfrak{su}(2)
+\mathbf{A}\mathbf{x}=\mathbf{b}
+\mathrm{e}^{\mathrm{i}\pi}
+\mathsf{SO}(3)
+\mathtt{code}
+\text{for all }x\in\mathbb{R}
+\text{and}\quad\text{or}
+\text{a}\ \text{b}
+\textbf{bold}\textit{ital}
+x\in A\cap B\setminus C
+A\subseteq B\subsetneq C
+a\equiv b\pmod{n}
+a\bmod b
+x\to\infty
+f:X\to Y
+f\colon X\to Y
+\forall x\exists y
+\neg p\land q\lor r
+p\implies q
+p\iff q
+a\leq b\leq c
+a\neq b
+a\approx b
+a\sim b\simeq c\cong d
+x\propto y
+\infty
+\partial_x f
+\nabla\times\mathbf{E}
+\Delta x
+\emptyset
+a_1,\dots,a_n
+a_1+\dots+a_n
+1,\ldots,n
+x_1,x_2,\cdots,x_n
+\cdot\cdot
+a\,b\;c\:d\!e
+a\quad b\qquad c
+a\hspace{2em}b
+a\mathbin{\#}b
+\mathrel{R}
+\color{blue}{x+y}
+{\color{red}a}b
+\textcolor{green}{\frac{a}{b}}
+\boxed{E=mc^2}
+\fbox{text}
+\phantom{xx}y
+\displaystyle\sum_{i}x_i
+\textstyle\sum_{i}x_i
+{\scriptstyle x}
+\tiny a\small b\large c
+\operatorname{rank}(A)
+\operatorname{Var}(X)
+\operatorname*{argmin}_{x}f(x)
+\DeclareMathOperator{\foo}{foo}\foo
+\newcommand{\vect}[1]{\mathbf{#1}}\vect{x}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}\norm{x}
+\newcommand{\pair}[2]{(#1,#2)}\pair{a}{b}
+\newcommand{\opt}[2][x]{#1#2}\opt{a}\opt[b]{c}
+\def\f#1{#1^2}\f{x}
+\def\sq{x^2}\sq\sq
+\let\oldfrac\frac\oldfrac{a}{b}
+\newcommand{\a}{\b}\newcommand{\b}{\c}\newcommand{\c}{z}\a
+\newcommand{\twice}[1]{#1#1}\twice{\twice{x}}
+\newcommand{\x}[1]{#1}\x{\x{\x{a}}}
+\newcommand{\a}{x}\newcommand{\a}{y}\a\a
+\newcommand\f[1]{#1}\f x
+\newcommand\f[1]{#1}\f\alpha
+\newcommand{\f}[2]{#1#2}\f ab
+\newcommand{\f}[1]{#1}\f{\f}
+\newcommand{\f}[1]{#1}{\f}
+\def\a{\def\a{y}x}\a\a
+\def\a#1#2{#2#1}\a{x}
+\def\a#1{#1#1}\a{\a{x}}
+\newcommand{\a}{{}\a}\a
+\newcommand{\a}{x\a}\a
+\text{ \$ \{ \} \\ }
+\text{a{b}c}
+\text{$x$}
+\text{$x$ and $y$}
+\text{}
+\text{ }
+\text{  a  b  }
+\mbox{$\alpha$}
+\hbox{a}
+\hbox{$x^2$}
+\fbox{$x$}
+\text{\textbf{x}}
+\text{x}^2
+\text{x}_i
+a
+Z
+0
+42
+3.14
+1.
+0.5x
+x1
+x_1x_2
+x^2^
+x^{}
+x^{}_{}
+{}^{}_{}
+\mathbf{}
+\left(\right)
+\left.\right.
+\binom{}{}
+\begin{matrix}&\end{matrix}
+\begin{matrix}&&\end{matrix}
+\begin{cases}\end{cases}
+{{{{x}}}}
+{}
+{ }
+ x
+x   y
+x
+y
+\{
+\}
+\#
+\$
+\%
+\&
+\_
+\|
+a\\[2pt]b
+a\\*b
+\begin{matrix}a\\*b\end{matrix}
+\begin{matrix}a\\[2pt]b\end{matrix}
+\begin{matrix}a\\[-2pt]b\end{matrix}
+\begin{matrix}a\\[1em]b\end{matrix}
+\begin{matrix}a\newline b\end{matrix}
+\begin{matrix}a\cr b\end{matrix}
+\begin{matrix}a\\ \hline b\end{matrix}
+\begin{matrix}\hline a\\ \hline b\end{matrix}
+\begin{matrix}\hline\hline a\end{matrix}
+\begin{array}{c:c}a&b\end{array}
+\begin{array}{c||c}a&b\end{array}
+\begin{array}{}a\end{array}
+\begin{array}{c}a&b&c\end{array}
+\begin{array}{cc}a\end{array}
+\begin{array}{ccc}a&b\\c\end{array}
+\begin{smallmatrix}a&b\\c&d\end{smallmatrix}
+\begin{pmatrix}a\end{pmatrix}^2
+\begin{pmatrix}a\end{pmatrix}_i
+\left(\begin{matrix}a\end{matrix}\right)
+{\begin{matrix}a\end{matrix}}
+\sum_{\begin{matrix}a\\b\end{matrix}}
+\substack{a\\b\\c}
+\substack{a}
+\substack{}
+\sum_{\substack{0<i<m\\0<j<n}}
+\xrightarrow{\text{long text}}
+\xrightarrow{}
+\xrightarrow[]{a}
+\mathop{\rm lim}
+\mathop{\mathrm{lim}}_{x}
+\mathop{a}\limits_b
+\sideset{_a^b}{_c^d}\sum
+\hbar\omega
+\mu_0\epsilon_0
+\Omega\Omega
+\aleph_0
+\wp
+\Re z\Im z
+\angle ABC
+\triangle ABC
+\perp\parallel
+\therefore
+\because
+\prime
+f^\prime
+f^{\prime\prime}
+f''
+f'''(x)
+f'(x)^2
+f_x'
+(f')^2
+x'y'
+x\prime
+\not\subset
+\not\perp
+\not\parallel
+\not\mid
+\not<
+\not>
+\not\leq
+\not\sim
+\not\approx
+\not\ni
+\not\supset
+\not\vdash
+\not\exists
+\not\Rightarrow
+\not\leftarrow
+\not
+\not\not=
+\not\left(x\right)
+\nless
+\nleq
+\ngeq
+\nsubseteq
+\nmid
+\nparallel
+\nsim
+\ncong
+\nrightarrow
+\nLeftarrow
+\hat
+\hat{}
+\hat{xy}
+\hat\alpha
+\hat{\hat{x}}
+\hat{x}^2
+\hat{x}_i
+\vec\alpha
+\vec{AB}
+\overrightarrow{AB}^2
+\widehat{ABC}
+\widetilde{ABC}
+\mathring{A}
+\acute{e}
+\grave{e}
+\bar{\bar{x}}
+\overline{\overline{x}}
+\underline{\underline{x}}
+\overline{x+y}^2
+\underline{x}_i
+\sqrt{\overline{x}}
+\def\a#1.{x#1}\a y.
+\def\a#1.#2;{#2#1}\a 1.2;
+\def\a.#1{x#1}\a.y
+\def\a.#1{x#1}\a y
+\def\a#1.{x}\a y
+\def\a#1,#2.{[#1][#2]}\a x,y.
+\def\a#1#2.{#1#2}\a{x}y.
+\def\a #1 #2 {#2#1}\a x y
+\def\a.{x}\a.
+\def\a#1\end{x}
+\def\a#1.{x#1}\a{y}.
+\def\a#1.{x#1}\a {y}z.
+\def\a#1.{x#1}\a y
+\def\a#1:#2.{#2#1}\a {a}:{b}.
+\def\a#1.{#1}\a {x.y}.
+\def\a#1.{#1}\a {x}{y}.
+\def\a#1{#1}\a
+\def\a#1.{}\a
+\newcommand{\a}{x}\providecommand{\a}{y}\a
+\providecommand{\b}[1]{#1}\b{x}
+\begin{rcases} a \end{rcases}
+\bbox[red]{x}
+\bbox[red,red]{x}
+\bbox[5pt]{x}
+\bbox[foo bar]{x}
+\bbox[border:1px solid red]{x}
+\bbox[5pt,5pt]{x}
+\bbox[red, 2pt]{x}
+\bbox{x}
+\enclose{box}{x}
+\enclose{box,circle}[mathcolor=red]{x}
+\enclose{updiagonalstrike}{x}
+\enclose{box}
+\cancel{x}
+\cancel
+\bcancel{x}
+\xcancel[mathcolor=red]{x}
+\cancelto{a}{x}
+\cancelto{a}
+\xtwoheadrightarrow{a}
+\xtwoheadleftarrow[b]{a}
+\xmapsto{a}
+\xlongequal{a}
+\xtofrom{a}
+\Newextarrow{\xfoo}{5,5}{0x2192}\xfoo{a}
+\Newextarrow{\xfoo}{5,5}{8594}\xfoo[b]{a}
+\Newextarrow{xfoo}{5,5}{0x2192}
+\Newextarrow{\xfoo}{5}{0x2192}
+\Newextarrow{\xfoo}{5,5}{zz}
+\braket{a|b}
+\braket{a||b}
+\braket{a|b|c}
+\Braket{a|b|c}
+\set{a|b|c}
+\Set{a|b}
+\bra{a}\ket{b}
+\Bra{a}\Ket{b}
+\ketbra{a}{b}
+\Ketbra{a}{b}
+\braket
+\braket a
+\mathtip{a}{b}
+\texttip{a}{b}
+\toggle{a}{b}\endtoggle
+\toggle{a}
+\toggle
+\href{u}{x}
+\href{u}{x}^2
+\class{c}{x}
+\style{color:red}{x}
+\cssId{i}{x}
+\href{u}
+\require{base}
+\require{autoload}
+\require
+\ref{a}
+\eqref{a}
+\mmlToken{mi}{x}
+\mmlToken{mo}[stretchy="false"]{+}
+\mmlToken{mn}{12}
+\mmlToken{mtext}{ab}
+\mmlToken{foo}{x}
+\mmlToken{mi}[foo=1]{x}
+\mmlToken{mi}[mathvariant=bold]{x}
+\mmlToken{mi}[mathvariant="bold", mathcolor=red]{x}
+\mmlToken{mi}[mathvariant]{x}
+\mmlToken{mi}
+\unicode{x2022}
+\unicode{8226}
+\unicode{0x2022}
+\unicode[1,2]{x2022}
+\unicode[Arial]{x2022}
+\unicode[1,2][Arial]{x2022}
+\unicode{foo}
+\unicode
+\verb|a b|
+\verb|a
+\verb
+\verb+x_y+
+\matrix{a & b \cr c & d}
+\pmatrix{a & b \cr c & d}
+\cases{a & b \cr c & d}
+\eqalign{a &= b \cr c &= d}
+\eqalignno{a &= b \cr c &= d}
+\leqalignno{a &= b \cr c &= d}
+\displaylines{a \cr b}
+\matrix{a & b
+\matrix a
+\matrix
+\matrix{a \hline b}
+\matrix{\hline a \cr \hline b}
+\matrix{a \\ b}
+\matrix{a \}
+\array{a & b}
+\raise 2pt x
+\raise
+\raise 2pt
+\raise 2pt}
+\lower 2pt{x}
+\moveleft 1em x
+\moveright 1em x
+\llap{x}
+\rlap{x}
+\llap
+\vcenter{x}
+\nonscript x
+\strut
+\buildrel a \over b
+\buildrel a b
+\buildrel
+\framebox{x}
+\framebox[1em][l]{x}
+\framebox
+\hfill
+\hfil
+\hfilll
+\begin{matrix} a \hfill \end{matrix}
+\begin{array}{c} a \hfill & b \end{array}
+\sqrt[\uproot 2 3]{x}
+\sqrt[\leftroot 2 3]{x}
+\sqrt[\uproot 2 \leftroot 3 3]{x}
+\sqrt[\uproot 2 \uproot 3 3]{x}
+\sqrt[\uproot x 3]{x}
+\sqrt[\uproot -2 3]{x}
+\uproot 2
+\leftroot 2
+\root \uproot 2 3 \of x
+\sqrt[3]{\uproot 2 x}
+\sideset{_a}{^d}\sum x
+\sideset{}{'}\sum
+\sideset{a}{b}\sum
+\sideset{_a}{}
+\DeclareMathOperator{\foo}{foo}\foo x
+\DeclareMathOperator*{\foo}{foo}\foo_x
+\DeclareMathOperator{foo}{foo}\foo
+\DeclareMathOperator{\foo}
+\DeclareMathOperator
+\begin{multline} \shoveleft{a} \\ b \end{multline}
+\begin{multline} \shoveright{a} \\ b \end{multline}
+\shoveleft{a}
+\begin{multline} a \shoveleft{b} \end{multline}
+\begin{align} \shoveleft{a} \end{align}
+\newenvironment{foo}{\alpha}{\beta}\begin{foo} x \end{foo}
+\newenvironment{foo}[1]{#1}{\beta}\begin{foo}{y} x \end{foo}
+\newenvironment{foo}[1][d]{#1}{\beta}\begin{foo} x \end{foo}
+\newenvironment{foo}[1][d]{#1}{\beta}\begin{foo}[q] x \end{foo}
+\newenvironment{foo}{}{}\begin{foo} x
+\newenvironment{foo}{}{}\begin{foo} x \end{bar}
+\newenvironment{foo}{}{}\begin{foo} x \end{foo}\end{foo}
+\newenvironment{foo}{}{}\begin{foo} a & b \end{foo}
+\newenvironment{foo}{}{}\begin{foo} \begin{foo} x \end{foo} \end{foo}
+\newenvironment{foo}{\left(}{\right)}\begin{foo} x \end{foo}
+\newenvironment{foo}{#1}{}\begin{foo} x \end{foo}
+\newenvironment{foo}[x]{}{}
+\newenvironment{foo}{}
+\newenvironment
+\renewenvironment{foo}{}{}
+\newenvironment{matrix}{[}{]}\begin{matrix} x \end{matrix}
+\definecolor{mycol}{rgb}{1,0,0}\textcolor{mycol}{x}
+\definecolor{mycol}{named}{red}\textcolor{mycol}{x}
+\definecolor{mycol}{HTML}{ff0000}
+\definecolor{mycol}{gray}{0.5}\color{mycol}x
+\definecolor{mycol}{rgb}{1,0}
+\symbf{x}
+\symit{x}
+\symrm{x}
+\symcal{x}
+\oldstyle 1
+\iiiint
+\idotsint
+\Bbbk
+\notChar
+\divsymbol
+\begin{eqnarray} a &=& b \\ c &=& d \end{eqnarray}
+\begin{eqnarray*} a &=& b \end{eqnarray*}
+\begin{eqnarray} \begin{equation} a \end{equation} \end{eqnarray}
+\begin{xalignat}{2} a & b & c & d \end{xalignat}
+\begin{xalignat}{1} a & b & c \end{xalignat}
+\begin{xalignat} a & b \end{xalignat}
+\begin{xxalignat}{2} a & b \end{xxalignat}
+\begin{flalign} a & b \end{flalign}
+\begin{flalign*} a & b \end{flalign*}
+\begin{alignedat}{2} a & b \end{alignedat}
+\begin{CD} A @>a>> B \\ @VVV @AAA \\ C @= D \end{CD}
+\begin{CD} A @>>> B @<<< C @. D \end{CD}
+\begin{CD} A @>a>b> B \end{CD}
+\begin{CD} A @<a<b< B \end{CD}
+\begin{CD} A @VaVbV B \end{CD}
+\begin{CD} A @AaAbA B \\ @| C \end{CD}
+\begin{CD} A @>a B \end{CD}
+\begin{CD} A @x B \end{CD}
+\begin{CD} A \end{CD}
+\begin{CD}
+\begin{CD} A @>>> B \end{matrix}
+\minCDarrowwidth{2em}
+\minCDarrowheight 2em
+\minCDarrowwidth
+\begin{prooftree} \AxiomC{$A$} \UnaryInfC{$B$} \end{prooftree}
+\begin{prooftree} \AxiomC{$A$} \AxiomC{$B$} \BinaryInfC{$C$} \end{prooftree}
+\begin{prooftree} \AxiomC{$A$} \RightLabel{r} \UnaryInfC{$B$} \end{prooftree}
+\begin{prooftree} \AxiomC{$A$} \LeftLabel{l} \RightLabel{r} \UnaryInfC{$B$} \end{prooftree}
+\begin{prooftree} \BinaryInfC{$C$} \end{prooftree}
+\begin{prooftree} \AxiomC{$A$} \BinaryInfC{$C$} \end{prooftree}
+\AxiomC{$A$}
+\UnaryInfC{$A$}
+\RightLabel{x}
+\noLine
+\fCenter
+\begin{prooftree} \Axiom{$A \fCenter B$} \end{prooftree}
+\begin{prooftree} \Axiom$A \fCenter B$ \end{prooftree}
+\begin{prooftree} \Axiom$A B$ \end{prooftree}
+\begin{prooftree} \AxiomC{} \UnaryInfC{$B$} \end{prooftree}
+\begin{prooftree} \AxiomC{A} \noLine \UnaryInfC{B} \end{prooftree}
+\begin{prooftree} \AxiomC{A} \dashedLine \UnaryInfC{B} \end{prooftree}
+\begin{prooftree} \alwaysNoLine \AxiomC{A} \UnaryInfC{B} \UnaryInfC{C} \end{prooftree}
+\begin{prooftree} \rootAtTop \AxiomC{A} \UnaryInfC{B} \end{prooftree}
+\begin{prooftree}
+\begin{prooftree} \end{prooftree}
+\begin{prooftree} \AxiomC{A} \AxiomC{B} \end{prooftree}
+\begin{prooftree} x \AxiomC{A} \end{prooftree}
+\begin{prooftree} \AxiomC{A} \end{align}
+\begin{prooftree} \AxiomC{A} \end{foo}
+\begin{prooftree} \AxiomC{A} \end{prooftree} x
+\begin{prooftree} \Axiom$A \fCenter B$ \UnaryInf$B \fCenter C$ \end{prooftree}
+\begin{prooftree} \AxiomC{A} \UnaryInf$B \fCenter C$ \end{prooftree}
+\begin{prooftree} \AxiomC{$a_1$} \AxiomC{$b$} \AxiomC{$c$} \TrinaryInfC{$d$} \end{prooftree}
+\begin{prooftree} \AxiomC{a} \AxiomC{b} \AxiomC{c} \AxiomC{d} \AxiomC{e} \QuinaryInfC{f} \end{prooftree}
+\ce{H2O}
+\ce{2H2 + O2 -> 2H2O}
+\ce{SO4^2-}
+\ce{Na+ + Cl- -> NaCl}
+\ce{A ->[x] B}
+\ce
+\ce{
+\pu{123 kJ/mol}
+\pu{5}
+\abs{x}
+\qty(x)
+\coloneqq
+\dd x
+\mathclap{x}
+\DeclarePairedDelimiter{\a}{(}{)}
+\ang{1}
+\SI{1}{m}
+\textsuperscript{a}
+\mathbbm{R}
+\bm{x}
+\mathds{R}
+\emph{x}
+\dag
+\ddag
+\lparen
+\rparen
+\degree
+\textdollar
+\nobreak
+\allowbreak
+\copyright
+\pounds
+\oiint
+\varvdots
+\mathsterling
+\i
+\j
+\o
+\ss
+\textbar
+\textless
+\origof
+\imageof
+\Box
+\square
+\ce{A ->[x][y] B}
+\ce{CO2 + C -> 2 CO}
+\ce{Hg^2+ ->C[ ]A}
+\ce{Hg^2+ ->[I-] HgI2 ->[I-] [Hg^{II}I4]^2-}
+\ce{Zn^2+  <=>[+ 2OH-][+ 2H+]  $\underset{\text{amphoteric hydroxide}}{\ce{Zn(OH)2 v}}$  <=>[+ 2OH-][+ 2H+]  $\underset{\text{tetrahydroxozincate}}{\ce{[Zn(OH)4]^2-}}$}
+\ce{CH4 + 2O2 -> CO2 + 2H2O}
+\ce{^{227}_{90}Th+}
+\ce{^227_90Th+}
+\ce{^{0}_{-1}n^{-}}
+\ce{$n$ Cl2}
+\ce{A <-> B}
+\ce{A <--> B}
+\ce{A <=> B}
+\ce{A <=>> B}
+\ce{A <<=> B}
+\ce{A <- B}
+\ce{A --> B}
+\ce{A + B}
+\ce{A - B}
+\ce{A = B}
+\ce{A < B}
+\ce{A > B}
+\ce{A v}
+\ce{A ^}
+\ce{CuSO4*5H2O}
+\ce{CuSO4 . 5 H2O}
+\ce{H2O(l)}
+\ce{NaCl(aq)}
+\ce{CO2(g)}
+\ce{Fe(s)}
+\ce{Fe^3+(aq)}
+\ce{Na+(aq) + Cl-(aq)}
+\ce{C6H5-CH3}
+\ce{CH3-CH2-OH}
+\ce{CH3CH=CH2}
+\ce{HC#CH}
+\ce{C6H6}
+\ce{C6H5-OH}
+\ce{R-C(=O)-OH}
+\ce{CH3-CH=CH-CH3}
+\ce{A-B}
+\ce{A=B}
+\ce{A#B}
+\ce{A~B}
+\ce{A~-B}
+\ce{A~=B}
+\ce{A-~-B}
+\ce{A...B}
+\ce{A....B}
+\ce{A->B}
+\ce{A<-B}
+\ce{\bond{-}}
+\ce{\bond{=}}
+\ce{\bond{#}}
+\ce{\bond{~}}
+\ce{\bond{...}}
+\ce{A\bond{-}B}
+\ce{1/2 O2}
+\ce{1/2O2}
+\ce{0.5 O2}
+\ce{2 H2 + O2}
+\ce{3 H2O}
+\ce{H+}
+\ce{OH-}
+\ce{H3O+}
+\ce{NH4+}
+\ce{SO4^{2-}}
+\ce{PO4^{3-}}
+\ce{Fe^{3+}}
+\ce{Fe^{III}}
+\ce{Fe^III}
+\ce{Fe^{II}}
+\ce{Mn^{VII}O4-}
+\ce{O^{-II}}
+\ce{^{18}O}
+\ce{^{14}C}
+\ce{^{14}_{6}C}
+\ce{_{6}^{14}C}
+\ce{^14_6C}
+\ce{{}^{14}C}
+\ce{{}^1H}
+\ce{H_2O}
+\ce{H_{2}O}
+\ce{H2O2}
+\ce{Al2(SO4)3}
+\ce{Ca(OH)2}
+\ce{[Cu(NH3)4]^2+}
+\ce{[Fe(CN)6]^{4-}}
+\ce{{[Cu(NH3)4]^2+}}
+\ce{(NH4)2SO4}
+\ce{K4[Fe(CN)6]}
+\ce{\ce{H2O}}
+\ce{\color{red}{H2O}}
+\ce{\color{red}H2O}
+\ce{{\color{red}H2O}}
+\ce{\frac{1}{2}O2}
+\ce{\frac{1}{2} O2}
+\ce{\overset{a}{B}}
+\ce{\underset{a}{B}}
+\ce{\underbrace{AB}_{x}}
+\ce{A\,B}
+\ce{A\ B}
+\ce{$\alpha$-Fe}
+\ce{\alpha-Fe}
+\ce{$\mu$ g}
+\ce{\mu}
+\ce{H2O \pu{5 mol}}
+\ce{pH}
+\ce{pOH}
+\ce{pK}
+\ce{p-Cymene}
+\ce{iPr}
+\ce{iBu}
+\ce{1s2 2s2 2p6}
+\ce{2p}
+\ce{3d10}
+\ce{sp3}
+\ce{e-}
+\ce{e^-}
+\ce{n^0}
+\ce{^0n}
+\ce{\hline}
+\ce{A & B}
+\ce{A \\ B}
+\ce{A, B, C}
+\ce{A,B}
+\ce{A; B}
+\ce{(v)}
+\ce{(^)}
+\ce{A (v)}
+\ce{A (^)}
+\ce{A v B}
+\ce{NaOH(aq) + HCl(aq) -> NaCl(aq) + H2O(l)}
+\ce{2 NaOH + H2SO4 -> Na2SO4 + 2 H2O}
+\ce{C + O2 -> CO2 ^}
+\ce{CaCO3 -> CaO + CO2 ^}
+\ce{Ag+ + Cl- -> AgCl v}
+\ce{AgCl v}
+\ce{2 Na + 2 H2O -> 2 NaOH + H2 ^}
+\ce{N2 + 3H2 <=> 2NH3}
+\ce{N2 + 3 H2 <=>[Fe] 2 NH3}
+\ce{CO2 + H2O <=> H2CO3}
+\ce{A ->[$\Delta$] B}
+\ce{A ->[\Delta] B}
+\ce{A ->[heat] B}
+\ce{A ->[{text}] B}
+\ce{A ->C[$\Delta$] B}
+\ce{A ->T[text] B}
+\ce{A ->M[$x$] B}
+\ce{A ->CT[x] B}
+\ce{{}
+\ce{}}
+\ce{A}}
+\ce{{A}
+\ce{^{}
+\ce{$}
+\ce{$A}
+\ce{\color{}
+\ce{\bond{}
+\ce{\frac{1}}
+\ce{\unknown}
+\ce{\x{a}{b}}
+\ce{\x{a}}
+\ce{\x}
+\ce{[(...)]}
+\ce{[A]}
+\ce{A[B]}
+\ce{A->[B}
+\ce{+}
+\ce{-}
+\ce{++}
+\ce{--}
+\ce{+-}
+\ce{A+-B}
+\ce{A +- B}
+\ce{A \pm B}
+\ce{A $\pm$ B}
+\ce{A $\approx$ B}
+\ce{A << B}
+\ce{A >> B}
+\ce{A \approx B}
+\ce{…}
+\ce{A...}
+\ce{A…B}
+\ce{−}
+\ce{A−B}
+\ce{A–B}
+\ce{H2O ... H2O}
+\ce{100 g}
+\ce{100 mL}
+\ce{0.1 M}
+\ce{1.5e-3 M}
+\ce{10^3}
+\ce{$10^3$}
+\ce{A_{(aq)}}
+\ce{A_(aq)}
+\ce{A(aq)}
+\ce{A(aq)(s)}
+\ce{A(l)}
+\ce{A(g)}
+\ce{A(cr)}
+\ce{A($l$)}
+\ce{A(\ca $a$)}
+\ce{\ca A}
+\ce{\ca100}
+\ce{~A}
+\ce{x}
+\ce{i}
+\ce{x2}
+\ce{A x B}
+\ce{1x}
+\ce{2 x 3}
+\ce{KV}
+\ce{K,V}
+\ce{H^+(aq)}
+\ce{H^+ + OH^- -> H2O}
+\ce{Na^+}
+\ce{Cl^-}
+\ce{O^2-}
+\ce{S^2-}
+\ce{O^{2-}}
+\ce{O^2}
+\ce{O^-}
+\ce{O^+}
+\ce{O^+-}
+\ce{O^{+-}}
+\ce{O^{+/-}}
+\ce{A^-}
+\ce{A^}
+\ce{A_}
+\ce{^}
+\ce{_}
+\ce{A_B}
+\ce{A_1}
+\ce{A_{1}}
+\ce{A_x}
+\ce{A^x}
+\ce{A^{x}}
+\ce{A^$x$}
+\ce{A_$x$}
+\ce{A^\alpha}
+\ce{A_\alpha}
+\ce{A^\frac{1}{2}}
+\ce{A_\frac{1}{2}}
+\ce{A^\mathrm{x}{y}}
+\ce{A_{\mathrm{x}}}
+\ce{'}
+\ce{A'}
+\ce{A''}
+\ce{A'B}
+\pu{1.5e-3 mol L-1}
+\pu{1.5e3 mol L-1}
+\pu{1e3}
+\pu{+1.5}
+\pu{-1.5}
+\pu{+-1.5}
+\pu{+/-1.5}
+\pu{\pm 1.5}
+\pu{1.5(3)}
+\pu{1.5(3) cm}
+\pu{1.5 x 10^3 cm}
+\pu{1.5*10^3 cm}
+\pu{1.5\times 10^3 cm}
+\pu{1.5 \times 10^{3} cm}
+\pu{10^3}
+\pu{10^{-3}}
+\pu{1,5}
+\pu{1.5}
+\pu{1000 g}
+\pu{10000 g}
+\pu{1000000 g}
+\pu{1234567.89 g}
+\pu{0.0001 g}
+\pu{kg m2 s-2}
+\pu{kg.m2.s-2}
+\pu{kg*m2*s-2}
+\pu{kg m^2 s^-2}
+\pu{kg m^{2} s^{-2}}
+\pu{m/s}
+\pu{m//s}
+\pu{m / s}
+\pu{m // s}
+\pu{kg/m^3}
+\pu{J/(mol K)}
+\pu{J/(mol*K)}
+\pu{J mol-1 K-1}
+\pu{mol L-1}
+\pu{mol/L}
+\pu{mol//L}
+\pu{g/mol}
+\pu{g//mol}
+\pu{g / mol}
+\pu{°C}
+\pu{25 °C}
+\pu{25^oC}
+\pu{25^{o}C}
+\pu{25 °F}
+\pu{25^oF}
+\pu{25^{o}F}
+\pu{100 K}
+\pu{1 atm}
+\pu{1 bar}
+\pu{1 Pa}
+\pu{1 kPa}
+\pu{1 MPa}
+\pu{1 eV}
+\pu{1 mol}
+\pu{1 mmol}
+\pu{1 µmol}
+\pu{1 \mu mol}
+\pu{1 {\mu}mol}
+\pu{{1} {mol}}
+\pu{{kg} {m}}
+\pu{kg {m}}
+\pu{{kg m}}
+\pu{\ce{H2O}}
+\pu{\pu{1 mol}}
+\pu{1 \ce{H2O}}
+\pu{a b}
+\pu{a  b}
+\pu{a}
+\pu{{}
+\pu{}}
+\pu{{a}
+\pu{a}}
+\pu{^}
+\pu{-}
+\pu{+}
+\pu{/}
+\pu{//}
+\pu{*}
+\pu{.}
+\pu{,}
+\pu{1 /}
+\pu{1 //}
+\pu{/ 1}
+\pu{// 1}
+\pu{1 * 2}
+\pu{1 . 2}
+\pu{1 x 2}
+\pu{1 \times 2}
+\pu{1 \cdot 2}
+\pu{a \cdot b}
+\pu{a\cdot b}
+\pu{\x}
+\pu{\x{a}}
+\pu{\x{a}{b}}
+\pu{\frac{1}{2}}
+\pu{1/2}
+\pu{1/2 mol}
+\pu{1 / 2 mol}
+\pu{0.5 mol}
+\pu{.5 mol}
+\pu{5. mol}
+\pu{5.5.5 mol}
+\pu{-5 mol}
+\pu{+5 mol}
+\pu{e3}
+\pu{5e}
+\pu{5e3e}
+\pu{5E3}
+\pu{5e+3}
+\pu{5e-3}
+\pu{5e{3}}
+\pu{5e{-3}}
+\pu{5 e 3}
+\pu{5(3)}
+\pu{5(3.5)}
+\pu{5(.5)}
+\pu{5()}
+\pu{5(}
+\pu{5)}
+\pu{(5)}
+\pu{[5]}
+\pu{{5}}
+\pu{(5 mol)}
+\pu{[5 mol]}
+\pu{{5 mol}}
+\pu{(a)(b)}
+\pu{[a][b]}
+\pu{{a}{b}}
+\pu{a(b)}
+\pu{a[b]}
+\pu{a{b}}
+\pu{(a)b}
+\pu{[a]b}
+\pu{{a}b}
+\cases{1 & x > 0 \cr 0 & \text{else}}
+\cases{a & b & c}
+\cases{a & $x$ and \alpha}
+\cases{a & \text{b} c}
+\cases{a & b \\[2pt] c & d}
+\cases{a}
+\verb|a%b|
+\verb|a  b|
+\verb|%|
+\bbox[2pt, red, border:1px solid blue]{x}
+\bbox[border:2px dashed green]{x}
+\href{https://example.com}{x}
+\href{javascript:alert(1)}{x}
+\style{color: red; background-color: yellow; border: 1px solid blue}{x}
+\xleftrightarrow{a}
+\xrightleftharpoons[b]{a}
+\longrightleftharpoons
+\tripledash
