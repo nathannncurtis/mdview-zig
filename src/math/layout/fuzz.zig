@@ -1,8 +1,10 @@
 const std = @import("std");
 const font = @import("font");
-const parser = @import("parser.zig");
-const layout = @import("layout.zig");
-const scene = @import("scene.zig");
+const math = @import("math");
+
+const parser = math.parser;
+const layout = math.layout;
+const scene = math.scene;
 
 const max_input = 4096;
 

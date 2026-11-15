@@ -229,11 +229,12 @@ pub fn build(b: *std.Build) void {
     fuzz_step.dependOn(&run_math_fuzz.step);
 
     const layout_fuzz_mod = b.createModule(.{
-        .root_source_file = b.path("src/math/layout_fuzz.zig"),
+        .root_source_file = b.path("src/math/layout/fuzz.zig"),
         .target = target,
         .optimize = optimize,
     });
     layout_fuzz_mod.addImport("font", font_mod);
+    layout_fuzz_mod.addImport("math", math_mod);
     const math_layout_fuzz = b.addTest(.{
         .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
         .root_module = layout_fuzz_mod,

@@ -1,5 +1,6 @@
 pub const style = @import("style.zig");
 pub const tree = @import("tree.zig");
+pub const parser = @import("parser.zig");
 pub const layout = @import("layout.zig");
 pub const scene = @import("scene.zig");
 
