@@ -2,6 +2,7 @@ const std = @import("std");
 const eg = @import("elk_graph.zig");
 const elk_json = @import("elk_json.zig");
 const layered = @import("layered.zig");
+const lg = @import("lgraph.zig");
 const Value = std.json.Value;
 
 test {
@@ -9,6 +10,7 @@ test {
     std.testing.refAllDecls(@import("fuzz.zig"));
     _ = @import("line_hops.zig");
     _ = @import("e2e_test.zig");
+    _ = @import("algorithm_test.zig");
     _ = @import("errors_test.zig");
     _ = @import("p1cycles/test.zig");
     _ = @import("p2layers/test.zig");
@@ -16,12 +18,28 @@ test {
     _ = @import("p4nodes/test.zig");
     _ = @import("p5edges/test.zig");
     _ = @import("graph/test.zig");
+    _ = @import("stress/test.zig");
+    _ = @import("force/test.zig");
+    _ = @import("mrtree/test.zig");
+    _ = @import("spore/test.zig");
+    _ = @import("box/test.zig");
+    _ = @import("rectpacking/test.zig");
+    _ = @import("radial/test.zig");
+}
+
+// elk.algorithm of a fixture input's root, without the package prefix
+fn fixtureAlgorithm(input: Value) []const u8 {
+    const alg = (field(input, "layoutOptions") orelse return "layered");
+    const v = field(alg, "elk.algorithm") orelse return "layered";
+    if (v != .string) return "layered";
+    const dot = std.mem.lastIndexOfScalar(u8, v.string, '.') orelse return v.string;
+    return v.string[dot + 1 ..];
 }
 
 const node_tol = 0.5;
 const point_tol = 1.0;
 
-const Stats = struct {
+pub const Stats = struct {
     graphs: usize = 0,
     failed: usize = 0,
     nodes: usize = 0,
@@ -33,7 +51,7 @@ const Stats = struct {
     max_label: f64 = 0,
 };
 
-fn num(v: Value) f64 {
+pub fn num(v: Value) f64 {
     return switch (v) {
         .integer => |i| @floatFromInt(i),
         .float => |f| f,
@@ -41,12 +59,17 @@ fn num(v: Value) f64 {
     };
 }
 
-fn field(v: Value, name: []const u8) ?Value {
+pub fn diff(g: f64, w: f64) f64 {
+    if (std.math.isNan(g) and std.math.isNan(w)) return 0;
+    return if (std.math.isNan(g) or std.math.isNan(w)) std.math.inf(f64) else @abs(g - w);
+}
+
+pub fn field(v: Value, name: []const u8) ?Value {
     if (v != .object) return null;
     return v.object.get(name);
 }
 
-const Cmp = struct {
+pub const Cmp = struct {
     a: std.mem.Allocator,
     name: []const u8,
     stats: *Stats,
@@ -58,20 +81,20 @@ const Cmp = struct {
         if (self.errors <= 12) std.debug.print("  {s}: " ++ fmt ++ "\n", .{self.name} ++ args);
     }
 
-    fn collectEdges(self: *Cmp, out: Value) !void {
+    pub fn collectEdges(self: *Cmp, out: Value) !void {
         if (field(out, "edges")) |es| for (es.array.items) |e| {
             try self.expected_edges.put(field(e, "id").?.string, e);
         };
         if (field(out, "children")) |cs| for (cs.array.items) |c| try self.collectEdges(c);
     }
 
-    fn nodes(self: *Cmp, got: *const eg.ElkNode, want: Value) void {
+    pub fn nodes(self: *Cmp, got: *const eg.ElkNode, want: Value) void {
         self.stats.nodes += 1;
         const wx = num(field(want, "x") orelse .null);
         const wy = num(field(want, "y") orelse .null);
         const ww = num(field(want, "width") orelse .null);
         const wh = num(field(want, "height") orelse .null);
-        const d = @max(@max(@abs(got.x - wx), @abs(got.y - wy)), @max(@abs(got.width - ww), @abs(got.height - wh)));
+        const d = @max(@max(diff(got.x, wx), diff(got.y, wy)), @max(diff(got.width, ww), diff(got.height, wh)));
         self.stats.max_node = @max(self.stats.max_node, d);
         if (!(d <= node_tol)) self.report("node {s}: got {d:.3},{d:.3} {d:.3}x{d:.3} want {d:.3},{d:.3} {d:.3}x{d:.3}", .{ got.id, got.x, got.y, got.width, got.height, wx, wy, ww, wh });
         if (field(want, "labels")) |wls| for (wls.array.items, 0..) |wl, i| {
@@ -137,13 +160,18 @@ const Cmp = struct {
 
     fn point(self: *Cmp, id: []const u8, gx: f64, gy: f64, wx: f64, wy: f64) void {
         self.stats.points += 1;
-        const d = @max(@abs(gx - wx), @abs(gy - wy));
+        const d = @max(diff(gx, wx), diff(gy, wy));
         self.stats.max_point = @max(self.stats.max_point, d);
         if (!(d <= point_tol)) self.report("edge {s} point got {d:.3},{d:.3} want {d:.3},{d:.3}", .{ id, gx, gy, wx, wy });
     }
 };
 
 test "elk layout matches elkjs on the fixtures" {
+    try checkFixtures("layered", layered.layout, 200);
+}
+
+// The fixtures whose root layout algorithm is `algorithm` (layered when none is set), laid out by `layoutFn`.
+pub fn checkFixtures(algorithm: []const u8, layoutFn: *const fn (std.mem.Allocator, *eg.ElkNode) lg.Error!void, min_graphs: usize) !void {
     const gpa = std.testing.allocator;
     const io = std.testing.io;
     var env = try std.testing.environ.createMap(gpa);
@@ -160,6 +188,7 @@ test "elk layout matches elkjs on the fixtures" {
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".json")) continue;
+        if (std.mem.startsWith(u8, entry.name, "force-")) continue;
         try names.append(gpa, try gpa.dupe(u8, entry.name));
     }
     std.mem.sort([]u8, names.items, {}, struct {
@@ -167,21 +196,21 @@ test "elk layout matches elkjs on the fixtures" {
             return std.mem.lessThan(u8, a, b);
         }
     }.less);
-    try std.testing.expect(names.items.len >= 200);
-
     var stats: Stats = .{};
     for (names.items) |name| {
+        if (std.mem.startsWith(u8, name, "radial-")) continue;
         if (only) |o| if (std.mem.find(u8, name, o) == null) continue;
         var arena = std.heap.ArenaAllocator.init(gpa);
         defer arena.deinit();
         const a = arena.allocator();
         const src = try dir.readFileAlloc(io, name, a, .unlimited);
         const doc = try std.json.parseFromSliceLeaky(Value, a, src, .{});
+        if (!std.mem.eql(u8, fixtureAlgorithm(field(doc, "input").?), algorithm)) continue;
         const root = try elk_json.fromValue(a, field(doc, "input").?);
         stats.graphs += 1;
         var c: Cmp = .{ .a = a, .name = name, .stats = &stats, .expected_edges = std.StringHashMap(Value).init(a) };
         const out = field(doc, "output").?;
-        layered.layout(a, root) catch |err| {
+        layoutFn(a, root) catch |err| {
             std.debug.print("  {s}: layout failed: {s}\n", .{ name, @errorName(err) });
             stats.failed += 1;
             continue;
@@ -193,6 +222,7 @@ test "elk layout matches elkjs on the fixtures" {
             std.debug.print("  {s}: {d} mismatches\n", .{ name, c.errors });
         }
     }
-    std.debug.print("\nelk parity: graphs={d} failed={d} nodes={d} edges={d} points={d} labels={d} maxNode={d:.4} maxPoint={d:.4} maxLabel={d:.4}\n", .{ stats.graphs, stats.failed, stats.nodes, stats.edges, stats.points, stats.labels, stats.max_node, stats.max_point, stats.max_label });
+    std.debug.print("\nelk parity {s}: graphs={d} failed={d} nodes={d} edges={d} points={d} labels={d} maxNode={d:.4} maxPoint={d:.4} maxLabel={d:.4}\n", .{ algorithm, stats.graphs, stats.failed, stats.nodes, stats.edges, stats.points, stats.labels, stats.max_node, stats.max_point, stats.max_label });
+    try std.testing.expect(stats.graphs >= min_graphs);
     try std.testing.expectEqual(@as(usize, 0), stats.failed);
 }

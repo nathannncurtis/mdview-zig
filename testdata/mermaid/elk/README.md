@@ -50,3 +50,24 @@ Each file is produced by running `elk.layout` of elkjs 0.9.3 on the modified `in
 ## opt-*.json
 
 `opt-<setting>--<base>.json` are the same capture with one `elk:` option set in the front matter (mergeEdges, cycleBreakingStrategy, forceNodeModelOrder, considerModelOrder, keepEntryNodeOnTop, orientFeedbackEdges, preset legacy, and two combinations). `<base>` is one of 13 graphs of the first set or `big-cyc-a` to `big-cyc-d`, seeded graphs of 24 to 48 nodes with back edges, multi edges, fans around a hub and subgraphs. Their `output` edges also carry `junctionPoints`, which `test.zig` compares for these files only. Made with the same patched mermaid@12.2.0 and Playwright script as above, one `---\nconfig:\n  layout: elk\n  elk:\n    <option>: <value>\n---` header per file.
+
+## spore-*.json
+
+87 graphs run through elkjs 0.9.3 with root `elk.algorithm` = `sporeOverlap` (SPOrE overlap removal): 25 are the `input` of Mermaid fixtures above (`spore-mm-<name>`) with the root options replaced and every node given a seeded random `x`/`y`, the other 62 (`spore-syn-NN`) are seeded synthetic graphs (1 to 40 nodes, overlapping starting positions, with and without edges, nested children, node and head/tail edge labels, and varied `underlyingLayoutAlgorithm`, `overlapRemoval.maxIterations`, `overlapRemoval.runScanline`, `spacing.nodeNode` and padding). They are produced by a scratch Node script with a mulberry32 generator and `elkjs/lib/elk.bundled.js`; each layout is run twice and kept only if both runs agree (the `$H` hash codes elkjs adds are dropped). The layered test skips them; `src/mermaid/elk/spore/test.zig` compares them.
+
+## radial-*.json
+
+`radial-real-*` are 25 of the inputs above with the root `elk.algorithm` changed to `radial`; `radial-syn-*` are 62 seeded synthetic graphs (trees, forests, DAGs with a shared child, a cycle outside the root's tree, edge and node labels, nested nodes, every `elk.radial.*` option, `elk.position`, `elk.spacing.nodeNode`, padding, fixed graph size). `output` is what elkjs 0.9.3 returned. They are checked by `src/mermaid/elk/radial/test.zig`, not by the layered test.
+
+## box-*.json and rectpacking-*.json
+
+Same shape (`source` is empty), checked by `src/mermaid/elk/box/test.zig` and `src/mermaid/elk/rectpacking/test.zig`, not by the layered test (which skips every fixture whose root `elk.algorithm` is not layered). Each algorithm has 85 fixtures:
+
+- `<algorithm>-m-*`: 25 of the Mermaid inputs above (12 with subgraphs, 13 flat) with the root `elk.algorithm` set to `elk.box` / `elk.rectpacking`. Subgraphs keep their own layered options, so they are laid out by layered first and packed as boxes.
+- `<algorithm>-s-*`: 60 generated graphs (seeded, 1 to 60 nodes of mixed sizes, some nested, some with node labels) with varied algorithm options (box: `box.packingMode`, `expandNodes`, `interactive`, `priority`; rectpacking: width approximation, optimization goal, packing strategy, compaction iterations, whitespace elimination, `trybox`, `inNewRow`, `desiredPosition`) and the common ones (`aspectRatio`, `spacing.nodeNode`, `padding`, `nodeSize.*`, `contentAlignment`).
+
+`output` is what elkjs 0.9.3 returned for `input`, reduced to the same fields as above.
+
+## glue-*.json
+
+Mermaid's own input for the non-layered diagram layouts, three per algorithm (`glue-<algo>-flat`, `-sub`, `-own`; algo is `stress`, `force`, `mrtree`, `spore`, `box` or `rectpacking`), with the sources in each file's `source`: a flat decision flow with edge labels, two subgraphs joined by cross-boundary edges, and a subgraph that asks for its own algorithm (`S1@{ algorithm: elk.box }`, `elk.rectpacking`, `elk.stress`). Made with the patched mermaid@12.2.0 and Playwright script described above, with `layout: elk.<algorithm>` in the front matter (`elk.sporeOverlap` for spore), then reduced to the same fields. `input` is what Mermaid hands to elkjs, `output` what elkjs 0.9.3 returned. `src/mermaid/elk/algorithm_test.zig` checks every file except the mrtree ones, which belong to the mrtree test.

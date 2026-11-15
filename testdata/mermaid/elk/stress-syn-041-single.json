@@ -1,0 +1,1 @@
+{"name":"stress-syn-041-single","source":"","input":{"id":"root","layoutOptions":{"elk.algorithm":"stress"},"children":[{"id":"n0","width":54,"height":21}],"edges":[]},"output":{"id":"root","layoutOptions":{"elk.algorithm":"stress"},"children":[{"id":"n0","width":54,"height":21,"$H":3622,"x":50,"y":50}],"edges":[],"$H":3620,"x":0,"y":0,"width":154,"height":121}}

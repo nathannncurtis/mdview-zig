@@ -9,7 +9,7 @@ const eg = @import("../elk_graph.zig");
 
 const default_min = 20.0; // ElkUtil.DEFAULT_MIN_WIDTH / DEFAULT_MIN_HEIGHT
 
-const Grid = struct {
+pub const Grid = struct {
     // [row][column], BEGIN / CENTER / END
     w: [3][3]f64 = @splat(@splat(0)),
     h: [3][3]f64 = @splat(@splat(0)),
@@ -76,7 +76,7 @@ fn sym(v: [3]f64, symmetrical: bool) [3]f64 {
 }
 
 // NodeLabelLocation.fromNodeLabelPlacement for inside locations: row and column, or null
-fn insideLocation(p: lg.NodeLabelPlacement) ?[2]usize {
+pub fn insideLocation(p: lg.NodeLabelPlacement) ?[2]usize {
     if (!p.inside or p.outside) return null;
     const hs = @as(u8, @intFromBool(p.h_left)) + @intFromBool(p.h_center) + @intFromBool(p.h_right);
     const vs = @as(u8, @intFromBool(p.v_top)) + @intFromBool(p.v_center) + @intFromBool(p.v_bottom);
@@ -87,17 +87,17 @@ fn insideLocation(p: lg.NodeLabelPlacement) ?[2]usize {
 }
 
 // IndividualSpacings.getIndividualOrInherited over ElkGraphAdapters.adaptSingleNode: the parent's value
-fn labelsPadding(n: *const eg.ElkNode) lg.Margin {
+pub fn labelsPadding(n: *const eg.ElkNode) lg.Margin {
     const p = n.parent orelse return .{ .top = 5, .left = 5, .bottom = 5, .right = 5 };
     return p.opts.node_labels_padding orelse .{ .top = 5, .left = 5, .bottom = 5, .right = 5 };
 }
 
-fn labelLabel(n: *const eg.ElkNode) f64 {
+pub fn labelLabel(n: *const eg.ElkNode) f64 {
     const p = n.parent orelse return 0;
     return p.opts.spacing_label_label orelse 0;
 }
 
-fn buildGrid(n: *const eg.ElkNode, horizontal: bool) Grid {
+pub fn buildGrid(n: *const eg.ElkNode, horizontal: bool) Grid {
     const ll = labelLabel(n);
     var g: Grid = .{ .padding = labelsPadding(n), .gap = 2 * ll };
     const node_placement = n.opts.node_labels_placement orelse lg.NodeLabelPlacement{};
@@ -133,6 +133,14 @@ pub fn insideNodeLabelPadding(n: *const eg.ElkNode) lg.Margin {
 
 // NodeLabelAndSizeCalculator.process(parentAdapter, nodeAdapter, false, true): the node size it computes
 pub fn minimumNodeSize(n: *const eg.ElkNode) lg.Vec {
+    const size = computedNodeSize(n);
+    const fixed_graph_size = if (n.parent) |p| p.opts.node_size_fixed_graph_size orelse false else false;
+    if (fixed_graph_size) return .{ .x = @max(n.width, size.x), .y = @max(n.height, size.y) };
+    return size;
+}
+
+// the size the cell system lays labels out in, before a fixed graph size keeps the node larger
+pub fn computedNodeSize(n: *const eg.ElkNode) lg.Vec {
     const sc = n.opts.node_size_constraints orelse lg.SizeConstraint{};
     const so = n.opts.node_size_options orelse lg.SizeOptions{ .default_minimum_size = true };
     if (!sc.ports and !sc.port_labels and !sc.node_labels and !sc.minimum_size) return .{ .x = n.width, .y = n.height };
@@ -157,8 +165,6 @@ pub fn minimumNodeSize(n: *const eg.ElkNode) lg.Vec {
         width = @max(width, min.x);
         height = @max(height, min.y);
     }
-    const fixed_graph_size = if (n.parent) |p| p.opts.node_size_fixed_graph_size orelse false else false;
-    if (fixed_graph_size) return .{ .x = @max(n.width, width), .y = @max(n.height, height) };
     return .{ .x = width, .y = height };
 }
 
