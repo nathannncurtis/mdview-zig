@@ -13,6 +13,7 @@ Dark-themed, borderless floating window that renders Markdown with GitHub-dark s
 - **Bold/italic** inline formatting
 - **Tables** with column alignment
 - **Images** — inline, reference-style and linked images from local files or https URLs, scaled to fit, with animated GIF, WebP and PNG playing in place
+- **Mermaid** — ` ```mermaid ` fences draw as diagrams in GitHub's dark theme with its zoom and pan controls, or as GitHub's error box over the source when they do not parse
 - **File watching** — auto-reloads when the file changes on disk
 - **Drag & drop** — drop any `.md` file onto the window to open it
 - **Scroll position memory** — remembers where you left off across sessions

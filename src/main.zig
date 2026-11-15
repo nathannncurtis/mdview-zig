@@ -34,6 +34,7 @@ var scroll_path: ?[]const u8 = null;
 
 const links = @import("markdown/links.zig");
 pub const images = @import("image/images.zig");
+const view = @import("mermaid").view;
 
 pub const Font = enum { body, h1, h2, h3, h4, h5, h6 };
 
@@ -82,6 +83,87 @@ fn toggleAt(px: f32, py: f32) ?md.Frame {
     }
     return null;
 }
+
+const DiagramFrame = struct { rect: Rect, key: u64, source: []const u8, modal: bool };
+/// Frames of the diagrams drawn this frame for their buttons: in document coordinates, or in window coordinates for the dialog.
+var diagram_frames: std.ArrayList(DiagramFrame) = .empty;
+
+pub fn noteDiagram(rect: Rect, key: u64, source: []const u8, in_dialog: bool) void {
+    diagram_frames.append(gpa, .{ .rect = rect, .key = key, .source = source, .modal = in_dialog }) catch return;
+}
+
+/// The dialog the expand button opens; `frame_h` is the height of the frame it was opened from.
+pub const Dialog = struct { source: []const u8, frame_h: f32 };
+pub var dialog: ?Dialog = null;
+/// A dialog's frame keeps its own zoom and pan.
+pub const dialog_salt: u64 = 0x6469616c6f67;
+
+var copied_key: u64 = 0;
+var copied_at: i64 = -1_000_000;
+var dialog_since: i64 = 0;
+
+/// True for two seconds after the copy button of the diagram was pressed, while its icon is a check mark.
+pub fn isCopied(key: u64) bool {
+    const live = copied_key == key and images.now() - copied_at < view.copy_feedback_ms;
+    if (live) images.animate(16);
+    return live;
+}
+
+/// How far the "Copied!" tooltip has faded in.
+pub fn copiedAlpha() f32 {
+    return view.easeIn(@as(f32, @floatFromInt(images.now() - copied_at)) / view.tip_fade_ms);
+}
+
+/// How far the dialog has faded in.
+pub fn dialogAlpha() f32 {
+    const t = @as(f32, @floatFromInt(images.now() - dialog_since)) / view.dialog_fade_ms;
+    if (t < 1) images.animate(16);
+    return view.easeInOut(t);
+}
+
+pub fn closeDialog() void {
+    if (dialog == null) return;
+    dialog = null;
+    platform.invalidate();
+}
+
+const DiagramButton = struct { key: u64, button: view.Button, source: []const u8, frame_h: f32 };
+
+fn diagramButtonAt(px: f32, py: f32) ?DiagramButton {
+    for (diagram_frames.items) |d| {
+        if (d.modal != (dialog != null)) continue;
+        const y = if (d.modal) py else py + scroll_y;
+        const frame: view.Rect = .{ .x = d.rect.x, .y = d.rect.y, .w = d.rect.w, .h = d.rect.h };
+        if (view.buttonAt(frame, px, y, !d.modal)) |b| return .{ .key = d.key, .button = b, .source = d.source, .frame_h = d.rect.h };
+    }
+    return null;
+}
+
+fn pressDiagramButton(d: DiagramButton) void {
+    switch (d.button) {
+        .expand => {
+            dialog = .{ .source = d.source, .frame_h = d.frame_h };
+            dialog_since = images.now();
+        },
+        .copy => {
+            platform.setClipboard(d.source);
+            copied_key = d.key;
+            copied_at = images.now();
+        },
+        else => view.press(images.viewState(d.key), d.button),
+    }
+    platform.invalidate();
+}
+
+fn dialogDown(d: Dialog, px: f32, py: f32) bool {
+    const box = view.modalRect(window_width, window_height, d.frame_h);
+    if (view.closeRect(box).contains(px, py) or !box.contains(px, py)) {
+        closeDialog();
+        return true;
+    }
+    if (diagramButtonAt(px, py)) |hit| pressDiagramButton(hit);
+    return true;
+}
 pub var full_layout = false;
 var pending_jump: ?[]const u8 = null;
 
@@ -90,6 +172,7 @@ pub fn beginFrame() void {
     hits.clearRetainingCapacity();
     block_y.clearRetainingCapacity();
     toggles.clearRetainingCapacity();
+    diagram_frames.clearRetainingCapacity();
 }
 
 pub fn noteBlock(y: f32) void {
@@ -143,7 +226,8 @@ pub fn pointerMoved(px: f32, py: f32) bool {
     tooltip = if (title) |t| .{ .text = t, .x = px, .y = py } else null;
     if (had_tip or title != null) platform.invalidate();
     const hit = linkAt(px, py);
-    if (hit == null and toggleAt(px, py) != null) return true;
+    if (dialog != null) return diagramButtonAt(px, py) != null;
+    if (hit == null and (toggleAt(px, py) != null or diagramButtonAt(px, py) != null)) return true;
     const now: ?Hover = if (hit) |h| .{ .text = h.content.text.ptr, .start = h.link.start } else null;
     const same = if (hover) |a| (if (now) |b| a.text == b.text and a.start == b.start else false) else now == null;
     hover = now;
@@ -156,6 +240,12 @@ var pressed: ?Press = null;
 
 /// Remembers the link under a button press; true when the press is on a link.
 pub fn mouseDown(px: f32, py: f32) bool {
+    if (dialog) |d| return dialogDown(d, px, py);
+    if (diagramButtonAt(px, py)) |d| {
+        pressed = null;
+        pressDiagramButton(d);
+        return true;
+    }
     if (toggleAt(px, py)) |f| {
         pressed = null;
         details_open.put(gpa, f.key, !isOpen(f)) catch return true;
@@ -459,9 +549,11 @@ fn reload(mtime: std.Io.Timestamp) bool {
     };
     if (doc) |*old| old.deinit();
     hits.clearRetainingCapacity();
+    dialog = null;
     hover = null;
     tooltip = null;
     images.reset(std.fs.path.dirname(file_path) orelse "", std.mem.eql(u8, file_path, last_doc_path));
+    images.pruneDiagrams(new_doc.blocks);
     if (!std.mem.eql(u8, file_path, last_doc_path)) details_open.clearRetainingCapacity();
     last_doc_path = file_path;
     doc = new_doc;
