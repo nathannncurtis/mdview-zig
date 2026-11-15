@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const scan = @import("yaml_scan.zig");
-const yparse = @import("yaml_parse.zig");
+const yparse = @import("yaml_parse");
+const scan = yparse.scan;
 const unicode = @import("../data/unicode.zig");
 
 pub const Scalar = struct { text: []const u8, falsy: bool = false };

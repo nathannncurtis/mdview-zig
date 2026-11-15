@@ -5,11 +5,27 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const testdata = b.createModule(.{ .root_source_file = b.path("testdata/embed.zig") });
 
+    const yaml_mod = b.createModule(.{
+        .root_source_file = b.path("src/markdown/yaml_parse.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const mermaid_mod = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/mermaid.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    mermaid_mod.addImport("yaml", yaml_mod);
+    mermaid_mod.addImport("testdata", testdata);
+    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+    exe_mod.addImport("mermaid", mermaid_mod);
+    exe_mod.addImport("yaml_parse", yaml_mod);
 
     const resolved = target.result;
     var linux_c: ?*std.Build.Step.TranslateC = null;
@@ -75,12 +91,13 @@ pub fn build(b: *std.Build) void {
         }),
     });
     parser_tests.root_module.addImport("testdata", testdata);
+    parser_tests.root_module.addImport("mermaid", mermaid_mod);
+    parser_tests.root_module.addImport("yaml_parse", yaml_mod);
     const test_step = b.step("test", "Run parser tests");
     const run_parser = b.addRunArtifact(parser_tests);
     run_parser.setCwd(b.path("."));
     test_step.dependOn(&run_parser.step);
 
-    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
     const svg_mod = b.createModule(.{
         .root_source_file = b.path("src/image/svg.zig"),
         .target = target,
@@ -147,6 +164,8 @@ pub fn build(b: *std.Build) void {
         for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("mermaid", mermaid_mod);
+        layout_tests.root_module.addImport("yaml_parse", yaml_mod);
         layout_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
@@ -161,40 +180,13 @@ pub fn build(b: *std.Build) void {
         });
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("mermaid", mermaid_mod);
+        layout_tests.root_module.addImport("yaml_parse", yaml_mod);
         layout_tests.root_module.addImport("font", font_mod);
         for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
-    const yaml_mod = b.createModule(.{
-        .root_source_file = b.path("src/markdown/yaml_parse.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const mermaid_mod = b.createModule(.{
-        .root_source_file = b.path("src/mermaid/mermaid.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    mermaid_mod.addImport("yaml", yaml_mod);
-    mermaid_mod.addImport("html_api", b.createModule(.{
-        .root_source_file = b.path("src/html_api.zig"),
-        .target = target,
-        .optimize = optimize,
-    }));
-    mermaid_mod.addImport("flow_grammar", flow_grammar);
-    mermaid_mod.addImport("testdata", testdata);
-    const compare_mod = b.createModule(.{
-        .root_source_file = b.path("tools/check/mermaid_compare.zig"),
-        .target = b.graph.host,
-    });
-    addStubs(b, compare_mod);
-    const flow_render = toolExe(b, "mermaid-flow-render", "tools/check/mermaid_flow_render.zig");
-    flow_render.root_module.addImport("mermaid", mermaid_mod);
-    flow_render.root_module.addImport("mermaid_compare", compare_mod);
-    const flow_render_run = toolStep(b, "mermaid-flow-render", "Flowchart parity against testdata/mermaid: <cases dir> <refs dir> [out dir]", flow_render);
-    flow_render_run.addArgs(&.{ "testdata/mermaid/cases", "testdata/mermaid/refs" });
-    test_step.dependOn(&flow_render_run.step);
     const mermaid_tests = b.addTest(.{ .root_module = mermaid_mod });
     test_step.dependOn(&b.addRunArtifact(mermaid_tests).step);
 
@@ -207,6 +199,7 @@ pub fn build(b: *std.Build) void {
         .filters = &.{"stress files"},
     });
     stress_tests.root_module.addImport("testdata", testdata);
+    stress_tests.root_module.addImport("yaml_parse", yaml_mod);
     stress_tests.root_module.addImport("font", font_mod);
     const run_stress = b.addRunArtifact(stress_tests);
     if (b.option([]const u8, "stress-dir", "Directory of files from gen-stress for the stress step")) |dir| {
@@ -229,6 +222,8 @@ pub fn build(b: *std.Build) void {
             hit_tests.root_module.linkSystemLibrary(lib, .{});
         }
         hit_tests.root_module.addImport("testdata", testdata);
+        hit_tests.root_module.addImport("mermaid", mermaid_mod);
+        hit_tests.root_module.addImport("yaml_parse", yaml_mod);
         hit_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
@@ -244,6 +239,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     fuzz_tests.root_module.addImport("testdata", testdata);
+    fuzz_tests.root_module.addImport("yaml_parse", yaml_mod);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
     const fuzz_step = b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)");
@@ -376,10 +372,15 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
     const flow_grammar_module = addJisonTests(b, test_step, jison, jison_runtime, testdata);
 
     const languages = toolExe(b, "gen-languages", "tools/gen/gen_languages.zig");
-    languages.root_module.addImport("yaml", b.createModule(.{
+    const yaml_api = b.createModule(.{
         .root_source_file = b.path("src/yaml_api.zig"),
         .target = b.graph.host,
+    });
+    yaml_api.addImport("yaml_parse", b.createModule(.{
+        .root_source_file = b.path("src/markdown/yaml_parse.zig"),
+        .target = b.graph.host,
     }));
+    languages.root_module.addImport("yaml", yaml_api);
     _ = toolStep(b, "gen-languages", "Regenerate src/data/languages.zig: <languages.yml> <out.zig>", languages);
 
     const mermaid_config = toolExe(b, "gen-mermaid-config", "tools/gen/gen_mermaid_config.zig");

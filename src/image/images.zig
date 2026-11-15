@@ -5,6 +5,10 @@ const svg = @import("svg.zig");
 const links = @import("../markdown/links.zig");
 const scale = @import("scale.zig");
 const md = @import("../markdown/markdown.zig");
+const font = @import("font");
+const mermaid = @import("mermaid");
+const view = mermaid.view;
+const probe_adapter = @import("mermaid_probe.zig");
 
 pub const max_download: usize = 20 * 1024 * 1024;
 pub const max_local: usize = 128 * 1024 * 1024;
@@ -30,9 +34,13 @@ pub const Look = union(enum) { pending, picture: Size, missing };
 pub const State = enum(u8) { queued, loading, ready, failed };
 
 /// Decoded pixels plus the backend's bitmaps for them; the bitmaps are only touched on the UI thread.
+/// The part of a diagram a picture shows, as fractions of the whole.
+const Region = struct { u0: f32 = 0, v0: f32 = 0, u1: f32 = 1, v1: f32 = 1 };
+
 const Picture = struct {
     img: image.Image,
     natives: []?*anyopaque,
+    region: Region = .{},
 
     fn create(img: image.Image) std.mem.Allocator.Error!*Picture {
         const p = try gpa.create(Picture);
@@ -72,6 +80,14 @@ const Entry = struct {
     t0: i64 = 0,
     animated: bool = false,
     last_render: i64 = 0,
+    // A diagram is an entry whose key is derived from its source; it is never a file or a URL.
+    mm_src: ?[]u8 = null,
+    mm_hash: u64 = 0,
+    mm_err: ?*ErrBox = null,
+    mm_code: bool = false,
+    mm_used: u64 = 0,
+    // The previous version of an edited diagram, drawn until this one has rendered.
+    prev: ?*Entry = null,
 
     fn retain(e: *Entry) void {
         _ = e.refs.fetchAdd(1, .monotonic);
@@ -84,6 +100,9 @@ const Entry = struct {
         if (e.incoming.load(.acquire)) |p| p.destroy();
         if (e.svg_bytes) |b| gpa.free(b);
         if (e.fallback) |f| gpa.free(f);
+        if (e.mm_src) |m| gpa.free(m);
+        if (e.mm_err) |b| b.destroy();
+        if (e.prev) |p| p.release();
         gpa.free(e.key);
         gpa.destroy(e);
     }
@@ -91,6 +110,18 @@ const Entry = struct {
     fn dropNatives(e: *Entry) void {
         if (e.base) |p| p.dropNatives();
         if (e.pic) |p| p.dropNatives();
+    }
+};
+
+/// What GitHub shows for a diagram that does not parse: a bold title, the message and the docs link.
+const ErrBox = struct {
+    body: []u8,
+    bold: [1]md.Span,
+    link: [1]md.Link,
+
+    fn destroy(b: *ErrBox) void {
+        gpa.free(b.body);
+        gpa.destroy(b);
     }
 };
 
@@ -292,6 +323,7 @@ fn readFile(path: []const u8) ![]u8 {
 }
 
 fn loadInto(e: *Entry) !void {
+    if (e.mm_src != null) return loadDiagram(e);
     const bytes = if (std.ascii.startsWithIgnoreCase(e.key, "https://"))
         try fetchTimed(e.key, timeout_ms)
     else
@@ -442,6 +474,10 @@ pub const Bitmap = struct { native: *anyopaque, w: u32, h: u32 };
 /// get a copy shrunk to the on-screen size, and SVGs are rendered at it, again whenever `box` changes.
 pub fn bitmap(target: []const u8, box: Size) ?Bitmap {
     const e = get(target) orelse return null;
+    return bitmapFor(e, box);
+}
+
+fn bitmapFor(e: *Entry, box: Size) ?Bitmap {
     if (e.state.load(.acquire) != .ready) return null;
     if (e.t0 == 0) e.t0 = now();
     wantSized(e, box);
@@ -555,6 +591,11 @@ pub fn beginFrame() void {
 }
 
 /// Milliseconds until something needs a redraw or a poll: the next animation frame, or soon while images are still loading.
+/// Asks for a redraw in `ms` milliseconds.
+pub fn animate(ms: u32) void {
+    wake = if (wake) |w| @min(w, ms) else ms;
+}
+
 pub fn timerDelay() ?u32 {
     if (wake) |w| return w;
     if (active.load(.monotonic) > 0 or pending.items.len > 0) return 40;
@@ -579,7 +620,7 @@ pub fn tick() bool {
             e.pic = np;
             changed = true;
         }
-        if (e.state.load(.acquire) == .loading and t - e.started > timeout_ms) {
+        if (e.mm_src == null and e.state.load(.acquire) == .loading and t - e.started > timeout_ms) {
             if (e.state.cmpxchgStrong(.loading, .failed, .release, .monotonic) == null) changed = true;
         }
     }
@@ -601,6 +642,7 @@ pub fn reset(dir: []const u8, keep_remote: bool) void {
     var it = entries.valueIterator();
     while (it.next()) |slot| {
         const e = slot.*;
+        if (e.mm_src != null) continue;
         const remote = std.ascii.startsWithIgnoreCase(e.key, "https://");
         if (keep_remote and remote and e.state.load(.acquire) != .failed) continue;
         drop.append(gpa, e) catch return;
@@ -740,6 +782,322 @@ fn shiftList(comptime T: type, a: std.mem.Allocator, src: []const T, ends: []con
     return out;
 }
 
+// ---- Mermaid diagrams ----
+
+const max_cached_diagrams = 64;
+
+var last_hashes: std.ArrayList(u64) = .empty;
+var carry: std.AutoHashMapUnmanaged(u64, *Entry) = .empty;
+var view_states: std.AutoHashMapUnmanaged(u64, view.State) = .empty;
+var use_clock: u64 = 0;
+
+fn measureText(_: ?*anyopaque, text: []const u8, f: mermaid.text.Font) mermaid.text.Size {
+    // Chrome drops a family list that ends in a semicolon and measures in its default serif.
+    const family = if (std.mem.endsWith(u8, std.mem.trimEnd(u8, f.family, " \t"), ";")) "serif" else f.family;
+    const m = font.measure(font.resolveFont(io, family, f.weight, f.italic), text, f.size);
+    return .{ .w = @floatCast(m.w), .h = @floatCast(m.h) };
+}
+
+fn imageProbe(href: []const u8) mermaid.ImageProbe {
+    return switch (probe_adapter.probe(href)) {
+        .size => |sz| .{ .size = .{ .w = sz.w, .h = sz.h } },
+        .pending => .pending,
+        .failed => .failed,
+    };
+}
+
+fn clockNs() i64 {
+    return now() * std.time.ns_per_ms;
+}
+
+fn loadDiagram(e: *Entry) !void {
+    const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText }, .clock = clockNs, .image_probe = imageProbe });
+    switch (r) {
+        .svg => |i| {
+            e.svg_bytes = @constCast(i.bytes);
+            e.size = .{ .w = i.w, .h = i.h };
+        },
+        .err => |m| {
+            defer gpa.free(m);
+            const t = try view.errorBody(gpa, m);
+            errdefer gpa.free(t.body);
+            const b = try gpa.create(ErrBox);
+            b.* = .{ .body = t.body, .bold = .{.{ 0, view.error_title.len }}, .link = .{.{ .start = t.link_start, .len = t.link_len, .target = view.docs_url }} };
+            e.mm_err = b;
+        },
+        .unsupported => |u| {
+            gpa.free(u);
+            e.mm_code = true;
+        },
+    }
+}
+
+pub fn diagramKey(source: []const u8) u64 {
+    return std.hash.Wyhash.hash(0, source);
+}
+
+fn diagramName(buf: []u8, hash: u64) []const u8 {
+    return std.fmt.bufPrint(buf, "mermaid:{x}:{s}", .{ hash, mermaid.version }) catch buf[0..0];
+}
+
+fn findDiagram(hash: u64) ?*Entry {
+    var buf: [64]u8 = undefined;
+    return entries.get(diagramName(&buf, hash));
+}
+
+fn diagramEntry(source: []const u8) ?*Entry {
+    const hash = diagramKey(source);
+    use_clock += 1;
+    if (findDiagram(hash)) |e| {
+        e.mm_used = use_clock;
+        return e;
+    }
+    var buf: [64]u8 = undefined;
+    const e = gpa.create(Entry) catch return null;
+    const key = gpa.dupe(u8, diagramName(&buf, hash)) catch {
+        gpa.destroy(e);
+        return null;
+    };
+    const src = gpa.dupe(u8, source) catch {
+        gpa.free(key);
+        gpa.destroy(e);
+        return null;
+    };
+    e.* = .{ .key = key, .mm_src = src, .mm_hash = hash, .mm_used = use_clock };
+    if (carry.fetchRemove(hash)) |kv| e.prev = kv.value;
+    entries.put(gpa, e.key, e) catch {
+        e.release();
+        return null;
+    };
+    pending.append(gpa, e) catch {
+        _ = entries.remove(e.key);
+        e.release();
+        return null;
+    };
+    pump();
+    return e;
+}
+
+fn drawable(e: *const Entry) bool {
+    return e.state.load(.acquire) == .ready and e.svg_bytes != null;
+}
+
+pub const Diagram = union(enum) {
+    /// Not rendered yet and nothing older to show.
+    pending,
+    picture: Size,
+    err: struct { title: md.Inline, body: md.Inline },
+    /// A type that is not ported, or a failure: shown as a code block.
+    code,
+};
+
+/// What a mermaid block takes up in a layout `avail` wide.
+pub fn diagram(source: []const u8, avail: f32) Diagram {
+    const e = diagramEntry(source) orelse return .code;
+    switch (e.state.load(.acquire)) {
+        .queued, .loading => {
+            if (e.prev) |p| if (drawable(p)) return .{ .picture = fit(p.size, avail) };
+            return .pending;
+        },
+        .failed => return .code,
+        .ready => {},
+    }
+    if (e.prev) |p| {
+        p.dropNatives();
+        p.release();
+        e.prev = null;
+    }
+    if (e.mm_code) return .code;
+    if (e.mm_err) |b| return .{ .err = .{ .title = .{ .text = view.error_title, .bold = &b.bold }, .body = .{ .text = b.body, .links = &b.link } } };
+    return .{ .picture = fit(e.size, avail) };
+}
+
+pub const DiagramBitmap = struct {
+    native: *anyopaque,
+    w: u32,
+    h: u32,
+    /// Where the bitmap goes, in the units of the rectangles it was asked for.
+    rect: view.Rect,
+};
+
+fn sameRegion(a: Region, b: Region) bool {
+    return @abs(a.u0 - b.u0) < 1e-4 and @abs(a.v0 - b.v0) < 1e-4 and @abs(a.u1 - b.u1) < 1e-4 and @abs(a.v1 - b.v1) < 1e-4;
+}
+
+/// `bytes` with the root viewBox narrowed to `r`; a root without one is taken to start at the origin and span `size`.
+fn regionSvg(a: std.mem.Allocator, bytes: []const u8, size: Size, r: Region) std.mem.Allocator.Error![]u8 {
+    const tag_end = std.mem.indexOfScalar(u8, bytes, '>') orelse bytes.len;
+    const tag = bytes[0..tag_end];
+    var vb: [4]f32 = .{ 0, 0, size.w, size.h };
+    var cut: [2]usize = .{ if (tag_end > 0 and bytes[tag_end - 1] == '/') tag_end - 1 else tag_end, 0 };
+    cut[1] = cut[0];
+    var lead: []const u8 = " ";
+    if (std.mem.indexOf(u8, tag, "viewBox=\"")) |at| {
+        const from = at + "viewBox=\"".len;
+        const to = std.mem.indexOfScalarPos(u8, bytes, from, '"') orelse tag_end;
+        var it = std.mem.tokenizeAny(u8, bytes[from..to], " ,");
+        var n: usize = 0;
+        while (it.next()) |tok| : (n += 1) {
+            if (n < 4) vb[n] = std.fmt.parseFloat(f32, tok) catch vb[n];
+        }
+        cut = .{ at, to + 1 };
+        lead = "";
+    }
+    const par: []const u8 = if (std.mem.indexOf(u8, tag, "preserveAspectRatio") == null) " preserveAspectRatio=\"none\"" else "";
+    return std.fmt.allocPrint(a, "{s}{s}viewBox=\"{d} {d} {d} {d}\"{s}{s}", .{
+        bytes[0..cut[0]],
+        lead,
+        vb[0] + r.u0 * vb[2],
+        vb[1] + r.v0 * vb[3],
+        (r.u1 - r.u0) * vb[2],
+        (r.v1 - r.v0) * vb[3],
+        par,
+        bytes[cut[1]..],
+    });
+}
+
+fn regionWork(e: *Entry, r: Region, w: u32, h: u32) void {
+    defer finish();
+    defer e.release();
+    defer e.rendering.store(false, .release);
+    const wanted = regionKey(r, w, h);
+    const bytes = e.svg_bytes orelse return;
+    const cropped = regionSvg(gpa, bytes, e.size, r) catch return;
+    defer gpa.free(cropped);
+    var img = svg.render(gpa, cropped, w, h) catch {
+        e.failed_size.store(wanted, .monotonic);
+        return;
+    };
+    const p = Picture.create(img) catch {
+        img.deinit(gpa);
+        return;
+    };
+    p.region = r;
+    if (e.incoming.swap(p, .acq_rel)) |old| old.destroy();
+}
+
+fn regionKey(r: Region, w: u32, h: u32) u64 {
+    const k: [6]u32 = .{ @bitCast(r.u0), @bitCast(r.v0), @bitCast(r.u1), @bitCast(r.v1), w, h };
+    return std.hash.Wyhash.hash(0, std.mem.asBytes(&k));
+}
+
+fn wantRegion(e: *Entry, r: Region, w: u32, h: u32) void {
+    if (e.pic) |p| if (sameRegion(p.region, r) and p.img.width == w and p.img.height == h) return;
+    if (e.failed_size.load(.monotonic) == regionKey(r, w, h)) return;
+    if (e.rendering.cmpxchgStrong(false, true, .acquire, .monotonic) != null) return;
+    e.retain();
+    _ = active.fetchAdd(1, .monotonic);
+    const t = std.Thread.spawn(.{ .stack_size = 4 * 1024 * 1024 }, regionWork, .{ e, r, w, h }) catch {
+        _ = active.fetchSub(1, .monotonic);
+        e.rendering.store(false, .release);
+        e.release();
+        return;
+    };
+    t.detach();
+}
+
+fn visibleRegion(dest: view.Rect, clip: view.Rect) ?struct { view.Rect, Region } {
+    const vis = dest.clip(clip);
+    if (vis.w <= 0 or vis.h <= 0 or dest.w <= 0 or dest.h <= 0) return null;
+    return .{ vis, .{
+        .u0 = (vis.x - dest.x) / dest.w,
+        .v0 = (vis.y - dest.y) / dest.h,
+        .u1 = (vis.x + vis.w - dest.x) / dest.w,
+        .v1 = (vis.y + vis.h - dest.y) / dest.h,
+    } };
+}
+
+/// The bitmap of the part of a diagram that shows. `dest` is where the whole diagram goes (zoomed and panned) and `clip` the
+/// frame it is seen through; the SVG is rendered again, from its vector data, for just the visible region at device resolution.
+/// While a newer render is on its way the last one is returned, placed where it belongs under the current transform.
+pub fn diagramBitmap(source: []const u8, dest: view.Rect, clip: view.Rect) ?DiagramBitmap {
+    const e = diagramEntry(source) orelse return null;
+    const shown = if (drawable(e)) e else if (e.prev) |p| (if (drawable(p)) p else return null) else return null;
+    const vis, const want = visibleRegion(dest, clip) orelse return null;
+    wantRegion(shown, want, pixels(vis.w), pixels(vis.h));
+    const p = shown.pic orelse return null;
+    if (p.natives[0] == null) {
+        const create = create_native orelse return null;
+        p.natives[0] = create(p.img.frames[0].rgba, p.img.width, p.img.height);
+    }
+    const r = p.region;
+    return .{
+        .native = p.natives[0] orelse return null,
+        .w = p.img.width,
+        .h = p.img.height,
+        .rect = .{ .x = dest.x + r.u0 * dest.w, .y = dest.y + r.v0 * dest.h, .w = (r.u1 - r.u0) * dest.w, .h = (r.v1 - r.v0) * dest.h },
+    };
+}
+
+var fallback_state: view.State = .{};
+
+/// Zoom and pan of a diagram, kept for as long as its source stays the same.
+pub fn viewState(key: u64) *view.State {
+    const slot = view_states.getOrPut(gpa, key) catch return &fallback_state;
+    if (!slot.found_existing) slot.value_ptr.* = .{};
+    return slot.value_ptr;
+}
+
+fn evict(e: *Entry, keep_natives: bool) void {
+    _ = entries.remove(e.key);
+    if (std.mem.indexOfScalar(*Entry, pending.items, e)) |i| _ = pending.orderedRemove(i);
+    if (!keep_natives and e.state.load(.acquire) == .ready) e.dropNatives();
+    e.release();
+}
+
+fn isCarried(e: *const Entry) bool {
+    var it = carry.valueIterator();
+    while (it.next()) |p| if (p.* == e) return true;
+    return false;
+}
+
+/// Called with every new document. An edited diagram keeps showing its old picture until the new one is ready, and the most
+/// recently used diagrams stay cached so an unchanged one is never laid out again.
+pub fn pruneDiagrams(blocks: []const md.Block) void {
+    prune(blocks, max_cached_diagrams);
+}
+
+fn prune(blocks: []const md.Block, cap: usize) void {
+    var old_carry = carry.valueIterator();
+    while (old_carry.next()) |p| {
+        p.*.dropNatives();
+        p.*.release();
+    }
+    carry.clearRetainingCapacity();
+    var keys: std.ArrayList(u64) = .empty;
+    defer keys.deinit(gpa);
+    for (blocks) |b| if (b.kind == .diagram) keys.append(gpa, diagramKey(b.content.text)) catch return;
+    for (keys.items, 0..) |k, i| {
+        if (i >= last_hashes.items.len or last_hashes.items[i] == k or carry.contains(k) or findDiagram(k) != null) continue;
+        const old = findDiagram(last_hashes.items[i]) orelse continue;
+        if (!drawable(old)) continue;
+        old.retain();
+        carry.put(gpa, k, old) catch old.release();
+    }
+    var stale: std.ArrayList(*Entry) = .empty;
+    defer stale.deinit(gpa);
+    var total: usize = 0;
+    var it = entries.valueIterator();
+    while (it.next()) |slot| {
+        const e = slot.*;
+        if (e.mm_src == null) continue;
+        total += 1;
+        if (std.mem.indexOfScalar(u64, keys.items, e.mm_hash) == null) stale.append(gpa, e) catch return;
+    }
+    std.mem.sort(*Entry, stale.items, {}, struct {
+        fn older(_: void, a: *Entry, b: *Entry) bool {
+            return a.mm_used < b.mm_used;
+        }
+    }.older);
+    for (stale.items) |e| {
+        if (total <= cap) break;
+        evict(e, isCarried(e));
+        total -= 1;
+    }
+    last_hashes.clearRetainingCapacity();
+    last_hashes.appendSlice(gpa, keys.items) catch return;
+}
+
 const testing = std.testing;
 
 /// Layout tests use this to get a loaded image of a known size without a decoder.
@@ -759,6 +1117,7 @@ pub fn injectReady(key: []const u8, w: f32, h: f32) !void {
 
 /// Frees what tests left behind once their loads have ended.
 pub fn clearAll() void {
+    prune(&.{}, 0);
     reset("", false);
     for (&icon_pics, &icon_failed) |*p, *failed| {
         if (p.*) |pic| {
@@ -774,6 +1133,12 @@ pub fn clearAll() void {
     pending.deinit(gpa);
     flows.deinit(gpa);
     retired.deinit(gpa);
+    carry.deinit(gpa);
+    last_hashes.deinit(gpa);
+    view_states.deinit(gpa);
+    carry = .empty;
+    last_hashes = .empty;
+    view_states = .empty;
     entries = .empty;
     pending = .empty;
     flows = .empty;
@@ -943,4 +1308,164 @@ test "content whose images are ready or have no alt text is left as it is" {
     defer doc.deinit();
     const c = doc.blocks[0].content;
     try testing.expectEqual(c.text.ptr, flow(c).text.ptr);
+}
+
+fn waitDiagram(source: []const u8) !Diagram {
+    const deadline = now() + 10_000;
+    while (now() < deadline) {
+        _ = tick();
+        const d = diagram(source, 400);
+        if (d != .pending) return d;
+        std.Io.sleep(io, .fromMilliseconds(5), .awake) catch break;
+    }
+    return error.Timeout;
+}
+
+test "a diagram renders once per source and is fitted to the width, never enlarged" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const d = try waitDiagram("info\n");
+    try testing.expectEqual(@as(f32, 400), d.picture.w);
+    const first = findDiagram(diagramKey("info\n")).?;
+    try testing.expect(diagram("info\n", 1000).picture.w == 400);
+    try testing.expectEqual(@as(f32, 200), diagram("info\n", 200).picture.w);
+    try testing.expect(findDiagram(diagramKey("info\n")).? == first);
+    try testing.expect(findDiagram(diagramKey("info \n")) == null);
+    try testing.expect(drawable(first));
+    try testing.expectEqual(@as(usize, 1), entries.count());
+}
+
+const nl = "\n";
+
+test "a flowchart renders through the same path as any diagram" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const d = try waitDiagram("flowchart TD" ++ nl ++ "  A[Start] --> B{Is it?}" ++ nl ++ "  B -->|Yes| C[OK]" ++ nl);
+    try testing.expect(d == .picture);
+    try testing.expect(d.picture.w > 100 and d.picture.h > 100);
+    const bad = try waitDiagram("flowchart TD" ++ nl ++ "  A -->" ++ nl);
+    try testing.expect(bad == .err);
+}
+
+test "a diagram that does not parse gives GitHub's error box text, and a bare type is not a diagram" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const d = try waitDiagram("info foo\n");
+    const box = d.err;
+    try testing.expectEqualStrings(view.error_title, box.title.text);
+    try testing.expectEqual(@as(u32, view.error_title.len), box.title.bold[0][1]);
+    try testing.expectEqualStrings(view.docs_url, box.body.text[box.body.links[0].start..][0..box.body.links[0].len]);
+    try testing.expectEqualStrings(view.docs_url, box.body.links[0].target);
+    try testing.expect((try waitDiagram("nonsense\n")) == .err);
+}
+
+test "an edited diagram keeps its previous picture until the new one has rendered" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    var before = try md.parse(testing.allocator, "```mermaid\ninfo\n```\n");
+    defer before.deinit();
+    pruneDiagrams(before.blocks);
+    _ = try waitDiagram("info\n");
+    var after = try md.parse(testing.allocator, "```mermaid\ninfo\n%% edited\n```\n");
+    defer after.deinit();
+    pruneDiagrams(after.blocks);
+    const text = after.blocks[0].content.text;
+    try testing.expectEqual(@as(f32, 400), diagram(text, 400).picture.w);
+    const entry = findDiagram(diagramKey(text)).?;
+    const deadline = now() + 10_000;
+    while (!drawable(entry) and now() < deadline) std.Io.sleep(io, .fromMilliseconds(5), .awake) catch break;
+    _ = diagram(text, 400);
+    try testing.expect(entry.prev == null);
+    try testing.expect(drawable(entry));
+}
+
+test "only the most recently used diagrams stay cached" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const sources = [_][]const u8{ "info\n%% a\n", "info\n%% b\n", "info\n%% c\n", "info\n%% d\n" };
+    for (sources) |s| _ = diagramEntry(s);
+    prune(&.{}, 2);
+    try testing.expect(findDiagram(diagramKey(sources[0])) == null);
+    try testing.expect(findDiagram(diagramKey(sources[1])) == null);
+    try testing.expect(findDiagram(diagramKey(sources[2])) != null);
+    try testing.expect(findDiagram(diagramKey(sources[3])) != null);
+}
+
+test "the region of an SVG is its root viewBox narrowed, or the whole size when it has none" {
+    const a = testing.allocator;
+    const half: Region = .{ .u0 = 0.25, .v0 = 0.5, .u1 = 0.75, .v1 = 1 };
+    const with = try regionSvg(a, "<svg id=\"d\" viewBox=\"-36 -36 440 600\" width=\"100%\"><g/></svg>", .{ .w = 1, .h = 1 }, half);
+    defer a.free(with);
+    try testing.expectEqualStrings("<svg id=\"d\" viewBox=\"74 264 220 300\" preserveAspectRatio=\"none\" width=\"100%\"><g/></svg>", with);
+    const without = try regionSvg(a, "<svg id=\"d\"><g/></svg>", .{ .w = 400, .h = 200 }, half);
+    defer a.free(without);
+    try testing.expectEqualStrings("<svg id=\"d\" viewBox=\"100 100 200 100\" preserveAspectRatio=\"none\"><g/></svg>", without);
+    try testing.expect(sameRegion(half, half));
+    try testing.expect(!sameRegion(half, .{}));
+}
+
+test "only the visible part of a zoomed diagram is rendered, at the size it is shown" {
+    init(testing.allocator, testing.io);
+    const frame: view.Rect = .{ .x = 0, .y = 0, .w = 300, .h = 180 };
+    const vis, const r = visibleRegion(.{ .x = -100, .y = -50, .w = 800, .h = 400 }, frame).?;
+    try testing.expectEqual(@as(f32, 300), vis.w);
+    try testing.expectEqual(@as(f32, 180), vis.h);
+    try testing.expectEqual(@as(f32, 0.125), r.u0);
+    try testing.expectEqual(@as(f32, 0.5), r.u1);
+    try testing.expectEqual(@as(f32, 0.125), r.v0);
+    try testing.expectEqual(@as(f32, 0.575), r.v1);
+    const whole = visibleRegion(.{ .x = 50, .y = 0, .w = 200, .h = 100 }, frame).?;
+    try testing.expect(sameRegion(whole[1], .{}));
+    try testing.expect(visibleRegion(.{ .x = 400, .y = 0, .w = 200, .h = 100 }, frame) == null);
+}
+
+fn expectCrop(bytes: []const u8, size: Size, r: Region, fw: u32, fh: u32) !void {
+    const a = testing.allocator;
+    const whole = try regionSvg(a, bytes, size, .{});
+    defer a.free(whole);
+    var full = try svg.render(a, whole, fw, fh);
+    defer full.deinit(a);
+    const x0: u32 = @intFromFloat(@round(r.u0 * @as(f32, @floatFromInt(fw))));
+    const y0: u32 = @intFromFloat(@round(r.v0 * @as(f32, @floatFromInt(fh))));
+    const x1: u32 = @intFromFloat(@round(r.u1 * @as(f32, @floatFromInt(fw))));
+    const y1: u32 = @intFromFloat(@round(r.v1 * @as(f32, @floatFromInt(fh))));
+    const narrowed = try regionSvg(a, bytes, size, r);
+    defer a.free(narrowed);
+    var part = try svg.render(a, narrowed, x1 - x0, y1 - y0);
+    defer part.deinit(a);
+    var off_by_much: usize = 0;
+    var sum: usize = 0;
+    for (0..y1 - y0) |y| for (0..x1 - x0) |x| {
+        const p = part.frames[0].rgba[(y * (x1 - x0) + x) * 4 ..][0..4];
+        const q = full.frames[0].rgba[((y + y0) * fw + x + x0) * 4 ..][0..4];
+        var worst: u8 = 0;
+        for (p, q) |u, v| worst = @max(worst, if (u > v) u - v else v - u);
+        sum += worst;
+        if (worst > 48) off_by_much += 1;
+    };
+    const n = (x1 - x0) * (y1 - y0);
+    try testing.expect(off_by_much * 100 <= n);
+    try testing.expect(sum <= n * 3);
+}
+
+const crop_art =
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" viewBox=\"-40 -40 480 320\" style=\"max-width: 480px;\">" ++
+    "<rect x=\"0\" y=\"0\" width=\"120\" height=\"60\" fill=\"#c33\" stroke=\"#fff\" stroke-width=\"3\"/>" ++
+    "<circle cx=\"220\" cy=\"120\" r=\"70\" fill=\"#36c\"/>" ++
+    "<path d=\"M10 200 L200 240 L390 160\" fill=\"none\" stroke=\"#3a3\" stroke-width=\"6\"/>" ++
+    "<path fill-rule=\"evenodd\" d=\"M300 20h80v80h-80zM320 40h40v40h-40z\" fill=\"#fc0\"/></svg>";
+
+test "a narrowed viewBox rendered to the output size equals a crop of the full render" {
+    try expectCrop(crop_art, .{ .w = 480, .h = 320 }, .{ .u0 = 0.25, .v0 = 0.125, .u1 = 0.75, .v1 = 0.875 }, 480, 320);
+    try expectCrop(crop_art, .{ .w = 480, .h = 320 }, .{ .u0 = 0, .v0 = 0.5, .u1 = 0.5, .v1 = 1 }, 960, 640);
+}
+
+test "a root without a viewBox, as the info diagram has, crops the same way" {
+    const bare = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" style=\"max-width: 400px;\"><rect width=\"400\" height=\"200\" fill=\"#222\"/><circle cx=\"150\" cy=\"90\" r=\"60\" fill=\"#c33\"/></svg>";
+    try expectCrop(bare, .{ .w = 400, .h = 200 }, .{ .u0 = 0.25, .v0 = 0.25, .u1 = 1, .v1 = 0.75 }, 400, 200);
 }

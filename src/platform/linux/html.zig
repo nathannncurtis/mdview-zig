@@ -3,6 +3,7 @@ const app = @import("../../main.zig");
 const md = app.md;
 const c = @import("c");
 const lx = @import("linux.zig");
+const view = @import("mermaid").view;
 
 const Color = lx.Color;
 const ImageBox = lx.ImageBox;
@@ -1033,4 +1034,69 @@ test "dt text is semibold on its own range" {
     try std.testing.expectEqual(@as(c_int, c.PANGO_WEIGHT_SEMIBOLD), weight.value);
     try std.testing.expect(attrAt(p.layout, 0, c.PANGO_ATTR_WEIGHT) == null);
     try std.testing.expect(attrAt(p.layout, 7, c.PANGO_ATTR_WEIGHT) == null);
+}
+
+fn waitDiagram(src: []const u8) !void {
+    const deadline = app.images.now() + 10_000;
+    while (app.images.now() < deadline) {
+        _ = app.images.tick();
+        if (app.images.diagram(src, 500) != .pending) return;
+        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
+    }
+    return error.Timeout;
+}
+
+test "a mermaid block is a frame with the zoom and pan buttons, and a bad one is an error box over its source" {
+    app.gpa = std.heap.page_allocator;
+    app.images.init(std.testing.allocator, std.testing.io);
+    app.images.reset("", false);
+    defer app.images.clearAll();
+    defer resetBoxes();
+    defer app.hits.clearAndFree(app.gpa);
+    defer app.block_y.clearAndFree(app.gpa);
+    var doc = try md.parse(std.testing.allocator, "```mermaid\ninfo\n```\n\n```mermaid\ninfo foo\n```\n\n```mermaid\nnonsense\n```\n");
+    defer doc.deinit();
+    try std.testing.expectEqual(@as(usize, 3), doc.blocks.len);
+    try waitDiagram("info\n");
+    try waitDiagram("info foo\n");
+    const size = app.images.diagram("info\n", 500).picture;
+    try std.testing.expectEqual(@as(f32, 400), size.w);
+    try std.testing.expect(app.images.diagram("info foo\n", 500) == .err);
+
+    const p = try Probe.init(800, 800);
+    defer p.deinit();
+    app.beginFrame();
+    _ = layoutBlocks(p.cr, p.layout, doc.blocks, 40, 500, 10);
+    try std.testing.expectApproxEqAbs(view.frameHeight(size.h) + 16, app.block_y.items[1] - app.block_y.items[0], 0.01);
+    try std.testing.expect(app.block_y.items[2] - app.block_y.items[1] > 100);
+
+    const frame: view.Rect = .{ .x = 40, .y = app.block_y.items[0], .w = 500, .h = view.frameHeight(size.h) };
+    const key = app.images.diagramKey("info\n");
+    const zi = view.buttonRect(frame, .zoom_in);
+    try std.testing.expect(app.mouseDown(zi.x + 4, zi.y + 4));
+    try std.testing.expectApproxEqAbs(@as(f32, 1.1), app.images.viewState(key).zoom, 0.001);
+    const up = view.buttonRect(frame, .up);
+    try std.testing.expect(app.mouseDown(up.x + 4, up.y + 4));
+    try std.testing.expectEqual(@as(f32, 100), app.images.viewState(key).y);
+    const rs = view.buttonRect(frame, .reset);
+    try std.testing.expect(app.mouseDown(rs.x + 4, rs.y + 4));
+    try std.testing.expectEqual(@as(f32, 1), app.images.viewState(key).zoom);
+    try std.testing.expect(!app.mouseDown(frame.x + 4, frame.y + 4));
+
+    const expand = view.buttonRect(frame, .expand);
+    try std.testing.expect(app.mouseDown(expand.x + 4, expand.y + 4));
+    try std.testing.expect(app.dialog != null);
+    lx.drawDialog(p.cr);
+    const box = view.modalRect(app.window_width, app.window_height, frame.h);
+    const inner = view.modalFrame(box, frame.h);
+    const dz = view.buttonRect(inner, .zoom_in);
+    try std.testing.expect(app.mouseDown(dz.x + 4, dz.y + 4));
+    try std.testing.expectApproxEqAbs(@as(f32, 1.1), app.images.viewState(key ^ app.dialog_salt).zoom, 0.001);
+    const close = view.closeRect(box);
+    try std.testing.expect(app.mouseDown(close.x + 4, close.y + 4));
+    try std.testing.expect(app.dialog == null);
+
+    var found_link = false;
+    for (app.hits.items) |h| found_link = found_link or (h.content.links.len == 1 and std.mem.eql(u8, h.content.links[0].target, view.docs_url));
+    try std.testing.expect(found_link);
 }
