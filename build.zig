@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
 
     const resolved = target.result;
     var linux_c: ?*std.Build.Step.TranslateC = null;
+    var macos_c: ?*std.Build.Step.TranslateC = null;
     if (resolved.os.tag == .windows) {
         exe_mod.linkSystemLibrary("d2d1", .{});
         exe_mod.linkSystemLibrary("dwrite", .{});
@@ -39,6 +40,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
+        macos_c = c;
         exe_mod.addImport("c", c.createModule());
         exe_mod.linkFramework("Cocoa", .{});
         exe_mod.linkFramework("CoreText", .{});
@@ -116,6 +118,11 @@ pub fn build(b: *std.Build) void {
     });
     elk_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(elk_tests).step);
+    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
+    const math_mod = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = target, .optimize = optimize });
+    math_mod.addImport("font", font_mod);
+    const math_layout_tests = b.addTest(.{ .root_module = math_mod });
+    test_step.dependOn(&b.addRunArtifact(math_layout_tests).step);
     const flow_grammar = addTools(b, test_step, testdata);
 
     if (linux_c) |c| {
@@ -129,6 +136,20 @@ pub fn build(b: *std.Build) void {
         for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        test_step.dependOn(&b.addRunArtifact(layout_tests).step);
+    }
+
+    if (macos_c) |c| {
+        const layout_tests = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/platform_test.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        layout_tests.root_module.addImport("c", c.createModule());
+        layout_tests.root_module.addImport("testdata", testdata);
+        for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
@@ -248,6 +269,21 @@ pub fn build(b: *std.Build) void {
     const run_math_fuzz = b.addRunArtifact(math_fuzz);
     test_step.dependOn(&run_math_fuzz.step);
     fuzz_step.dependOn(&run_math_fuzz.step);
+
+    const layout_fuzz_mod = b.createModule(.{
+        .root_source_file = b.path("src/math/layout/fuzz.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    layout_fuzz_mod.addImport("font", font_mod);
+    layout_fuzz_mod.addImport("math", math_mod);
+    const math_layout_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = layout_fuzz_mod,
+    });
+    const run_math_layout_fuzz = b.addRunArtifact(math_layout_fuzz);
+    test_step.dependOn(&run_math_layout_fuzz.step);
+    fuzz_step.dependOn(&run_math_layout_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
@@ -376,6 +412,13 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
     });
     addStubs(b, compare_tests.root_module);
     test_step.dependOn(&b.addRunArtifact(compare_tests).step);
+    const dump = toolExe(b, "math-dump", "tools/gen/math_dump.zig");
+    const dump_font = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = b.graph.host });
+    const dump_math = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = b.graph.host });
+    dump_math.addImport("font", dump_font);
+    dump.root_module.addImport("font", dump_font);
+    dump.root_module.addImport("math", dump_math);
+    _ = toolStep(b, "math-dump", "Render sample formulas to PNG and SVG: <math font file or - for the system font> <face index> <out dir> [samples] [--constants]", dump);
 
     const growth = b.addRunArtifact(toolExe(b, "gen-growth", "tools/gen/gen_growth.zig"));
     const growth_dir = growth.addOutputDirectoryArg("growth");

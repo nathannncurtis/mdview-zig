@@ -198,6 +198,7 @@ pub const Importer = struct {
         const lnode = try lg.LNode.init(self.a, g);
         elknode.opts.applyTo(&lnode.p);
         lnode.p.origin = try self.origin(.{ .node = elknode });
+        lnode.p.origin_id = elknode.id;
         lnode.size = .{ .x = elknode.width, .y = elknode.height };
         lnode.pos = .{ .x = elknode.x, .y = elknode.y };
         try g.layerless_nodes.append(self.a, lnode);
@@ -215,13 +216,16 @@ pub const Importer = struct {
         return lnode;
     }
 
+    fn unresolvedEdge(self: *Importer, e: *const eg.ElkEdge) lg.Error {
+        return gu.elkFail(self.a, "The source or the target of edge ElkEdgeImpl (identifier: {s}) could not be found. This usually happens when an edge connects a node laid out by ELK Layered to a node in another level of hierarchy laid out by either another instance of ELK Layered or another layout algorithm alltogether. The former can be solved by setting the hierarchyHandling option to INCLUDE_CHILDREN.", .{e.id});
+    }
+
     fn transformEdge(self: *Importer, e: *eg.ElkEdge, elkparent: *eg.ElkNode, g: *lg.LGraph) lg.Error!?*lg.LEdge {
         const src_node = e.sourceNode();
         const tgt_node = e.targetNode();
         const section: ?*eg.ElkEdgeSection = if (e.sections.items.len > 0) e.sections.items[0] else null;
-        // Java throws UnsupportedGraphException here; Mermaid turns such subgraphs back into INCLUDE_CHILDREN
-        const source_lnode = self.node_map.get(src_node) orelse return null;
-        const target_lnode = self.node_map.get(tgt_node) orelse return null;
+        const source_lnode = self.node_map.get(src_node) orelse return self.unresolvedEdge(e);
+        const target_lnode = self.node_map.get(tgt_node) orelse return self.unresolvedEdge(e);
         const le = try lg.LEdge.init(self.a);
         e.opts.applyTo(&le.p);
         le.p.origin = try self.origin(.{ .edge = e });

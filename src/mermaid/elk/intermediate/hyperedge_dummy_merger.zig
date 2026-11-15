@@ -92,9 +92,14 @@ test "merges two long edge dummies of one hyperedge" {
     defer arena.deinit();
     const a = arena.allocator();
     const g = try lg.LGraph.init(a);
+    const src_layer = try g.newLayer();
+    try g.layers.append(a, src_layer);
     const layer = try g.newLayer();
+    try g.layers.append(a, layer);
     const src_port = try lg.LPort.init(a);
-    try src_port.setNode(try lg.LNode.init(a, g));
+    const src_node = try lg.LNode.init(a, g);
+    try src_node.setLayer(src_layer);
+    try src_port.setNode(src_node);
     // SAFETY: every element is written by the loop below
     var dummies: [2]*lg.LNode = undefined;
     for (&dummies) |*d| {

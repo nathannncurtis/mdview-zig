@@ -4,11 +4,16 @@ const eg = @import("elk_graph.zig");
 const layered = @import("layered.zig");
 const geo = @import("geometry.zig");
 const lg = @import("lgraph.zig");
+const hops = @import("line_hops.zig");
 
 pub const P = geo.P;
 pub const Rect = geo.Rect;
 
 pub const Error = lg.Error || error{UnknownNode};
+
+pub const elkMessage = lg.elkMessage;
+
+pub const LineHops = enum { off, arc, gap };
 
 pub const Dir = enum { tb, td, bt, lr, rl };
 
@@ -81,6 +86,7 @@ pub const Config = struct {
     direction: Dir = .tb,
     straighten_edges: bool = true,
     orient_feedback_edges: bool = true,
+    line_hops: LineHops = .arc,
     elk: ElkConfig = .{},
 };
 
@@ -91,6 +97,8 @@ pub const EdgeOut = struct {
     has_label_pos: bool,
     x: f64,
     y: f64,
+    hop_path: ?[]const u8 = null,
+    rounded: bool = true,
 };
 
 pub const Result = struct {
@@ -458,6 +466,7 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
 
     const res: Result = .{ .nodes = try a.alloc(NodeOut, n), .edges = try a.alloc(EdgeOut, edges.len) };
     try applyEdgeLayout(&st, cfg, res.edges);
+    if (cfg.line_hops != .off) try applyLineHops(&st, res.edges, cfg.line_hops);
     for (0..n) |i| res.nodes[i] = .{ .x = st.x[i], .y = st.y[i], .width = st.w[i], .height = st.h[i] };
     return res;
 }
@@ -645,8 +654,18 @@ fn applyEdgeLayout(st: *State, cfg: Config, out: []EdgeOut) Error!void {
             .has_label_pos = label_c[k] != null,
             .x = if (label_c[k]) |p| p.x else 0,
             .y = if (label_c[k]) |p| p.y else 0,
+            .rounded = st.elk_edges[k].sections.items.len > 0,
         };
     }
+}
+
+fn applyLineHops(st: *State, out: []EdgeOut, mode: LineHops) Error!void {
+    const a = st.a;
+    const geoms = try a.alloc(hops.EdgeGeom, out.len);
+    for (out, st.edges, geoms) |o, e, *g| {
+        g.* = .{ .id = e.id, .points = o.points, .rounded = o.rounded, .marker_start = markerPathOffset(e.arrow_type_start), .marker_end = markerPathOffset(e.arrow_type_end) };
+    }
+    for (try hops.apply(a, geoms, if (mode == .gap) .gap else .arc)) |r| out[r.index].hop_path = r.d;
 }
 
 fn alignDegenerate(st: *State, i: usize, anchor: P, aligned: *std.AutoHashMap(usize, void)) Error!void {
