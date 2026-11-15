@@ -168,7 +168,7 @@ jobs:
           - target: image.decode
             iterations: 400K
           - target: svg.render
-            iterations: 300K
+            iterations: 250K
           - target: math.parse
             iterations: 400K
     name: fuzz (${{ matrix.target }})

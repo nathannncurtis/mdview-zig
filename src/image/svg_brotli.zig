@@ -70,7 +70,7 @@ const Bits = struct {
 };
 
 const Huff = struct {
-    count: [16]u16 = @as([16]u16, @splat(0)),
+    count: [16]u16 = @splat(0),
     sym: []u16 = &.{},
     single: ?u16 = null,
 
