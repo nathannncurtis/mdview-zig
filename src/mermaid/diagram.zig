@@ -29,6 +29,8 @@ pub const Deadline = struct {
     }
 };
 
+pub const ImageProbe = @import("render/model.zig").ImageProbe;
+
 pub const Ctx = struct {
     a: Allocator,
     cfg: *const config.Config,
@@ -41,6 +43,7 @@ pub const Ctx = struct {
     frontmatter_line_offset: usize = 0,
     /// The layout engine the config selects for this diagram.
     layout: layout.Choice = .{ .name = "dagre", .engine = .dagre },
+    image_probe: ?*const fn (href: []const u8) ImageProbe = null,
     /// What goes under "Unable to render rich display" when a stage fails with `error.Parse`.
     err_msg: ?[]const u8 = null,
 

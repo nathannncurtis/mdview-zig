@@ -97,6 +97,8 @@ pub const Opts = struct {
     timeout_ms: u32 = 5000,
     /// Cap on what one diagram may allocate.
     memory_limit: usize = 256 * 1024 * 1024,
+    /// Natural size of an image a flowchart `image` shape names; unset, such a shape fails as an undecodable image.
+    image_probe: ?*const fn (href: []const u8) diagram.ImageProbe = null,
 };
 
 pub const Image = struct { bytes: []const u8, w: f32, h: f32 };
@@ -275,7 +277,7 @@ fn renderInner(a: Allocator, source: []const u8, opts: Opts) (Allocator.Error ||
 
     var deadline: Deadline = .{ .clock = opts.clock, .limit_ns = @as(i64, opts.timeout_ms) * std.time.ns_per_ms };
     if (opts.clock) |c| deadline.start = c();
-    var ctx: Ctx = .{ .a = a, .cfg = &cfg, .measurer = opts.measurer, .deadline = &deadline, .svg_id = opts.svg_id, .title = pre.title, .frontmatter_line_offset = pre.frontmatter_line_offset, .layout = layout.select(&cfg) };
+    var ctx: Ctx = .{ .a = a, .cfg = &cfg, .measurer = opts.measurer, .deadline = &deadline, .svg_id = opts.svg_id, .title = pre.title, .frontmatter_line_offset = pre.frontmatter_line_offset, .layout = layout.select(&cfg), .image_probe = opts.image_probe };
 
     var parse_text = code;
     if (def.preserve_comments) if (with_comments) |wc| {
