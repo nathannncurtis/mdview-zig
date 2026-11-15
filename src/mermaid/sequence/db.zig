@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const frontmatter = @import("../frontmatter.zig");
 const env = @import("env.zig");
 const sanitize = @import("sanitize.zig");
+const rt = @import("../jison/runtime.zig");
 
 pub const LT = struct {
     pub const SOLID: u8 = 0;
@@ -383,10 +384,10 @@ pub const Db = struct {
     fn addALink(db: *Db, id: []const u8, text: []const u8) Error!void {
         const actor = try db.getActor(id);
         const clean = try sanitize.sanitizeText(db.a, text);
-        const sep = std.mem.indexOfScalar(u8, clean, '@') orelse return;
-        const t = try replaceAll(db.a, try replaceAll(db.a, clean, "&equals;", "="), "&amp;", "&");
-        const label = jsTrim(t[0..@min(t.len, if (sep >= 1) sep - 1 else 0)]);
-        const link = jsTrim(t[@min(t.len, sep + 1)..]);
+        const sep = std.mem.indexOfScalar(u16, try rt.toUtf16(db.a, clean), '@') orelse return;
+        const t = try rt.toUtf16(db.a, try replaceAll(db.a, try replaceAll(db.a, clean, "&equals;", "="), "&amp;", "&"));
+        const label = jsTrim(try rt.toUtf8(db.a, t[0..@min(t.len, if (sep >= 1) sep - 1 else 0)]));
+        const link = jsTrim(try rt.toUtf8(db.a, t[@min(t.len, sep + 1)..]));
         try db.insertLink(actor, label, link);
     }
 
@@ -502,6 +503,8 @@ pub fn jsTrim(s: []const u8) []const u8 {
     while (end > start) {
         var b = end - 1;
         while (b > start and (s[b] & 0xC0) == 0x80) b -= 1;
+        const n = std.unicode.utf8ByteSequenceLength(s[b]) catch break;
+        if (b + n != end) break;
         const cp = std.unicode.utf8Decode(s[b..end]) catch break;
         if (!isJsSpace(cp)) break;
         end = b;

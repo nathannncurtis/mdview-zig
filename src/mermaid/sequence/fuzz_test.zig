@@ -165,3 +165,9 @@ pub fn renderInput(gpa: std.mem.Allocator, input: []const u8) !void {
     defer gpa.free(source);
     _ = try renderOnce(gpa, source, null);
 }
+
+test "a link label cut inside a multibyte character does not crash" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    _ = try renderErr("sequenceDiagram\n    participant A\n    link A: \u{e9}@u\n    link A: \u{1f600}\u{1f600} @ https://x.test\n    A->>A: x\n", arena.allocator());
+}
