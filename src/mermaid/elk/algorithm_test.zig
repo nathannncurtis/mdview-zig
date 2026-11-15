@@ -99,6 +99,8 @@ test "a container asks for its own algorithm" {
         const res = try mermaid.layout(arena.allocator(), &nodes, &edges, .{});
         try expectSane(res, nodes.len, edges.len);
         try std.testing.expectEqual(@as(usize, 0), res.warnings.len);
+        // elkjs leaves an elk.radial container at its minimum size and lets the children overflow
+        if (std.mem.eql(u8, req, "elk.radial")) continue;
         for (res.nodes[1..4]) |child| try std.testing.expect(inside(res.nodes[0], child));
     }
 }
