@@ -975,14 +975,14 @@ fn layStack(c: Ctx, s: anytype) Err!Box {
     return box;
 }
 
-fn padLabel(c: Ctx, label: Box, shift_down: bool) Err!Box {
+fn padLabel(c: Ctx, label: Box, over: bool) Err!Box {
     const e = c.size();
     var bl: Builder = .{ .a = c.a };
-    try bl.add(0.278 * e, if (shift_down) 0.2 * e else 0, label);
+    try bl.add(0.278 * e, if (over) 0.2 * e else -0.15 * e, label);
     var out = bl.finish();
-    out.w = label.w + 0.833 * e;
-    out.h = if (shift_down) label.h - 0.2 * e else label.h;
-    out.d = @max(label.d, 0.25 * e);
+    out.w = 0.833 * e;
+    out.h = if (over) label.h else @max(label.h, 0.75 * e);
+    out.d = if (over) @max(label.d, 0.25 * e) else label.d;
     return out;
 }
 
@@ -1157,27 +1157,27 @@ fn layArray(c: Ctx, arr: tree.Array) Err!Box {
 fn layEnclose(c: Ctx, e: anytype) Err!Box {
     const body = try layRow(c, e.body);
     if (@as(u16, @bitCast(e.notation)) != 0) return body;
-    const pad = (if (e.padding > 0) e.padding else 0.3) * c.size();
-    const t: f32 = if (e.border) (e.border_width orelse 0.04) * c.size() else 0;
-    const o = pad + t;
-    const w = body.w + 2 * o;
+    const sep: f32 = if (e.padding > 0) e.padding * c.size() else 5;
+    const t: f32 = if (e.border) (if (e.border_width) |bw| bw * c.size() else 2) else 0;
+    const w = 2 * sep + 2 * t;
+    const asc = sep + t;
     var bl: Builder = .{ .a = c.a };
-    if (e.bg) |bg| try bl.add(0, body.d + o, try colorBox(c, rule(w, body.h + body.d + 2 * o), rgbOf(c, bg)));
-    try bl.add(o, 0, body);
+    if (e.bg) |bg| try bl.add(0, asc, try colorBox(c, rule(w, 2 * asc), rgbOf(c, bg)));
+    try bl.add(sep + t, 0, body);
     if (e.border) {
         var fr: Builder = .{ .a = c.a };
-        try fr.add(0, -(body.h + o - t), rule(w, t));
-        try fr.add(0, body.d + o, rule(w, t));
-        try fr.add(0, body.d + o, rule(t, body.h + body.d + 2 * o));
-        try fr.add(w - t, body.d + o, rule(t, body.h + body.d + 2 * o));
+        try fr.add(0, -(asc - t), rule(w, t));
+        try fr.add(0, asc, rule(w, t));
+        try fr.add(0, asc, rule(t, 2 * asc));
+        try fr.add(w - t, asc, rule(t, 2 * asc));
         var frame = fr.finish();
         if (e.border_color) |bc| frame = try colorBox(c, frame, rgbOf(c, bc));
         try bl.add(0, 0, frame);
     }
     var out = bl.finish();
     out.w = w;
-    out.h = body.h + o;
-    out.d = body.d + o;
+    out.h = asc;
+    out.d = asc;
     return out;
 }
 
