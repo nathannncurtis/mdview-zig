@@ -187,6 +187,10 @@ fn cleanupComments(a: Allocator, text: []const u8) Allocator.Error![]const u8 {
                     continue;
                 }
             }
+            if (j > i) {
+                i = j;
+                continue;
+            }
         }
         i += 1;
     }
@@ -591,4 +595,18 @@ test "entities round trip" {
     try std.testing.expect(std.mem.indexOf(u8, enc, "#35;") == null);
     try std.testing.expectEqualStrings("A[a &#35; b &quot; c]", try decodeEntities(a, enc));
     try std.testing.expectEqualStrings("style a fill:#faa", try encodeEntities(a, "style a fill:#faa;"));
+}
+
+test "cleanupComments is linear in blank lines" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var src: std.ArrayList(u8) = .empty;
+    try src.appendSlice(a, "info");
+    try src.appendNTimes(a, '\n', 60000);
+    try src.appendSlice(a, "  %% c\nx\n");
+    const got = try cleanupComments(a, src.items);
+    try std.testing.expectEqualStrings("info", got[0..4]);
+    try std.testing.expect(std.mem.endsWith(u8, got, "\nx\n"));
+    try std.testing.expect(std.mem.indexOf(u8, got, "%%") == null);
 }
