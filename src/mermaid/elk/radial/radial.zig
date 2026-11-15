@@ -18,7 +18,7 @@ fn countNodes(n: *const eg.ElkNode) usize {
 // RadialLayoutProvider.layout, ELK 0.9.1: no SPOrE overlap removal and no root selection strategies
 pub fn layout(a: std.mem.Allocator, graph: *eg.ElkNode) lg.Error!void {
     // SAFETY: assigned before use
-    var c: Ctx = .{ .a = a, .graph = graph, .root = undefined, .max_depth = countNodes(graph) + 2 };
+    var c: Ctx = .{ .a = a, .graph = graph, .root = undefined, .max_depth = 4 * countNodes(graph) + 8 };
     if (!(graph.opts.omit_node_micro_layout orelse false)) try micro.run(&c);
     c.root = util.findRoot(graph) orelse {
         lg.setElkMessage("The given graph is not a tree!");
@@ -92,7 +92,7 @@ fn nodeSpace(c: *Ctx, node: Node) lg.Error!f64 {
     const node_size = @sqrt(node.height * node.height + node.width * node.width);
     var child_space: f64 = 0;
     for (succ.items) |child| child_space += try nodeSpace(c, child);
-    return @max(child_space, node_size);
+    return util.jmax(child_space, node_size);
 }
 
 fn eades(c: *Ctx, radius: f64) lg.Error!void {
@@ -219,7 +219,10 @@ fn rotate(c: *Ctx) lg.Error!void {
     var target_angle = graph.opts.radial_rotation_target_angle orelse 0;
     if (graph.opts.radial_rotation_compute_additional_wedge_space orelse false) {
         const out = c.root.outgoing_edges.items;
-        if (out.len == 0) return error.ElkException;
+        if (out.len == 0) {
+            lg.setElkMessage("rotate: root has no outgoing edges");
+            return error.ElkException;
+        }
         if (out[out.len - 1].targets.items[0] != .node or out[0].targets.items[0] != .node) return error.ElkException;
         const last_node = out[out.len - 1].targets.items[0].node;
         const first_node = out[0].targets.items[0].node;
@@ -251,10 +254,10 @@ fn calculateGraphSize(c: *Ctx) void {
     var max_y = std.math.floatTrueMin(f64);
     for (graph.children.items) |node| {
         const m = c.margin(node);
-        min_x = @min(min_x, node.x - m.left);
-        min_y = @min(min_y, node.y - m.top);
-        max_x = @max(max_x, node.x + node.width + m.right);
-        max_y = @max(max_y, node.y + node.height + m.bottom);
+        min_x = util.jmin(min_x, node.x - m.left);
+        min_y = util.jmin(min_y, node.y - m.top);
+        max_x = util.jmax(max_x, node.x + node.width + m.right);
+        max_y = util.jmax(max_y, node.y + node.height + m.bottom);
     }
     const pad = graph.opts.padding orelse lg.Margin{ .top = 12, .left = 12, .bottom = 12, .right = 12 };
     var offset: lg.Vec = .{ .x = min_x - pad.left, .y = min_y - pad.top };
@@ -353,7 +356,10 @@ fn isHierarchical(e: *const eg.ElkEdge) bool {
 // EdgeAngleCalculator
 fn edgeAngles(c: *Ctx) lg.Error!void {
     for (c.root.outgoing_edges.items) |edge| {
-        if (edge.sections.items.len == 0) return error.ElkException;
+        if (edge.sections.items.len == 0) {
+            lg.setElkMessage("edge angles: edge has no sections");
+            return error.ElkException;
+        }
         const s = edge.sections.items[0];
         const angle = std.math.atan2(s.end.y - s.start.y, s.end.x - s.start.x);
         switch (edge.targets.items[0]) {

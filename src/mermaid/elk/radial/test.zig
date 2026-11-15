@@ -48,7 +48,7 @@ test "radial layout matches elkjs on the fixtures" {
         var c: parent_test.Cmp = .{ .a = a, .name = name, .stats = &stats, .expected_edges = std.StringHashMap(Value).init(a) };
         const out = doc.object.get("output").?;
         layered.layout(a, root) catch |err| {
-            std.debug.print("  {s}: layout failed: {s}\n", .{ name, @errorName(err) });
+            std.debug.print("  {s}: layout failed: {s} {s}\n", .{ name, @errorName(err), @import("../lgraph.zig").elkMessage() });
             stats.failed += 1;
             continue;
         };

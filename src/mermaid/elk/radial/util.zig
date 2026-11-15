@@ -8,6 +8,15 @@ pub const List = std.ArrayList(*eg.ElkNode);
 const two_pi = 2 * std.math.pi;
 const epsilon = 1e-10;
 
+// Java's Math.max/min return NaN when either side is NaN; Zig's drop the NaN
+pub fn jmax(a: f64, b: f64) f64 {
+    return if (std.math.isNan(a) or std.math.isNan(b)) std.math.nan(f64) else @max(a, b);
+}
+
+pub fn jmin(a: f64, b: f64) f64 {
+    return if (std.math.isNan(a) or std.math.isNan(b)) std.math.nan(f64) else @min(a, b);
+}
+
 // Radial's own guard against cyclic or heavily shared "trees", which recurse forever in the Java code.
 pub const Ctx = struct {
     a: std.mem.Allocator,
@@ -112,8 +121,8 @@ pub fn findLargestNodeInGraph(graph: *const eg.ElkNode) f64 {
     var largest: f64 = 0;
     for (graph.children.items) |child| {
         const diameter = @sqrt(child.width * child.width + child.height * child.height);
-        largest = @max(diameter, largest);
-        largest = @max(findLargestNodeInGraph(child), largest);
+        largest = jmax(diameter, largest);
+        largest = jmax(findLargestNodeInGraph(child), largest);
     }
     return largest;
 }

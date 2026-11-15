@@ -59,6 +59,11 @@ pub fn num(v: Value) f64 {
     };
 }
 
+pub fn diff(g: f64, w: f64) f64 {
+    if (std.math.isNan(g) and std.math.isNan(w)) return 0;
+    return if (std.math.isNan(g) or std.math.isNan(w)) std.math.inf(f64) else @abs(g - w);
+}
+
 pub fn field(v: Value, name: []const u8) ?Value {
     if (v != .object) return null;
     return v.object.get(name);
@@ -89,7 +94,7 @@ pub const Cmp = struct {
         const wy = num(field(want, "y") orelse .null);
         const ww = num(field(want, "width") orelse .null);
         const wh = num(field(want, "height") orelse .null);
-        const d = @max(@max(@abs(got.x - wx), @abs(got.y - wy)), @max(@abs(got.width - ww), @abs(got.height - wh)));
+        const d = @max(@max(diff(got.x, wx), diff(got.y, wy)), @max(diff(got.width, ww), diff(got.height, wh)));
         self.stats.max_node = @max(self.stats.max_node, d);
         if (!(d <= node_tol)) self.report("node {s}: got {d:.3},{d:.3} {d:.3}x{d:.3} want {d:.3},{d:.3} {d:.3}x{d:.3}", .{ got.id, got.x, got.y, got.width, got.height, wx, wy, ww, wh });
         if (field(want, "labels")) |wls| for (wls.array.items, 0..) |wl, i| {
@@ -155,7 +160,7 @@ pub const Cmp = struct {
 
     fn point(self: *Cmp, id: []const u8, gx: f64, gy: f64, wx: f64, wy: f64) void {
         self.stats.points += 1;
-        const d = @max(@abs(gx - wx), @abs(gy - wy));
+        const d = @max(diff(gx, wx), diff(gy, wy));
         self.stats.max_point = @max(self.stats.max_point, d);
         if (!(d <= point_tol)) self.report("edge {s} point got {d:.3},{d:.3} want {d:.3},{d:.3}", .{ id, gx, gy, wx, wy });
     }
