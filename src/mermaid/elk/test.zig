@@ -9,6 +9,7 @@ test {
     std.testing.refAllDecls(@import("fuzz.zig"));
     _ = @import("e2e_test.zig");
     _ = @import("p1cycles/test.zig");
+    _ = @import("p2layers/test.zig");
     _ = @import("p3order/test.zig");
     _ = @import("p4nodes/test.zig");
     _ = @import("p5edges/test.zig");

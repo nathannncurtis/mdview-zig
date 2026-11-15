@@ -3,6 +3,8 @@ const mermaid = @import("mermaid.zig");
 
 const max_input = 1024;
 
+const layering_strategies = [_][]const u8{ "NETWORK_SIMPLEX", "LONGEST_PATH", "LONGEST_PATH_SOURCE", "COFFMAN_GRAHAM", "MIN_WIDTH", "STRETCH_WIDTH", "INTERACTIVE" };
+
 fn seed(comptime bytes: []const u8) []const u8 {
     comptime {
         const len: [4]u8 = @bitCast(std.mem.nativeToLittle(u32, bytes.len));
@@ -103,6 +105,7 @@ pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
     const placements = [_][]const u8{ "BRANDES_KOEPF", "SIMPLE", "LINEAR_SEGMENTS", "NETWORK_SIMPLEX" };
     const alignments = [_][]const u8{ "NONE", "LEFTUP", "LEFTDOWN", "RIGHTUP", "RIGHTDOWN", "BALANCED" };
+    const strategy = layering_strategies[r.next() % layering_strategies.len];
     const cfg: mermaid.Config = .{
         .direction = switch (r.next() % 5) {
             0 => .tb,
@@ -114,6 +117,8 @@ pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
         .elk = .{
             .node_placement_strategy = placements[r.next() % placements.len],
             .node_placement_alignment = alignments[r.next() % alignments.len],
+            .layering_strategy = strategy,
+            .layering_layer_bound = 1 + @as(f64, @floatFromInt(r.next() % 6)),
         },
     };
     const res = mermaid.layout(a, nodes, edges.items, cfg) catch return;

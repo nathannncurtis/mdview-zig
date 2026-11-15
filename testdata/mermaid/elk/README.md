@@ -38,3 +38,11 @@ ELK Java 0.9.1 (tag v0.9.1 of eclipse/elk) is the version elkjs 0.9.3 is built f
 
 The generator is a small Node script that loads `elkjs@0.9.3` (`lib/elk.bundled.js`), edits the options, calls `elk.layout` and writes `{name, source: "", input, output}`; the random graphs use mulberry32 seeded with `9100 + NN`.
 
+
+## lay-*.json
+
+Layering strategy fixtures. `lay-<variant>--<base>.json` takes the `input` of an existing fixture, sets the root `elk.layered.layering.strategy` (variants: `longest` LONGEST_PATH, `longestsrc` LONGEST_PATH_SOURCE, `coffman4` / `coffman2` COFFMAN_GRAHAM with `coffmanGraham.layerBound` 4 / 2, `minwidth` MIN_WIDTH, `stretch` STRETCH_WIDTH, `interactive` INTERACTIVE) and stores what elkjs 0.9.3 returns. `lay-stretch--syn-036-sub-TB`, `--syn-048-sub-LR` and `--c-flow-143-sub-basic` are absent: elkjs never returns for them (StretchWidthLayerer loops forever on a nested graph whose edges all enter from hidden nodes).
+
+`--big-NN` are ten seeded random graphs of 30 to 42 nodes (varied node heights, a few edge labels, some back edges on every third graph, directions DOWN, RIGHT, UP, LEFT in turn), with variants `coffman4`, `minwidth`, `stretch`, `minwidthmulti` (MIN_WIDTH with `minWidth.upperBoundOnWidth` and `upperLayerEstimationScalingFactor` both -1) and `interactive-pos` (INTERACTIVE with random node x/y in the input).
+
+Each file is produced by running `elk.layout` of elkjs 0.9.3 on the modified `input` in Node.

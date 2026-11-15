@@ -10,7 +10,15 @@ const components = @import("components/components_processor.zig");
 const recursive = @import("recursive_layout.zig");
 
 const p1 = @import("p1cycles/depth_first_cycle_breaker.zig");
-const p2 = @import("p2layers/network_simplex_layerer.zig");
+const p2 = struct {
+    const network_simplex = @import("p2layers/network_simplex_layerer.zig");
+    const longest_path = @import("p2layers/longest_path_layerer.zig");
+    const longest_path_source = @import("p2layers/longest_path_source_layerer.zig");
+    const coffman_graham = @import("p2layers/coffman_graham_layerer.zig");
+    const min_width = @import("p2layers/min_width_layerer.zig");
+    const stretch_width = @import("p2layers/stretch_width_layerer.zig");
+    const interactive = @import("p2layers/interactive_layerer.zig");
+};
 const p3 = @import("p3order/layer_sweep_crossing_minimizer.zig");
 const p4_bk = @import("p4nodes/bk/bk_node_placer.zig");
 const p4_simple = @import("p4nodes/simple_node_placer.zig");
@@ -47,6 +55,7 @@ const im = struct {
     const reversed_edge_restorer = @import("intermediate/reversed_edge_restorer.zig");
     const hierarchical_node_resizer = @import("intermediate/hierarchical_node_resizing_processor.zig");
     const hyperedge_dummy_merger = @import("intermediate/hyperedge_dummy_merger.zig");
+    const interactive_external_port_positioner = @import("intermediate/interactive_external_port_positioner.zig");
 };
 
 // LayeredPhases, then IntermediateProcessorStrategy in its declaration order (the order AlgorithmAssembler sorts
@@ -139,13 +148,17 @@ const Config = struct {
 };
 
 fn phaseConfigurations(g: *const lg.LGraph, c: *Config) lg.Error!void {
-    if (g.p.cycle_breaking != .depth_first or g.p.layering != .network_simplex or g.p.node_placement == .interactive or g.p.edge_routing != .orthogonal) {
+    if (g.p.cycle_breaking != .depth_first or g.p.node_placement == .interactive or g.p.edge_routing != .orthogonal) {
         return error.Unsupported;
     }
     // DepthFirstCycleBreaker
     c.after(.p5_edge_routing, .reversed_edge_restorer);
-    // NetworkSimplexLayerer
-    c.before(.p1_cycle_breaking, .edge_and_layer_constraint_edge_reverser);
+    // the layerers share one baseline; InteractiveLayerer swaps the first processor
+    switch (g.p.layering) {
+        .network_simplex, .longest_path, .longest_path_source, .coffman_graham, .min_width, .stretch_width => c.before(.p1_cycle_breaking, .edge_and_layer_constraint_edge_reverser),
+        .interactive => c.before(.p1_cycle_breaking, .interactive_external_port_positioner),
+        else => return error.Unsupported,
+    }
     c.before(.p2_layering, .layer_constraint_preprocessor);
     c.before(.p3_node_ordering, .layer_constraint_postprocessor);
     // LayerSweepCrossingMinimizer
@@ -290,7 +303,16 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
     switch (p) {
         .phase => |ph| switch (ph) {
             .p1_cycle_breaking => try p1.process(g),
-            .p2_layering => try p2.process(g),
+            .p2_layering => switch (g.p.layering) {
+                .network_simplex => try p2.network_simplex.process(g),
+                .longest_path => try p2.longest_path.process(g),
+                .longest_path_source => try p2.longest_path_source.process(g),
+                .coffman_graham => try p2.coffman_graham.process(g),
+                .min_width => try p2.min_width.process(g),
+                .stretch_width => try p2.stretch_width.process(g),
+                .interactive => try p2.interactive.process(g),
+                else => return error.Unsupported,
+            },
             .p3_node_ordering => try p3.process(g),
             .p4_node_placement => switch (g.p.node_placement) {
                 .brandes_koepf => try p4_bk.process(g),
@@ -334,6 +356,7 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
             .reversed_edge_restorer => try im.reversed_edge_restorer.process(g),
             .hierarchical_node_resizer => try im.hierarchical_node_resizer.process(g),
             .hyperedge_dummy_merger => try im.hyperedge_dummy_merger.process(g),
+            .interactive_external_port_positioner => try im.interactive_external_port_positioner.process(g),
             .end_label_preprocessor => endLabelPreprocessor(g),
             // they act on HEAD / TAIL labels only, which Mermaid's layout-elk never hands to ELK
             .end_label_sorter, .end_label_postprocessor => {},
