@@ -43,8 +43,9 @@ fn applyNodeLayout(imp: *const Importer, lnode: *lg.LNode, offset: lg.Vec) lg.Er
     elknode.x = lnode.pos.x + offset.x;
     elknode.y = lnode.pos.y + offset.y;
     const sc = elknode.opts.node_size_constraints orelse lg.SizeConstraint{};
-    // the NETWORK_SIMPLEX node flexibility branch is unreachable with BRANDES_KOEPF placement
-    if (sc.ports or sc.port_labels or sc.node_labels or sc.minimum_size or lnode.nested_graph != null) {
+    if (sc.ports or sc.port_labels or sc.node_labels or sc.minimum_size or lnode.nested_graph != null or
+        (lnode.graph.?.p.node_placement == .network_simplex and lnode.nodeFlexibility().isFlexibleSizeWhereSpacePermits()))
+    {
         elknode.width = lnode.size.x;
         elknode.height = lnode.size.y;
     }

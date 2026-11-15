@@ -12,7 +12,10 @@ const recursive = @import("recursive_layout.zig");
 const p1 = @import("p1cycles/depth_first_cycle_breaker.zig");
 const p2 = @import("p2layers/network_simplex_layerer.zig");
 const p3 = @import("p3order/layer_sweep_crossing_minimizer.zig");
-const p4 = @import("p4nodes/bk/bk_node_placer.zig");
+const p4_bk = @import("p4nodes/bk/bk_node_placer.zig");
+const p4_simple = @import("p4nodes/simple_node_placer.zig");
+const p4_linear = @import("p4nodes/linear_segments_node_placer.zig");
+const p4_network_simplex = @import("p4nodes/network_simplex_placer.zig");
 const p5 = @import("p5edges/orthogonal_edge_router.zig");
 const im = struct {
     const direction = @import("intermediate/graph_transformer.zig");
@@ -136,7 +139,7 @@ const Config = struct {
 };
 
 fn phaseConfigurations(g: *const lg.LGraph, c: *Config) lg.Error!void {
-    if (g.p.cycle_breaking != .depth_first or g.p.layering != .network_simplex or g.p.node_placement != .brandes_koepf or g.p.edge_routing != .orthogonal) {
+    if (g.p.cycle_breaking != .depth_first or g.p.layering != .network_simplex or g.p.node_placement == .interactive or g.p.edge_routing != .orthogonal) {
         return error.Unsupported;
     }
     // DepthFirstCycleBreaker
@@ -150,7 +153,7 @@ fn phaseConfigurations(g: *const lg.LGraph, c: *Config) lg.Error!void {
     c.before(.p4_node_placement, .in_layer_constraint_processor);
     c.after(.p5_edge_routing, .long_edge_joiner);
     c.before(.p3_node_ordering, .port_list_sorter);
-    // BKNodePlacer
+    // the node placers add only the hierarchical port position processor
     const gp = g.p.graph_properties;
     if (gp.external_ports) c.before(.p5_edge_routing, .hierarchical_port_position_processor);
     // OrthogonalEdgeRouter
@@ -289,7 +292,13 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
             .p1_cycle_breaking => try p1.process(g),
             .p2_layering => try p2.process(g),
             .p3_node_ordering => try p3.process(g),
-            .p4_node_placement => try p4.process(g),
+            .p4_node_placement => switch (g.p.node_placement) {
+                .brandes_koepf => try p4_bk.process(g),
+                .simple => try p4_simple.process(g),
+                .linear_segments => try p4_linear.process(g),
+                .network_simplex => try p4_network_simplex.process(g),
+                .interactive => return error.Unsupported,
+            },
             .p5_edge_routing => try p5.process(g),
         },
         .strategy => |s| switch (s) {

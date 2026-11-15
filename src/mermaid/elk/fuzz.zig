@@ -101,13 +101,21 @@ pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
         });
     }
 
-    const cfg: mermaid.Config = .{ .direction = switch (r.next() % 5) {
-        0 => .tb,
-        1 => .td,
-        2 => .bt,
-        3 => .lr,
-        else => .rl,
-    } };
+    const placements = [_][]const u8{ "BRANDES_KOEPF", "SIMPLE", "LINEAR_SEGMENTS", "NETWORK_SIMPLEX" };
+    const alignments = [_][]const u8{ "NONE", "LEFTUP", "LEFTDOWN", "RIGHTUP", "RIGHTDOWN", "BALANCED" };
+    const cfg: mermaid.Config = .{
+        .direction = switch (r.next() % 5) {
+            0 => .tb,
+            1 => .td,
+            2 => .bt,
+            3 => .lr,
+            else => .rl,
+        },
+        .elk = .{
+            .node_placement_strategy = placements[r.next() % placements.len],
+            .node_placement_alignment = alignments[r.next() % alignments.len],
+        },
+    };
     const res = mermaid.layout(a, nodes, edges.items, cfg) catch return;
     for (res.nodes) |nd| {
         try std.testing.expect(std.math.isFinite(nd.x) and std.math.isFinite(nd.y));

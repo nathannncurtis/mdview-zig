@@ -86,6 +86,33 @@ pub const NGraph = struct {
         try target.addIn(self.a, e);
         return e;
     }
+
+    // NGraph.makeConnected: joins the connected components under an artificial root
+    pub fn makeConnected(self: *NGraph) Allocator.Error!?*NNode {
+        const a = self.a;
+        const mark = try a.alloc(bool, self.nodes.items.len);
+        defer a.free(mark);
+        @memset(mark, false);
+        for (self.nodes.items, 0..) |n, i| n.internal_id = i;
+        var reps: std.ArrayList(*NNode) = .empty;
+        defer reps.deinit(a);
+        var stack: std.ArrayList(*NNode) = .empty;
+        defer stack.deinit(a);
+        for (self.nodes.items) |node| {
+            if (mark[node.internal_id]) continue;
+            try reps.append(a, node);
+            try stack.append(a, node);
+            while (stack.pop()) |cur| {
+                if (mark[cur.internal_id]) continue;
+                mark[cur.internal_id] = true;
+                for (try cur.connected(a)) |edge| try stack.append(a, edge.other(cur));
+            }
+        }
+        if (reps.items.len <= 1) return null;
+        const root = try self.createNode(null);
+        for (reps.items) |src| _ = try self.createEdge(null, root, src, 0, 0);
+        return root;
+    }
 };
 
 const remove_subtrees_thresh = 40;

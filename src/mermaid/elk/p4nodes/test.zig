@@ -10,10 +10,16 @@ const cellsystem = @import("../nodespacing/cellsystem.zig");
 const location = @import("../nodespacing/node_label_location.zig");
 const nlsc = @import("../nodespacing/node_label_and_size_calculator.zig");
 const transformer = @import("../intermediate/graph_transformer.zig");
+const simple = @import("simple_node_placer.zig");
+const linear_segments = @import("linear_segments_node_placer.zig");
+const network_simplex_placer = @import("network_simplex_placer.zig");
 
 test {
     std.testing.refAllDecls(spacings);
     std.testing.refAllDecls(placer);
+    std.testing.refAllDecls(simple);
+    std.testing.refAllDecls(linear_segments);
+    std.testing.refAllDecls(network_simplex_placer);
     std.testing.refAllDecls(aligner);
     std.testing.refAllDecls(aligner.BKAligner);
     std.testing.refAllDecls(compactor);
@@ -113,4 +119,66 @@ test "subgraph label is centered at the top" {
     _ = try nlsc.process(a, n, nlsc.Env.ofGraph(g), true);
     try std.testing.expectEqual(@as(f64, 80), label.pos.x);
     try std.testing.expectEqual(@as(f64, 5), label.pos.y);
+}
+
+fn chainGraph(a: std.mem.Allocator, nodes: *[3]*lg.LNode) !*lg.LGraph {
+    const g = try lg.LGraph.init(a);
+    var prev: ?*lg.LPort = null;
+    for (nodes) |*slot| {
+        const layer = try g.newLayer();
+        try g.layers.append(a, layer);
+        const n = try testNode(a, g, layer);
+        const in = try testPort(a, n, .west);
+        in.pos.y = 5;
+        const out = try testPort(a, n, .east);
+        out.pos = .{ .x = 10, .y = 5 };
+        if (prev) |p| {
+            const e = try lg.LEdge.init(a);
+            try e.setSource(p);
+            try e.setTarget(in);
+        }
+        prev = out;
+        slot.* = n;
+    }
+    return g;
+}
+
+test "simple placer centers layers around the tallest one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const g = try lg.LGraph.init(a);
+    const tall = try g.newLayer();
+    const short = try g.newLayer();
+    try g.layers.append(a, tall);
+    try g.layers.append(a, short);
+    const n1 = try testNode(a, g, tall);
+    const n2 = try testNode(a, g, tall);
+    const m = try testNode(a, g, short);
+    try simple.process(g);
+    try std.testing.expectEqual(@as(f64, 0), n1.pos.y);
+    try std.testing.expectEqual(@as(f64, 30), n2.pos.y);
+    try std.testing.expectEqual(@as(f64, 15), m.pos.y);
+}
+
+test "linear segments places a chain on one line" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var nodes: [3]*lg.LNode = undefined;
+    const g = try chainGraph(a, &nodes);
+    try linear_segments.process(g);
+    try std.testing.expectEqual(nodes[0].pos.y, nodes[1].pos.y);
+    try std.testing.expectEqual(nodes[1].pos.y, nodes[2].pos.y);
+}
+
+test "network simplex placer places a chain on one line" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var nodes: [3]*lg.LNode = undefined;
+    const g = try chainGraph(a, &nodes);
+    try network_simplex_placer.process(g);
+    try std.testing.expectEqual(nodes[0].pos.y, nodes[1].pos.y);
+    try std.testing.expectEqual(nodes[1].pos.y, nodes[2].pos.y);
 }
