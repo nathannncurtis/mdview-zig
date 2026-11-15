@@ -125,30 +125,28 @@ fn iconShape(ctx: *const model.Ctx, parent: *El, node: *NodeData, kind: Kind) Er
     var width: f64 = icon_size;
     var height: f64 = icon_size;
     var bg: ?*El = null;
+    var bs = u.roughStyle(ctx, "");
+    if (fill) |f| bs.fill = f;
+    bs.stroke = bs.fill orelse "";
     switch (kind) {
         .square, .rounded => {
             width = icon_size + p.h.half_padding * 2;
             height = width;
-            const el = try shape.insertFirst("path");
-            try el.setAttr("d", try roundedRectD(a, -width / 2, -height / 2, width, height, if (kind == .rounded) 5 else 0.1));
-            if (kind == .rounded) try el.setAttr("class", "icon-shape2");
+            const el = try u.rough.drawPath(a, try roundedRectD(a, -width / 2, -height / 2, width, height, if (kind == .rounded) 5 else 0.1), bs);
+            _ = try u.insertRough(shape, el, if (kind == .rounded) "icon-shape2" else "", "");
+            for (el.kids.items) |k| k.removeAttr("style");
             bg = el;
         },
         .circle => {
             const diameter = @max(iw, ih) * std.math.sqrt2 + 40;
             width = diameter;
             height = diameter;
-            const el = try shape.insertFirst("circle");
-            _ = try (try (try el.attrNum("r", diameter / 2)).attrNum("cx", 0)).attrNum("cy", 0);
+            const el = try u.rough.circleG(a, 0, 0, diameter, bs);
+            _ = try u.insertRough(shape, el, "", "");
+            for (el.kids.items) |k| k.removeAttr("style");
             bg = el;
         },
         .plain => {},
-    }
-    if (bg) |el| {
-        if (fill) |f| {
-            try el.setAttr("fill", f);
-            try el.setAttr("stroke", f);
-        } else try el.setAttr("style", "stroke: none");
     }
 
     const ow = @max(width, bw);
