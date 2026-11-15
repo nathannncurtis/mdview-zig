@@ -429,7 +429,11 @@ pub const Config = struct {
     }
 
     pub fn htmlLabels(c: *const Config) bool {
-        return evaluate(if (c.get("htmlLabels")) |v| (if (v == .null) c.get("flowchart.htmlLabels") else v) else c.get("flowchart.htmlLabels"));
+        for ([_][]const u8{ "htmlLabels", "flowchart.htmlLabels" }) |k| {
+            const v = c.get(k) orelse continue;
+            if (v != .null) return evaluate(v);
+        }
+        return true;
     }
 };
 

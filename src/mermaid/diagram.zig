@@ -29,6 +29,8 @@ pub const Deadline = struct {
     }
 };
 
+pub const ImageProbe = @import("render/model.zig").ImageProbe;
+
 pub const Ctx = struct {
     a: Allocator,
     cfg: *const config.Config,
@@ -41,6 +43,7 @@ pub const Ctx = struct {
     frontmatter_line_offset: usize = 0,
     /// The layout engine the config selects for this diagram.
     layout: layout.Choice = .{ .name = "dagre", .engine = .dagre },
+    image_probe: ?*const fn (href: []const u8) ImageProbe = null,
     /// What goes under "Unable to render rich display" when a stage fails with `error.Parse`.
     err_msg: ?[]const u8 = null,
 
@@ -64,6 +67,8 @@ pub const Def = struct {
     styles: ?*const fn (ctx: *Ctx) Error![]const u8 = null,
     /// Parse the text with its `%%` comment lines still in, as diagrams that report source positions do.
     preserve_comments: bool = false,
+    /// The diagram's `emit` writes the root `<g>` itself, as diagrams that draw into the group `mermaid.render` creates do.
+    owns_group: bool = false,
     class_defs: ?*const fn (ctx: *Ctx, model: *anyopaque) Error![]const ClassDef = null,
     acc: ?*const fn (ctx: *Ctx, model: *anyopaque) Acc = null,
 };

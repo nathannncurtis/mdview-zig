@@ -1,6 +1,6 @@
 const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
-const html = @import("markdown/html.zig");
+const html = @import("html");
 const elk_fuzz = @import("mermaid/elk/fuzz.zig");
 const elk_force_fuzz = @import("mermaid/elk/force/fuzz.zig");
 const elk_stress_fuzz = @import("mermaid/elk/stress/fuzz.zig");

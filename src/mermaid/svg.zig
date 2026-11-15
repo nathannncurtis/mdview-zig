@@ -107,6 +107,12 @@ pub const SvgWriter = struct {
         try w.end();
     }
 
+    /// Appends markup that is already serialised.
+    pub fn raw(w: *SvgWriter, markup: []const u8) Allocator.Error!void {
+        try w.closeOpenTag();
+        try w.body.appendSlice(w.a, markup);
+    }
+
     pub fn leaf(w: *SvgWriter, tag: []const u8, attrs: []const Attr) Allocator.Error!void {
         try w.start(tag, attrs);
         try w.end();

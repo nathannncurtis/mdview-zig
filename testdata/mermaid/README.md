@@ -5,6 +5,7 @@ Reference output for the Mermaid port, made once with Mermaid 12.2.0 in the same
 - `cases/*.mmd`: inputs. `flow-*` flowcharts, `seq-*` sequence diagrams. Every case renders without error.
 - `refs/<case>.svg`: the SVG GitHub's page would hold, serialised as XML. `refs/<case>.png`: the same SVG at natural size, transparent background, 1x.
 - `refs/<case>.labels.json` (flowcharts): label id (node id, or edge `data-id`) to the measured size of the label's text, taken from the text node's client rects. Node labels in the SVG are clamped to 120 px wide, so this is the true text width. `ReplayMeasurer` uses it when present.
+- `refs/<case>.words.json` (flowcharts): width of every run of consecutive words of every label, as one string key, measured in the label's own context in the same Chromium (HTML labels: the text with `white-space: nowrap`; keys starting `svg:` are SVG `text` bounding boxes; the key `" "` is a space). Made by a scratch copy of the render script that, after rendering each case, sets each label span (or `text`) to every contiguous word run and records the client-rect width. The tool uses it to wrap lines the way Chrome does.
 - `errors.txt`: broken inputs with the exact message GitHub shows under "Unable to render rich display". Format per record: `#### name`, the source, a line `#---`, the message. Sources end in a newline, as GitHub passes them.
 - `GITHUB_FACTS.md`: what was observed on github.com, with the URLs.
 

@@ -5,7 +5,7 @@ const highlight = @import("highlight.zig");
 const blocks = @import("blocks.zig");
 const yaml = @import("yaml.zig");
 const links = @import("links.zig");
-const html = @import("html.zig");
+const html = @import("html");
 const detect = @import("../math/detect.zig");
 
 pub const Link = links.Link;

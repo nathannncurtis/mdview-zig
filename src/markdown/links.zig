@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const unicode = @import("../data/unicode.zig");
-const entities = @import("../data/entities.zig");
+const entities = @import("entities");
 
 pub const Link = struct {
     start: u32,

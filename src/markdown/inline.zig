@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const entities = @import("../data/entities.zig");
+const entities = @import("entities");
 const emoji = @import("../data/emoji.zig");
 const unicode = @import("../data/unicode.zig");
 

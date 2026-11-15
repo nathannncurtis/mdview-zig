@@ -17,6 +17,10 @@ pub fn build(b: *std.Build) void {
     });
     mermaid_mod.addImport("yaml", yaml_mod);
     mermaid_mod.addImport("testdata", testdata);
+    const entities_mod = b.createModule(.{ .root_source_file = b.path("src/data/entities.zig"), .target = target, .optimize = optimize });
+    const html_mod = b.createModule(.{ .root_source_file = b.path("src/markdown/html.zig"), .target = target, .optimize = optimize });
+    html_mod.addImport("entities", entities_mod);
+    mermaid_mod.addImport("html", html_mod);
     const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
 
     const exe_mod = b.createModule(.{
@@ -26,6 +30,8 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addImport("mermaid", mermaid_mod);
     exe_mod.addImport("yaml_parse", yaml_mod);
+    exe_mod.addImport("html", html_mod);
+    exe_mod.addImport("entities", entities_mod);
 
     const resolved = target.result;
     var linux_c: ?*std.Build.Step.TranslateC = null;
@@ -93,6 +99,8 @@ pub fn build(b: *std.Build) void {
     parser_tests.root_module.addImport("testdata", testdata);
     parser_tests.root_module.addImport("mermaid", mermaid_mod);
     parser_tests.root_module.addImport("yaml_parse", yaml_mod);
+    parser_tests.root_module.addImport("html", html_mod);
+    parser_tests.root_module.addImport("entities", entities_mod);
     const test_step = b.step("test", "Run parser tests");
     const run_parser = b.addRunArtifact(parser_tests);
     run_parser.setCwd(b.path("."));
@@ -160,7 +168,19 @@ pub fn build(b: *std.Build) void {
     math_mod.addImport("font", font_mod);
     const math_layout_tests = b.addTest(.{ .root_module = math_mod });
     test_step.dependOn(&b.addRunArtifact(math_layout_tests).step);
-    addTools(b, test_step, testdata);
+    const flow_grammar = addTools(b, test_step, testdata);
+    mermaid_mod.addImport("flow_grammar", flow_grammar);
+    const compare_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/mermaid_compare.zig"),
+        .target = b.graph.host,
+    });
+    addStubs(b, compare_mod);
+    const flow_render = toolExe(b, "mermaid-flow-render", "tools/check/mermaid_flow_render.zig");
+    flow_render.root_module.addImport("mermaid", mermaid_mod);
+    flow_render.root_module.addImport("mermaid_compare", compare_mod);
+    const flow_render_run = toolStep(b, "mermaid-flow-render", "Flowchart parity against testdata/mermaid: <cases dir> <refs dir> [out dir]", flow_render);
+    flow_render_run.addArgs(&.{ "testdata/mermaid/cases", "testdata/mermaid/refs" });
+    test_step.dependOn(&flow_render_run.step);
 
     if (linux_c) |c| {
         const layout_tests = b.addTest(.{
@@ -175,6 +195,8 @@ pub fn build(b: *std.Build) void {
         layout_tests.root_module.addImport("testdata", testdata);
         layout_tests.root_module.addImport("mermaid", mermaid_mod);
         layout_tests.root_module.addImport("yaml_parse", yaml_mod);
+        layout_tests.root_module.addImport("html", html_mod);
+        layout_tests.root_module.addImport("entities", entities_mod);
         layout_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
@@ -191,6 +213,8 @@ pub fn build(b: *std.Build) void {
         layout_tests.root_module.addImport("testdata", testdata);
         layout_tests.root_module.addImport("mermaid", mermaid_mod);
         layout_tests.root_module.addImport("yaml_parse", yaml_mod);
+        layout_tests.root_module.addImport("html", html_mod);
+        layout_tests.root_module.addImport("entities", entities_mod);
         layout_tests.root_module.addImport("font", font_mod);
         for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
@@ -209,6 +233,8 @@ pub fn build(b: *std.Build) void {
     });
     stress_tests.root_module.addImport("testdata", testdata);
     stress_tests.root_module.addImport("yaml_parse", yaml_mod);
+    stress_tests.root_module.addImport("html", html_mod);
+    stress_tests.root_module.addImport("entities", entities_mod);
     stress_tests.root_module.addImport("font", font_mod);
     const run_stress = b.addRunArtifact(stress_tests);
     if (b.option([]const u8, "stress-dir", "Directory of files from gen-stress for the stress step")) |dir| {
@@ -233,6 +259,8 @@ pub fn build(b: *std.Build) void {
         hit_tests.root_module.addImport("testdata", testdata);
         hit_tests.root_module.addImport("mermaid", mermaid_mod);
         hit_tests.root_module.addImport("yaml_parse", yaml_mod);
+        hit_tests.root_module.addImport("html", html_mod);
+        hit_tests.root_module.addImport("entities", entities_mod);
         hit_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
@@ -249,6 +277,8 @@ pub fn build(b: *std.Build) void {
     });
     fuzz_tests.root_module.addImport("testdata", testdata);
     fuzz_tests.root_module.addImport("yaml_parse", yaml_mod);
+    fuzz_tests.root_module.addImport("html", html_mod);
+    fuzz_tests.root_module.addImport("entities", entities_mod);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
     const fuzz_step = b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)");
@@ -340,7 +370,7 @@ fn addStubs(b: *std.Build, m: *std.Build.Module) void {
     }
 }
 
-fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) void {
+fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) *std.Build.Module {
     const generators = [_]struct { step: []const u8, file: []const u8, what: []const u8 }{
         .{ .step = "gen-entities", .file = "tools/gen/gen_entities.zig", .what = "Regenerate src/data/entities.zig: <entities.json> <out.zig>" },
         .{ .step = "gen-emoji", .file = "tools/gen/gen_emoji.zig", .what = "Regenerate src/data/emoji.zig: <emoji.json> <out.zig>" },
@@ -378,7 +408,7 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
     const jison = toolExe(b, "gen-jison", "tools/gen/gen_jison.zig");
     jison.root_module.addImport("jison_runtime", jison_runtime);
     _ = toolStep(b, "gen-jison", "Generate jison tables: <grammar.jison> <out.zig> [stub=<stub.zig>] [json=<tables.json>], or check <grammar.jison> <jison-tables.json>", jison);
-    addJisonTests(b, test_step, jison, jison_runtime, testdata);
+    const flow_grammar_module = addJisonTests(b, test_step, jison, jison_runtime, testdata);
 
     const languages = toolExe(b, "gen-languages", "tools/gen/gen_languages.zig");
     const yaml_api = b.createModule(.{
@@ -458,9 +488,11 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         });
         test_step.dependOn(&b.addRunArtifact(t).step);
     }
+    return flow_grammar_module;
 }
 
-fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module, testdata: *std.Build.Module) void {
+fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module, testdata: *std.Build.Module) *std.Build.Module {
+    var flow_module: ?*std.Build.Module = null;
     const dir = "testdata/mermaid/jison/";
     for ([_][]const u8{ "flow", "sequenceDiagram", "expr", "dangling" }) |name| {
         const check = b.addRunArtifact(gen);
@@ -517,8 +549,10 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
         const stub_module = b.createModule(.{ .root_source_file = stub });
         stub_module.addImport("jison_runtime", runtime);
         stub_module.addImport("grammar", grammar_module);
+        if (std.mem.eql(u8, g.prefix, "flow")) flow_module = grammar_module;
         parity.root_module.addImport(b.fmt("{s}_grammar", .{g.prefix}), grammar_module);
         parity.root_module.addImport(b.fmt("{s}_stub", .{g.prefix}), stub_module);
     }
     test_step.dependOn(&b.addRunArtifact(parity).step);
+    return flow_module.?;
 }
