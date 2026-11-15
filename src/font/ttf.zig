@@ -213,6 +213,13 @@ pub const Font = struct {
         }
 
         pub fn close(_: *BoxSink, _: std.mem.Allocator) Error!void {}
+
+        fn box(s: BoxSink) BBox {
+            const lim: f64 = 32767;
+            const ok = s.x1 >= s.x0 and s.y1 >= s.y0 and @abs(s.x0) <= lim and @abs(s.y0) <= lim and @abs(s.x1) <= lim and @abs(s.y1) <= lim;
+            if (!ok) return .{};
+            return .{ .x0 = @intFromFloat(@floor(s.x0)), .y0 = @intFromFloat(@floor(s.y0)), .x1 = @intFromFloat(@ceil(s.x1)), .y1 = @intFromFloat(@ceil(s.y1)) };
+        }
     };
 
     pub fn bbox(f: *const Font, g: u16) BBox {
@@ -223,8 +230,7 @@ pub const Font = struct {
         }
         var s: BoxSink = .{};
         f.outline(std.heap.smp_allocator, g, .{}, &s) catch return .{};
-        if (s.x1 < s.x0) return .{};
-        return .{ .x0 = @intFromFloat(@floor(s.x0)), .y0 = @intFromFloat(@floor(s.y0)), .x1 = @intFromFloat(@ceil(s.x1)), .y1 = @intFromFloat(@ceil(s.y1)) };
+        return s.box();
     }
 
     pub fn italicCorrection(f: *const Font, g: u16) i16 {
@@ -553,7 +559,7 @@ pub const Font = struct {
         const end_pts = first;
         const npts: usize = @as(usize, try u16At(d, end_pts + (n - 1) * 2)) + 1;
         var p = end_pts + n * 2;
-        p += 2 + try u16At(d, p);
+        p += 2 + @as(usize, try u16At(d, p));
         const flags = try alloc.alloc(u8, npts);
         defer alloc.free(flags);
         const pts = try alloc.alloc(Point, npts);
@@ -684,4 +690,28 @@ fn classOf(d: []const u8, cd: usize, g: u16) Error!u16 {
         } else return try u16At(d, at + 4);
     }
     return 0;
+}
+
+test "bbox of out-of-range or non-finite outlines is empty" {
+    const nan = std.math.nan(f64);
+    const inf = std.math.inf(f64);
+    const bad = [_]Font.BoxSink{
+        .{ .x0 = 0, .y0 = 0, .x1 = 1e12, .y1 = 1 },
+        .{ .x0 = -1e300, .y0 = 0, .x1 = 1, .y1 = 1 },
+        .{ .x0 = 0, .y0 = 0, .x1 = inf, .y1 = 1 },
+        .{ .x0 = nan, .y0 = 0, .x1 = 1, .y1 = 1 },
+        .{ .x0 = 0, .y0 = 0, .x1 = 1, .y1 = nan },
+        .{ .x0 = 0, .y0 = 5, .x1 = 1, .y1 = 2 },
+    };
+    for (bad) |s| try std.testing.expectEqual(Font.BBox{}, s.box());
+    const good: Font.BoxSink = .{ .x0 = -1.5, .y0 = 0.2, .x1 = 32766.5, .y1 = 7 };
+    try std.testing.expectEqual(Font.BBox{ .x0 = -2, .y0 = 0, .x1 = 32767, .y1 = 7 }, good.box());
+}
+
+test "a glyph with the largest instruction length is rejected, not overflowed" {
+    const glyph = [_]u8{ 0, 0, 0xFF, 0xFF, 0, 0 };
+    var f: Font = undefined;
+    f.data = &glyph;
+    var sink: Font.BoxSink = .{};
+    try std.testing.expectError(error.Corrupt, f.simple(std.testing.allocator, 0, 1, .{}, &sink));
 }
