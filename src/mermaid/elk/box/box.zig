@@ -377,7 +377,7 @@ fn mergeAndPlaceInc(a: Allocator, groups: []*Group, spacing: f64, min_size: Vec,
     return to_be_placed.items;
 }
 
-// java.util.PriorityQueue ordered by group area; the sift order decides ties
+// GWT's PriorityQueue as compiled into elkjs: addAll re-heapifies the whole heap and sift-down only stops on a strict win, which decides ties
 const AreaQueue = struct {
     items: std.ArrayList(*Group) = .empty,
 
@@ -386,16 +386,45 @@ const AreaQueue = struct {
     }
 
     fn add(q: *AreaQueue, a: Allocator, x: *Group) Allocator.Error!void {
+        var node = q.items.items.len;
         try q.items.append(a, x);
-        var k = q.items.items.len - 1;
-        while (k > 0) {
-            const parent = (k - 1) >> 1;
-            const e = q.items.items[parent];
-            if (cmp(x, e) >= 0) break;
-            q.items.items[k] = e;
-            k = parent;
+        while (node > 0) {
+            const child = node;
+            node = (node - 1) / 2;
+            if (cmp(q.items.items[node], x) <= 0) {
+                q.items.items[child] = x;
+                return;
+            }
+            q.items.items[child] = q.items.items[node];
         }
-        q.items.items[k] = x;
+        q.items.items[node] = x;
+    }
+
+    fn addAll(q: *AreaQueue, a: Allocator, xs: []const *Group) Allocator.Error!void {
+        if (xs.len == 0) return;
+        try q.items.appendSlice(a, xs);
+        q.makeHeap(0);
+    }
+
+    fn makeHeap(q: *AreaQueue, node: usize) void {
+        if (node * 2 + 1 >= q.items.items.len) return;
+        q.makeHeap(2 * node + 1);
+        if (2 * node + 2 < q.items.items.len) q.makeHeap(2 * node + 2);
+        q.mergeHeaps(node);
+    }
+
+    fn mergeHeaps(q: *AreaQueue, start: usize) void {
+        const items = q.items.items;
+        var node = start;
+        const value = items[node];
+        while (node * 2 + 1 < items.len) {
+            var smallest = node * 2 + 1;
+            if (smallest + 1 < items.len and cmp(items[smallest + 1], items[smallest]) < 0) smallest += 1;
+            if (cmp(value, items[smallest]) < 0) break;
+            items[node] = items[smallest];
+            node = smallest;
+        }
+        items[node] = value;
     }
 
     fn peek(q: *const AreaQueue) *Group {
@@ -403,26 +432,11 @@ const AreaQueue = struct {
     }
 
     fn poll(q: *AreaQueue) void {
-        const n = q.items.items.len - 1;
-        const x = q.items.items[n];
-        q.items.items.len = n;
-        if (n == 0) return;
-        const items = q.items.items;
-        var k: usize = 0;
-        const half = n >> 1;
-        while (k < half) {
-            var child = 2 * k + 1;
-            var c = items[child];
-            const right = child + 1;
-            if (right < n and cmp(c, items[right]) > 0) {
-                child = right;
-                c = items[child];
-            }
-            if (cmp(x, c) <= 0) break;
-            items[k] = c;
-            k = child;
+        const last = q.items.pop().?;
+        if (q.items.items.len > 0) {
+            q.items.items[0] = last;
+            q.mergeHeaps(0);
         }
-        items[k] = x;
     }
 };
 
@@ -430,7 +444,7 @@ fn mergeAndPlaceMixed(a: Allocator, groups: []*Group, spacing: f64, min_size: Ve
     const cum = try a.alloc(f64, groups.len);
     @memset(cum, 0);
     var pq: AreaQueue = .{};
-    for (groups) |g| try pq.add(a, g);
+    try pq.addAll(a, groups);
     var index: usize = 0;
     var to_be_placed: std.ArrayList(*Group) = .empty;
     while (pq.items.items.len > 0) {
@@ -441,7 +455,7 @@ fn mergeAndPlaceMixed(a: Allocator, groups: []*Group, spacing: f64, min_size: Ve
             const inner = try Group.ofGroups(a, to_be_placed.items[0 .. an_index + 1]);
             try placeMerged(a, inner, box, spacing, min_size, expand);
             try pq.add(a, inner);
-            for (to_be_placed.items[an_index + 1 ..]) |g| try pq.add(a, g);
+            try pq.addAll(a, to_be_placed.items[an_index + 1 ..]);
             to_be_placed.clearRetainingCapacity();
             index = 0;
             @memset(cum, 0);

@@ -13,7 +13,7 @@ pub fn run(graph: *const ElkNode) void {
         const size = nls.minimumNodeSize(n);
         n.width = size.x;
         n.height = size.y;
-        placeLabels(n, horizontal_mode);
+        placeLabels(n, horizontal_mode, nls.computedNodeSize(n));
     }
 }
 
@@ -36,7 +36,7 @@ fn sym(v: [3]f64, symmetrical: bool) [3]f64 {
     return .{ m, v[1], m };
 }
 
-fn placeLabels(n: *ElkNode, horizontal_mode: bool) void {
+fn placeLabels(n: *ElkNode, horizontal_mode: bool, box_size: lg.Vec) void {
     const parent = n.parent;
     const pad = (if (parent) |p| p.opts.node_labels_padding else null) orelse lg.Margin{ .top = 5, .left = 5, .bottom = 5, .right = 5 };
     const ll = (if (parent) |p| p.opts.spacing_label_label else null) orelse 0;
@@ -75,10 +75,10 @@ fn placeLabels(n: *ElkNode, horizontal_mode: bool) void {
     }
     col_w = sym(col_w, symmetrical);
     const x0 = pad.left;
-    const x2 = n.width - pad.right - col_w[2];
+    const x2 = box_size.x - pad.right - col_w[2];
     const w0 = col_w[0];
     const w2 = col_w[2];
-    var free_w = n.width - pad.left - pad.right;
+    var free_w = box_size.x - pad.left - pad.right;
     if (col_w[0] > 0) {
         col_w[0] += gap;
         free_w -= col_w[0];
@@ -98,10 +98,10 @@ fn placeLabels(n: *ElkNode, horizontal_mode: bool) void {
     };
     row_h = sym(row_h, symmetrical);
     const y0 = pad.top;
-    const y2 = n.height - pad.bottom - row_h[2];
+    const y2 = box_size.y - pad.bottom - row_h[2];
     const h0 = row_h[0];
     const h2 = row_h[2];
-    var free_h = n.height - pad.top - pad.bottom;
+    var free_h = box_size.y - pad.top - pad.bottom;
     if (row_h[0] > 0) {
         row_h[0] += gap;
         free_h -= row_h[0];
