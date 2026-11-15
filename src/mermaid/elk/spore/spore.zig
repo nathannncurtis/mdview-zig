@@ -49,16 +49,16 @@ pub fn layout(a: Allocator, node: *eg.ElkNode) lg.Error!void {
     var overlaps_existed = true;
     var iteration: i32 = 0;
     while (iteration < max_iterations and overlaps_existed) {
-        var t_edges: EdgeSet = .{};
-        if (run_scanline) {
-            try g.sweep(a, &t_edges);
-            if (t_edges.list.items.len == 0) break;
-        }
         const points = try a.alloc(Vec, g.nodes.len);
         for (g.nodes, points) |n, *p| p.* = n.orig;
+        var t_edges: EdgeSet = .{};
+        if (run_scanline) {
+            try g.sweep(a, &t_edges, points);
+            if (t_edges.list.items.len == 0) break;
+        }
         var delaunay: EdgeSet = .{};
         try triangulation.triangulate(a, points, &delaunay);
-        for (delaunay.list.items) |e| try t_edges.add(a, e);
+        for (delaunay.list.items) |e| try t_edges.add(a, e, points);
         const tree = try g.spanningTree(a, t_edges.list.items);
         overlaps_existed = false;
         g.grow(tree, &overlaps_existed);
@@ -183,7 +183,7 @@ const Graph = struct {
     }
 
     // ScanlineOverlapCheck.sweep: every pair of nodes overlapping at the same time becomes an edge
-    fn sweep(g: *const Graph, a: Allocator, out: *EdgeSet) lg.Error!void {
+    fn sweep(g: *const Graph, a: Allocator, out: *EdgeSet, pts: []const Vec) lg.Error!void {
         const events = try a.alloc(SweepEvent, g.nodes.len * 2);
         for (0..g.nodes.len) |i| {
             events[2 * i] = .{ .node = @intCast(i), .low = true };
@@ -217,7 +217,7 @@ const Graph = struct {
             var overlaps_found = false;
             for (active.items) |other| {
                 if (g.overlapsX(ev.node, other)) {
-                    try out.add(a, .{ .u = ev.node, .v = other });
+                    try out.add(a, .{ .u = ev.node, .v = other }, pts);
                     overlaps_found = true;
                 } else if (overlaps_found) break;
             }
