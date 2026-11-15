@@ -74,7 +74,9 @@ pub fn build(b: *std.Build) void {
     });
     parser_tests.root_module.addImport("testdata", testdata);
     const test_step = b.step("test", "Run parser tests");
-    test_step.dependOn(&b.addRunArtifact(parser_tests).step);
+    const run_parser = b.addRunArtifact(parser_tests);
+    run_parser.setCwd(b.path("."));
+    test_step.dependOn(&run_parser.step);
 
     const font_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -114,7 +116,7 @@ pub fn build(b: *std.Build) void {
     });
     elk_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(elk_tests).step);
-    addTools(b, test_step, testdata);
+    const flow_grammar = addTools(b, test_step, testdata);
 
     if (linux_c) |c| {
         const layout_tests = b.addTest(.{
@@ -129,6 +131,38 @@ pub fn build(b: *std.Build) void {
         layout_tests.root_module.addImport("testdata", testdata);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
+
+    const yaml_mod = b.createModule(.{
+        .root_source_file = b.path("src/markdown/yaml_parse.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const mermaid_mod = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/mermaid.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    mermaid_mod.addImport("yaml", yaml_mod);
+    mermaid_mod.addImport("html_api", b.createModule(.{
+        .root_source_file = b.path("src/html_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    }));
+    mermaid_mod.addImport("flow_grammar", flow_grammar);
+    mermaid_mod.addImport("testdata", testdata);
+    const compare_mod = b.createModule(.{
+        .root_source_file = b.path("tools/check/mermaid_compare.zig"),
+        .target = b.graph.host,
+    });
+    addStubs(b, compare_mod);
+    const flow_render = toolExe(b, "mermaid-flow-render", "tools/check/mermaid_flow_render.zig");
+    flow_render.root_module.addImport("mermaid", mermaid_mod);
+    flow_render.root_module.addImport("mermaid_compare", compare_mod);
+    const flow_render_run = toolStep(b, "mermaid-flow-render", "Flowchart parity against testdata/mermaid: <cases dir> <refs dir> [out dir]", flow_render);
+    flow_render_run.addArgs(&.{ "testdata/mermaid/cases", "testdata/mermaid/refs" });
+    test_step.dependOn(&flow_render_run.step);
+    const mermaid_tests = b.addTest(.{ .root_module = mermaid_mod });
+    test_step.dependOn(&b.addRunArtifact(mermaid_tests).step);
 
     const stress_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -175,7 +209,45 @@ pub fn build(b: *std.Build) void {
     fuzz_tests.root_module.addImport("testdata", testdata);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
-    b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)").dependOn(&run_fuzz.step);
+    const fuzz_step = b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)");
+    fuzz_step.dependOn(&run_fuzz.step);
+
+    const mermaid_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = mermaid_mod,
+    });
+    fuzz_step.dependOn(&b.addRunArtifact(mermaid_fuzz).step);
+
+    const math_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/tex_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    math_tests.root_module.addImport("testdata", testdata);
+    test_step.dependOn(&b.addRunArtifact(math_tests).step);
+
+    const math_stack = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/stack.zig"),
+            .target = target,
+            .optimize = .ReleaseSmall,
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(math_stack).step);
+
+    const math_fuzz = b.addTest(.{
+        .filters = if (fuzz_filter) |f| b.dupeStrings(&.{f}) else &.{},
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/math/fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_math_fuzz = b.addRunArtifact(math_fuzz);
+    test_step.dependOn(&run_math_fuzz.step);
+    fuzz_step.dependOn(&run_math_fuzz.step);
 }
 
 fn toolExe(b: *std.Build, name: []const u8, file: []const u8) *std.Build.Step.Compile {
@@ -211,15 +283,17 @@ fn addStubs(b: *std.Build, m: *std.Build.Module) void {
     }
 }
 
-fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) void {
+fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Module) *std.Build.Module {
     const generators = [_]struct { step: []const u8, file: []const u8, what: []const u8 }{
         .{ .step = "gen-entities", .file = "tools/gen/gen_entities.zig", .what = "Regenerate src/data/entities.zig: <entities.json> <out.zig>" },
         .{ .step = "gen-emoji", .file = "tools/gen/gen_emoji.zig", .what = "Regenerate src/data/emoji.zig: <emoji.json> <out.zig>" },
         .{ .step = "gen-unicode", .file = "tools/gen/gen_unicode.zig", .what = "Regenerate src/data/unicode.zig: <UnicodeData.txt> <out.zig>" },
         .{ .step = "gen-highlight-colors", .file = "tools/gen/gen_highlight_colors.zig", .what = "Regenerate src/data/highlight_colors.zig: <primer-dark.json> <out.zig>" },
         .{ .step = "gen-spec-cases", .file = "tools/gen/gen_spec_cases.zig", .what = "Regenerate src/markdown/spec_inline_cases.zig: <spec.txt> <out.zig>" },
+        .{ .step = "gen-math-symbols", .file = "tools/gen/gen_math_symbols.zig", .what = "Regenerate src/math/symbols.zig: <KaTeX symbols.ts> <out.zig>" },
         .{ .step = "gen-stress", .file = "tools/gen/gen_stress.zig", .what = "Write adversarial Markdown files: <outdir> [small]" },
         .{ .step = "stress-app", .file = "tools/check/stress_app.zig", .what = "Run the built app on the gen-stress files: <mdview exe> <stress dir> <work dir> [options]" },
+        .{ .step = "gen-segment", .file = "tools/gen/gen_segment.zig", .what = "Regenerate src/mermaid/segment_data.zig: <GraphemeBreakProperty.txt> <WordBreakProperty.txt> <emoji-data.txt> <DerivedCoreProperties.txt> <out.zig>" },
         .{ .step = "release-notes", .file = "tools/release/release_notes.zig", .what = "Write release notes: <tag> <out.md>" },
         .{ .step = "msix-assets", .file = "tools/release/make_assets.zig", .what = "Write the MSIX PNG assets from icon.ico into msix/Assets" },
         .{ .step = "pack-msix", .file = "tools/release/pack_msix.zig", .what = "Build the MSIX: <mdview.exe> <version> <output.msix> <work dir>" },
@@ -247,7 +321,7 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
     const jison = toolExe(b, "gen-jison", "tools/gen/gen_jison.zig");
     jison.root_module.addImport("jison_runtime", jison_runtime);
     _ = toolStep(b, "gen-jison", "Generate jison tables: <grammar.jison> <out.zig> [stub=<stub.zig>] [json=<tables.json>], or check <grammar.jison> <jison-tables.json>", jison);
-    addJisonTests(b, test_step, jison, jison_runtime, testdata);
+    const flow_grammar_module = addJisonTests(b, test_step, jison, jison_runtime, testdata);
 
     const languages = toolExe(b, "gen-languages", "tools/gen/gen_languages.zig");
     languages.root_module.addImport("yaml", b.createModule(.{
@@ -255,6 +329,19 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         .target = b.graph.host,
     }));
     _ = toolStep(b, "gen-languages", "Regenerate src/data/languages.zig: <languages.yml> <out.zig>", languages);
+
+    const mermaid_config = toolExe(b, "gen-mermaid-config", "tools/gen/gen_mermaid_config.zig");
+    const schema_yaml = b.createModule(.{
+        .root_source_file = b.path("src/markdown/yaml_parse.zig"),
+        .target = b.graph.host,
+    });
+    const schema_loader = b.createModule(.{
+        .root_source_file = b.path("src/mermaid/frontmatter.zig"),
+        .target = b.graph.host,
+    });
+    schema_loader.addImport("yaml", schema_yaml);
+    mermaid_config.root_module.addImport("frontmatter", schema_loader);
+    _ = toolStep(b, "gen-mermaid-config", "Regenerate src/mermaid/config_defaults.zig: <config.schema.yaml> <out.zig>", mermaid_config);
 
     const subset = toolExe(b, "subset-font", "tools/gen/subset_font.zig");
     subset.root_module.addImport("ttf", b.createModule(.{
@@ -302,9 +389,11 @@ fn addTools(b: *std.Build, test_step: *std.Build.Step, testdata: *std.Build.Modu
         });
         test_step.dependOn(&b.addRunArtifact(t).step);
     }
+    return flow_grammar_module;
 }
 
-fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module, testdata: *std.Build.Module) void {
+fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step.Compile, runtime: *std.Build.Module, testdata: *std.Build.Module) *std.Build.Module {
+    var flow_module: ?*std.Build.Module = null;
     const dir = "testdata/mermaid/jison/";
     for ([_][]const u8{ "flow", "sequenceDiagram", "expr", "dangling" }) |name| {
         const check = b.addRunArtifact(gen);
@@ -361,8 +450,10 @@ fn addJisonTests(b: *std.Build, test_step: *std.Build.Step, gen: *std.Build.Step
         const stub_module = b.createModule(.{ .root_source_file = stub });
         stub_module.addImport("jison_runtime", runtime);
         stub_module.addImport("grammar", grammar_module);
+        if (std.mem.eql(u8, g.prefix, "flow")) flow_module = grammar_module;
         parity.root_module.addImport(b.fmt("{s}_grammar", .{g.prefix}), grammar_module);
         parity.root_module.addImport(b.fmt("{s}_stub", .{g.prefix}), stub_module);
     }
     test_step.dependOn(&b.addRunArtifact(parity).step);
+    return flow_module.?;
 }

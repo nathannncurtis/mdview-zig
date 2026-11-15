@@ -261,6 +261,7 @@ fn measureAndDrawAttrStr(ctx: c.CGContextRef, attr_str: c.CFAttributedStringRef,
     drawCodeBackgrounds(ctx, frame, x, y_cg - suggested.height);
     c.CTFrameDraw(frame, ctx);
     drawStrikes(ctx, frame, x, y_cg - suggested.height);
+    drawImages(ctx, frame, x, y_cg - suggested.height);
     c.CGContextRestoreGState(ctx);
 
     return suggested.height;
@@ -375,6 +376,199 @@ fn drawStrikes(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame
     }
 }
 
+const ImageKind = enum { pending, picture, broken };
+
+/// Width of the broken image glyph with its gap to the alt text that follows, and its height.
+const broken_w: CGFloat = 18;
+const broken_h: CGFloat = 16;
+
+/// One image in a layout; CoreText reads its size through the run delegate and the drawing pass finds it again by the same pointer.
+const ImageBox = struct { w: CGFloat, h: CGFloat, kind: ImageKind, image: *const md.Image, link: bool };
+
+var g_boxes: ?std.heap.ArenaAllocator = null;
+var g_delegate: id = null;
+var g_image_timer_set = false;
+
+fn resetBoxes() void {
+    if (g_boxes) |*a| _ = a.reset(.free_all);
+}
+
+fn boxOf(ref: ?*anyopaque) *const ImageBox {
+    return @ptrCast(@alignCast(ref.?));
+}
+
+fn delegateAscent(ref: ?*anyopaque) callconv(.c) CGFloat {
+    return boxOf(ref).h;
+}
+
+fn delegateDescent(_: ?*anyopaque) callconv(.c) CGFloat {
+    return 0;
+}
+
+fn delegateWidth(ref: ?*anyopaque) callconv(.c) CGFloat {
+    return boxOf(ref).w;
+}
+
+const delegate_callbacks = c.CTRunDelegateCallbacks{
+    .version = c.kCTRunDelegateVersion1,
+    .dealloc = null,
+    .getAscent = delegateAscent,
+    .getDescent = delegateDescent,
+    .getWidth = delegateWidth,
+};
+
+fn altSize(alt: []const u8, avail: CGFloat) [2]CGFloat {
+    const font = createFont("Helvetica Neue", font_size_body, false, false);
+    defer c.CFRelease(font);
+    const cf_str = cfString(alt) orelse return .{ 0, 0 };
+    defer c.CFRelease(cf_str);
+    const attr_str = c.CFAttributedStringCreateMutable(null, 0) orelse return .{ 0, 0 };
+    defer c.CFRelease(attr_str);
+    c.CFAttributedStringReplaceString(attr_str, c.CFRange{ .location = 0, .length = 0 }, cf_str);
+    setAttrFont(attr_str, 0, c.CFStringGetLength(cf_str), font);
+    const size = suggestSize(@ptrCast(attr_str), avail);
+    return .{ @min(@ceil(size.width), avail), size.height };
+}
+
+fn imageBox(im: *const md.Image, avail: CGFloat, link: bool) ?*ImageBox {
+    if (g_boxes == null) g_boxes = .init(app.gpa);
+    const box = g_boxes.?.allocator().create(ImageBox) catch return null;
+    box.* = .{ .w = 0, .h = 0, .kind = .pending, .image = im, .link = link };
+    switch (app.images.look(im.target, @floatCast(avail))) {
+        .pending => {},
+        .picture => |s| {
+            box.w = s.w;
+            box.h = s.h;
+            box.kind = if (s.w > 0) .picture else .pending;
+        },
+        .missing => if (im.alt.len > 0) {
+            box.w = broken_w;
+            box.h = broken_h;
+            box.kind = .broken;
+        },
+    }
+    return box;
+}
+
+fn drawImages(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame_y: CGFloat) void {
+    const lines = c.CTFrameGetLines(frame);
+    const line_count: usize = @intCast(c.CFArrayGetCount(lines));
+    if (line_count == 0) return;
+    const origins = app.gpa.alloc(CGPoint, line_count) catch return;
+    defer app.gpa.free(origins);
+    c.CTFrameGetLineOrigins(frame, c.CFRange{ .location = 0, .length = 0 }, origins.ptr);
+
+    for (origins, 0..) |origin, li| {
+        const line: c.CTLineRef = @ptrCast(@constCast(c.CFArrayGetValueAtIndex(lines, @intCast(li))));
+        const runs = c.CTLineGetGlyphRuns(line);
+        const run_count: usize = @intCast(c.CFArrayGetCount(runs));
+        for (0..run_count) |ri| {
+            const glyph_run: c.CTRunRef = @ptrCast(@constCast(c.CFArrayGetValueAtIndex(runs, @intCast(ri))));
+            const attrs = c.CTRunGetAttributes(glyph_run);
+            const delegate = c.CFDictionaryGetValue(attrs, c.kCTRunDelegateAttributeName) orelse continue;
+            const box = boxOf(c.CTRunDelegateGetRefCon(@ptrCast(@constCast(delegate))));
+            const range = c.CTRunGetStringRange(glyph_run);
+            const x = frame_x + origin.x + c.CTLineGetOffsetForStringIndex(line, range.location, null);
+            const base = frame_y + origin.y;
+            const top = g_height - (base + box.h);
+            if (box.w <= 0 or top + box.h < 0 or top > g_height) continue;
+            switch (box.kind) {
+                .pending => {},
+                .picture => {
+                    const bm = app.images.bitmap(box.image.target, .{ .w = @floatCast(box.w), .h = @floatCast(box.h) }) orelse continue;
+                    c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
+                    c.CGContextDrawImage(ctx, cgRect(x, base, box.w, box.h), @ptrCast(bm.native));
+                },
+                .broken => {
+                    if (app.images.brokenIcon()) |icon| {
+                        c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
+                        c.CGContextDrawImage(ctx, cgRect(x, base, icon.w, icon.h), @ptrCast(icon.native));
+                        continue;
+                    }
+                    const path = c.CGPathCreateMutable();
+                    defer c.CGPathRelease(path);
+                    for (alerts.brokenImage()) |op| switch (op) {
+                        .move => |p| c.CGPathMoveToPoint(path, null, x + p[0], base + box.h - p[1]),
+                        .line => |p| c.CGPathAddLineToPoint(path, null, x + p[0], base + box.h - p[1]),
+                        .cubic => |q| c.CGPathAddCurveToPoint(path, null, x + q[0], base + box.h - q[1], x + q[2], base + box.h - q[3], x + q[4], base + box.h - q[5]),
+                        .close => c.CGPathCloseSubpath(path),
+                    };
+                    c.CGContextSetRGBFillColor(ctx, blockquote_color.r, blockquote_color.g, blockquote_color.b, 1.0);
+                    c.CGContextAddPath(ctx, path);
+                    c.CGContextFillPath(ctx);
+                },
+            }
+        }
+    }
+}
+
+fn releaseImageData(_: ?*anyopaque, data: ?*const anyopaque, size: usize) callconv(.c) void {
+    const bytes: [*]u8 = @ptrCast(@constCast(data orelse return));
+    app.gpa.free(bytes[0..size]);
+}
+
+fn createNative(rgba: []const u8, w: u32, h: u32) ?*anyopaque {
+    const data = app.gpa.alloc(u8, rgba.len) catch return null;
+    var i: usize = 0;
+    while (i + 3 < rgba.len) : (i += 4) {
+        const a: u32 = rgba[i + 3];
+        data[i] = @intCast((@as(u32, rgba[i]) * a + 127) / 255);
+        data[i + 1] = @intCast((@as(u32, rgba[i + 1]) * a + 127) / 255);
+        data[i + 2] = @intCast((@as(u32, rgba[i + 2]) * a + 127) / 255);
+        data[i + 3] = @intCast(a);
+    }
+    const provider = c.CGDataProviderCreateWithData(null, data.ptr, data.len, releaseImageData) orelse {
+        app.gpa.free(data);
+        return null;
+    };
+    defer c.CGDataProviderRelease(provider);
+    const space = c.CGColorSpaceCreateDeviceRGB() orelse return null;
+    defer c.CGColorSpaceRelease(space);
+    return @ptrCast(c.CGImageCreate(w, h, 8, 32, w * 4, space, c.kCGImageAlphaPremultipliedLast, provider, null, false, c.kCGRenderingIntentDefault));
+}
+
+fn freeNative(handle: ?*anyopaque) void {
+    c.CGImageRelease(@ptrCast(handle));
+}
+
+fn scheduleImages() void {
+    const ms = app.images.timerDelay() orelse return;
+    if (g_image_timer_set or g_delegate == null) return;
+    g_image_timer_set = true;
+    _ = msgSend_timer(
+        objcClass("NSTimer"),
+        sel("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
+        @as(f64, @floatFromInt(@max(ms, 15))) / 1000.0,
+        g_delegate,
+        sel("imageTimerFire:"),
+        @as(id, null),
+        @as(BOOL, 0),
+    );
+}
+
+fn imageTimerCallback(_: id, _: SEL, _: id) callconv(.c) void {
+    g_image_timer_set = false;
+    if (app.images.tick()) invalidate() else scheduleImages();
+}
+
+fn drawTooltip(ctx: c.CGContextRef, t: app.Tooltip, width: CGFloat, height: CGFloat) void {
+    const size = altSize(t.text, 360);
+    const w = size[0] + 16;
+    const h = size[1] + 10;
+    const x = @min(@as(CGFloat, t.x) + 14, width - w - 4);
+    const top = if (t.y + 22 + h > height) @as(CGFloat, t.y) - h - 6 else @as(CGFloat, t.y) + 22;
+    const cg_top = height - top;
+    c.CGContextSetRGBFillColor(ctx, table_border_color.r, table_border_color.g, table_border_color.b, 1.0);
+    drawRoundedRect(ctx, cgRect(x - 1, cg_top - h - 1, w + 2, h + 2), 5.0);
+    c.CGContextFillPath(ctx);
+    c.CGContextSetRGBFillColor(ctx, code_bg_color.r, code_bg_color.g, code_bg_color.b, 1.0);
+    drawRoundedRect(ctx, cgRect(x, cg_top - h, w, h), 4.0);
+    c.CGContextFillPath(ctx);
+    const font = createFont("Helvetica Neue", font_size_body, false, false);
+    defer c.CFRelease(font);
+    _ = drawPlainText(ctx, t.text, x + 8, cg_top - 5, 360, font, text_color);
+}
+
 fn drawPlainText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, font: c.CTFontRef, col: Color) CGFloat {
     if (text.len == 0) return 0;
 
@@ -392,9 +586,10 @@ fn drawPlainText(ctx: c.CGContextRef, text: []const u8, x: CGFloat, y_cg: CGFloa
     return measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
 }
 
-fn drawRichText(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color, font: app.Font) CGFloat {
+fn drawRichText(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, y_cg: CGFloat, max_width: CGFloat, base_font: c.CTFontRef, base_color: Color, font: app.Font) CGFloat {
+    const content = app.images.flow(content_in);
     if (content.text.len == 0) return 0;
-    const attr_str = createRichAttrStr(content, base_font, base_color) orelse return 0;
+    const attr_str = createRichAttrStr(content, base_font, base_color, max_width) orelse return 0;
     defer c.CFRelease(attr_str);
     const height = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x, y_cg, max_width);
     noteHit(content, x, y_cg, max_width, height, font, false, .none);
@@ -427,9 +622,10 @@ fn fontFor(font: app.Font) c.CTFontRef {
 }
 
 pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
+    resetBoxes();
     const font = if (hit.header) createFont("Helvetica Neue", font_size_body, true, false) else fontFor(hit.font);
     defer c.CFRelease(font);
-    const attr_str = createAlignedAttrStr(hit.content, hit.alignment, font) orelse return null;
+    const attr_str = createAlignedAttrStr(hit.content, hit.alignment, font, hit.w) orelse return null;
     defer c.CFRelease(attr_str);
     const framesetter = c.CTFramesetterCreateWithAttributedString(@ptrCast(attr_str));
     defer c.CFRelease(framesetter);
@@ -483,7 +679,7 @@ pub fn openExternal(url: []const u8) void {
     _ = msgSend_id_id(workspace, sel("openURL:"), nsurl);
 }
 
-fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Color) c.CFMutableAttributedStringRef {
+fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Color, avail: CGFloat) c.CFMutableAttributedStringRef {
     const text = content.text;
     const cf_str = cfString(text) orelse return null;
     defer c.CFRelease(cf_str);
@@ -566,6 +762,13 @@ fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color: Col
         if (app.isHover(content, l)) setAttrUnderline(attr_str, r.location, r.length);
     }
 
+    for (content.images) |*im| {
+        const box = imageBox(im, avail, content.linkAt(im.start) != null) orelse continue;
+        const delegate = c.CTRunDelegateCreate(&delegate_callbacks, box) orelse continue;
+        defer c.CFRelease(delegate);
+        c.CFAttributedStringSetAttribute(attr_str, cfRange(text, .{ im.start, im.len }), c.kCTRunDelegateAttributeName, @ptrCast(delegate));
+    }
+
     for (content.sup) |span| {
         var one: i32 = 1;
         const number = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &one);
@@ -592,12 +795,12 @@ fn suggestSize(attr_str: c.CFAttributedStringRef, max_width: CGFloat) CGSize {
     );
 }
 
-fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef, header_font: c.CTFontRef) c.CFMutableAttributedStringRef {
-    return createAlignedAttrStr(t.cell(row, col), t.aligns[col], if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) header_font else body_font);
+fn createCellAttrStr(t: md.Table, row: usize, col: usize, body_font: c.CTFontRef, header_font: c.CTFontRef, avail: CGFloat) c.CFMutableAttributedStringRef {
+    return createAlignedAttrStr(app.images.flow(t.cell(row, col)), t.aligns[col], if ((row == 0 and t.header_row) or (col == 0 and t.header_col)) header_font else body_font, avail);
 }
 
-fn createAlignedAttrStr(content: md.Inline, alignment_kind: md.Align, font: c.CTFontRef) c.CFMutableAttributedStringRef {
-    const attr_str = createRichAttrStr(content, font, text_color) orelse return null;
+fn createAlignedAttrStr(content: md.Inline, alignment_kind: md.Align, font: c.CTFontRef, avail: CGFloat) c.CFMutableAttributedStringRef {
+    const attr_str = createRichAttrStr(content, font, text_color, avail) orelse return null;
     var alignment: c.CTTextAlignment = @intCast(switch (alignment_kind) {
         .none, .left => c.kCTTextAlignmentLeft,
         .center => c.kCTTextAlignmentCenter,
@@ -639,7 +842,7 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
                 w.* = @max(w.*, @as(f32, @floatCast(nw)));
                 continue;
             }
-            const attr_str = createCellAttrStr(t, row, col, body_font, header_font) orelse continue;
+            const attr_str = createCellAttrStr(t, row, col, body_font, header_font, 100000.0) orelse continue;
             defer c.CFRelease(attr_str);
             w.* = @max(w.*, @as(f32, @floatCast(suggestSize(@ptrCast(attr_str), 100000.0).width)));
         }
@@ -660,7 +863,7 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
                 text_h = @max(text_h, drawTable(ctx, nt, 0, 0, w - cell_pad_x * 2, body_font, false, null) + md.nested_table_margin);
                 continue;
             }
-            cell.* = createCellAttrStr(t, row, col, body_font, header_font);
+            cell.* = createCellAttrStr(t, row, col, body_font, header_font, w - cell_pad_x * 2);
             if (cell.*) |attr_str| {
                 text_h = @max(text_h, suggestSize(@ptrCast(attr_str), w - cell_pad_x * 2).height);
             }
@@ -680,7 +883,7 @@ fn drawTable(ctx: c.CGContextRef, t: md.Table, x: CGFloat, y_cg: CGFloat, max_wi
                 } else if (cell) |attr_str| {
                     const cell_h = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2);
                     const header = (row == 0 and t.header_row) or (col == 0 and t.header_col);
-                    noteHit(t.cell(row, col), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2, cell_h, .body, header, t.aligns[col]);
+                    noteHit(app.images.flow(t.cell(row, col)), cx + cell_pad_x, top - cell_pad_y, w - cell_pad_x * 2, cell_h, .body, header, t.aligns[col]);
                 }
             }
             if (cell) |attr_str| c.CFRelease(attr_str);
@@ -895,8 +1098,9 @@ fn drawAlertIcon(ctx: c.CGContextRef, alert: md.Alert, x: CGFloat, cg_top: CGFlo
     c.CGContextFillPath(ctx);
 }
 
-fn drawErrorBox(ctx: c.CGContextRef, content: md.Inline, x: CGFloat, cg_y: CGFloat, w: CGFloat, font: c.CTFontRef) CGFloat {
-    const attr_str = createRichAttrStr(content, font, text_color) orelse return 0;
+fn drawErrorBox(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, cg_y: CGFloat, w: CGFloat, font: c.CTFontRef) CGFloat {
+    const content = app.images.flow(content_in);
+    const attr_str = createRichAttrStr(content, font, text_color, @max(w - 34, 20)) orelse return 0;
     defer c.CFRelease(attr_str);
     const h = suggestSize(@ptrCast(attr_str), @max(w - 34, 20)).height + 32;
     c.CGContextSetRGBFillColor(ctx, err_border_color.r, err_border_color.g, err_border_color.b, 1.0);
@@ -928,7 +1132,7 @@ fn drawMarker(ctx: c.CGContextRef, m: md.Mark, x: CGFloat, cg_y: CGFloat, font: 
         },
         .number => {
             var buf: [16]u8 = undefined;
-            const attr_str = createRichAttrStr(.{ .text = md.markerLabel(&buf, m) }, font, text_color) orelse return;
+            const attr_str = createRichAttrStr(.{ .text = md.markerLabel(&buf, m) }, font, text_color, 200) orelse return;
             defer c.CFRelease(attr_str);
             const width = suggestSize(@ptrCast(attr_str), 200).width;
             _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x - 6 - width, cg_y, width + 2);
@@ -988,6 +1192,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     const h6_font = createFont("Helvetica Neue", 13.6, true, false);
     defer c.CFRelease(h6_font);
 
+    resetBoxes();
     var screen_y: CGFloat = padding_top - scroll;
     g_height = height;
     app.beginFrame();
@@ -1096,6 +1301,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     c.CGContextMoveToPoint(ctx, cx + off, cy - off);
     c.CGContextAddLineToPoint(ctx, cx - off, cy + off);
     c.CGContextStrokePath(ctx);
+    if (app.tooltip) |t| drawTooltip(ctx, t, width, height);
 }
 
 // ============================================================
@@ -1120,7 +1326,9 @@ fn drawRectCallback(self: id, _sel: SEL, dirty_rect: CGRect) callconv(.c) void {
     app.window_width = @floatCast(bounds.size.width);
     app.window_height = @floatCast(bounds.size.height);
 
+    if (g_window != null) app.images.dpi_scale = @floatCast(msgSend_cgfloat(g_window, sel("backingScaleFactor")));
     drawContent(cg_ctx, bounds.size.width, bounds.size.height);
+    scheduleImages();
 }
 
 fn scrollWheelCallback(self: id, _sel: SEL, event: id) callconv(.c) void {
@@ -1314,6 +1522,7 @@ fn registerDelegateClass() c.Class {
 
     _ = c.class_addMethod(new_cls, sel("applicationShouldTerminate:"), @as(c.IMP, @ptrCast(&applicationShouldTerminateCallback)), "Q@:@");
     _ = c.class_addMethod(new_cls, sel("timerFire:"), @as(c.IMP, @ptrCast(&timerFireCallback)), "v@:@");
+    _ = c.class_addMethod(new_cls, sel("imageTimerFire:"), @as(c.IMP, @ptrCast(&imageTimerCallback)), "v@:@");
 
     const protocol = c.objc_getProtocol("NSApplicationDelegate");
     if (protocol != null) {
@@ -1389,6 +1598,9 @@ pub fn run() void {
 
     // App delegate
     const delegate = msgSend_id(alloc(@ptrCast(delegate_cls)), sel("init"));
+    g_delegate = delegate;
+    app.images.create_native = createNative;
+    app.images.free_native = freeNative;
     msgSend_void_id(g_nsapp, sel("setDelegate:"), delegate);
 
     // File watch timer — fires every 0.5s
