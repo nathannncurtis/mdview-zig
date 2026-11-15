@@ -208,7 +208,7 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
                 try escape(&out, a, b.content.text, false);
                 try out.appendSlice(a, "</code></pre>\n");
             },
-            .table, .alert_title, .error_box => {},
+            .table, .alert_title, .error_box, .math => {},
         }
     }
     while (stack.items.len > 0) {

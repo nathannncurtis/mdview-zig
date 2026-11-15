@@ -346,6 +346,14 @@ pub fn sliceInline(content: md.Inline, from: u32) md.Inline {
         images.append(a, m) catch break;
     };
     out.images = images.items;
+    var maths: std.ArrayList(md.MathSpan) = .empty;
+    for (content.math) |ms| if (shifted(ms.start, ms.len, from)) |n| {
+        var m = ms;
+        m.start = n[0];
+        m.len = n[1];
+        maths.append(a, m) catch break;
+    };
+    out.math = maths.items;
     var styles: std.ArrayList(md.Styled) = .empty;
     for (content.styles) |s| if (shifted(s.span[0], s.span[1], from)) |n| {
         var m = s;
