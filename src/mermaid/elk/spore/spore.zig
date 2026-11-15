@@ -24,6 +24,14 @@ const default_spacing_node_node = 8.0;
 const default_spacing_label_node = 5.0;
 const default_max_iterations = 64;
 
+fn dcmp(o: std.math.Order) i32 {
+    return switch (o) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
 const Tree = struct {
     node: u32,
     children: std.ArrayList(*Tree) = .empty,
@@ -41,16 +49,16 @@ pub fn layout(a: Allocator, node: *eg.ElkNode) lg.Error!void {
     var overlaps_existed = true;
     var iteration: i32 = 0;
     while (iteration < max_iterations and overlaps_existed) {
-        var t_edges: EdgeSet = .{};
-        if (run_scanline) {
-            try g.sweep(a, &t_edges);
-            if (t_edges.list.items.len == 0) break;
-        }
         const points = try a.alloc(Vec, g.nodes.len);
         for (g.nodes, points) |n, *p| p.* = n.orig;
+        var t_edges: EdgeSet = .{};
+        if (run_scanline) {
+            try g.sweep(a, &t_edges, points);
+            if (t_edges.list.items.len == 0) break;
+        }
         var delaunay: EdgeSet = .{};
         try triangulation.triangulate(a, points, &delaunay);
-        for (delaunay.list.items) |e| try t_edges.add(a, e);
+        for (delaunay.list.items) |e| try t_edges.add(a, e, points);
         const tree = try g.spanningTree(a, t_edges.list.items);
         overlaps_existed = false;
         g.grow(tree, &overlaps_existed);
@@ -148,7 +156,7 @@ const Graph = struct {
     }
 
     fn cmpEvent(g: *const Graph, p1: SweepEvent, p2: SweepEvent) lg.Error!i32 {
-        const cmp: i32 = dcmp(g.eventY(p1), g.eventY(p2));
+        const cmp: i32 = dcmp(util.doubleCompare(g.eventY(p1), g.eventY(p2)));
         if (cmp == 0) {
             if (!p1.low and p2.low) return -1;
             if (!p2.low and p1.low) return 1;
@@ -159,11 +167,11 @@ const Graph = struct {
     fn cmpLeft(g: *const Graph, n1: u32, n2: u32) i32 {
         const a = g.nodes[n1];
         const b = g.nodes[n2];
-        var c: i32 = dcmp(a.rect.x, b.rect.x);
+        var c: i32 = dcmp(util.doubleCompare(a.rect.x, b.rect.x));
         if (c != 0) return c;
-        c = dcmp(a.orig.x, b.orig.x);
+        c = dcmp(util.doubleCompare(a.orig.x, b.orig.x));
         if (c != 0) return c;
-        return dcmp(a.orig.y, b.orig.y);
+        return dcmp(util.doubleCompare(a.orig.y, b.orig.y));
     }
 
     fn overlapsX(g: *const Graph, n1: u32, n2: u32) bool {
@@ -175,7 +183,7 @@ const Graph = struct {
     }
 
     // ScanlineOverlapCheck.sweep: every pair of nodes overlapping at the same time becomes an edge
-    fn sweep(g: *const Graph, a: Allocator, out: *EdgeSet) lg.Error!void {
+    fn sweep(g: *const Graph, a: Allocator, out: *EdgeSet, pts: []const Vec) lg.Error!void {
         const events = try a.alloc(SweepEvent, g.nodes.len * 2);
         for (0..g.nodes.len) |i| {
             events[2 * i] = .{ .node = @intCast(i), .low = true };
@@ -209,7 +217,7 @@ const Graph = struct {
             var overlaps_found = false;
             for (active.items) |other| {
                 if (g.overlapsX(ev.node, other)) {
-                    try out.add(a, .{ .u = ev.node, .v = other });
+                    try out.add(a, .{ .u = ev.node, .v = other }, pts);
                     overlaps_found = true;
                 } else if (overlaps_found) break;
             }
@@ -231,7 +239,7 @@ const Graph = struct {
     const Weighted = struct { e: Edge, w: f64 };
 
     fn cmpWeight(_: void, x: Weighted, y: Weighted) lg.Error!i32 {
-        return dcmp(x.w, y.w);
+        return dcmp(util.doubleCompare(x.w, y.w));
     }
 
     // NaiveMinST.createSpanningTree
@@ -443,12 +451,4 @@ fn labelBox(l: *const eg.ElkLabel, incoming: bool, n: *const eg.ElkNode, port: ?
         r.x += n.width + ls;
     }
     return r;
-}
-
-fn dcmp(x: f64, y: f64) i32 {
-    return switch (util.doubleCompare(x, y)) {
-        .lt => -1,
-        .eq => 0,
-        .gt => 1,
-    };
 }

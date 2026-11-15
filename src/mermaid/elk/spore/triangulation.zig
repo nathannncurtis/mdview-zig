@@ -67,16 +67,24 @@ pub fn triangulate(a: Allocator, points: []const Vec, out: *model.EdgeSet) Alloc
                     break;
                 }
             }
-            if (!dup) try tris.append(a, t);
+            if (!dup) {
+                var at = tris.items.len;
+                while (at > 0 and tris.items[at - 1].hash != t.hash) at -= 1;
+                if (at == 0) at = tris.items.len;
+                try tris.insert(a, at, t);
+            }
         }
     }
 
-    const super = Tri.init(pts, n, n + 1, n + 2);
+    var all: model.EdgeSet = .{};
     for (tris.items) |t| {
-        for (0..3) |k| {
-            const e = t.edge(k);
-            if (super.containsVertex(e.u) or super.containsVertex(e.v)) continue;
-            try out.add(a, e);
-        }
+        for (0..3) |k| try all.add(a, t.edge(k), pts);
+    }
+    const super = Tri.init(pts, n, n + 1, n + 2);
+    for (all.list.items, all.hashes.items) |e, h| {
+        if (super.containsVertex(e.u) or super.containsVertex(e.v)) continue;
+        try out.list.append(a, e);
+        try out.hashes.append(a, h);
+        try out.seen.put(a, model.EdgeSet.key(e), {});
     }
 }

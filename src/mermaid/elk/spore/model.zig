@@ -81,18 +81,44 @@ pub fn shortestDistance(r1: Rect, r2: Rect) f64 {
 // TEdge over node indices; equality ignores direction
 pub const Edge = struct { u: u32, v: u32 };
 
-// A java.util.HashSet<TEdge> as elkjs iterates it: in insertion order.
+// KVector.hashCode as elkjs compiles it: Double.hashCode is the int-truncated value and sums are not wrapped
+fn roundInt(x: f64) i32 {
+    if (std.math.isNan(x)) return 0;
+    return @intFromFloat(std.math.clamp(x, -2147483648.0, 2147483647.0));
+}
+
+pub fn vertexHash(v: Vec) f64 {
+    const reversed: i32 = @bitCast(@bitReverse(@as(u32, @bitCast(roundInt(v.y)))));
+    return @as(f64, @floatFromInt(roundInt(v.x))) + @as(f64, @floatFromInt(reversed));
+}
+
+// Where a java.util.HashMap as elkjs runs it (a JS Map keyed by hash code) iterates a new entry: behind the last
+// entry with the same hash code, else at the end
+pub fn insertAt(hashes: []const f64, h: f64) usize {
+    var i = hashes.len;
+    while (i > 0) : (i -= 1) {
+        if (hashes[i - 1] == h) return i;
+    }
+    return hashes.len;
+}
+
+// A java.util.HashSet<TEdge> in the order elkjs iterates it
 pub const EdgeSet = struct {
     list: std.ArrayList(Edge) = .empty,
+    hashes: std.ArrayList(f64) = .empty,
     seen: std.AutoHashMapUnmanaged(u64, void) = .empty,
 
-    fn key(e: Edge) u64 {
+    pub fn key(e: Edge) u64 {
         return (@as(u64, @min(e.u, e.v)) << 32) | @max(e.u, e.v);
     }
 
-    pub fn add(s: *EdgeSet, a: Allocator, e: Edge) Allocator.Error!void {
+    pub fn add(s: *EdgeSet, a: Allocator, e: Edge, pts: []const Vec) Allocator.Error!void {
         const r = try s.seen.getOrPut(a, key(e));
-        if (!r.found_existing) try s.list.append(a, e);
+        if (r.found_existing) return;
+        const h = vertexHash(pts[e.u]) + vertexHash(pts[e.v]);
+        const at = insertAt(s.hashes.items, h);
+        try s.list.insert(a, at, e);
+        try s.hashes.insert(a, at, h);
     }
 };
 
@@ -100,6 +126,7 @@ pub const EdgeSet = struct {
 pub const Tri = struct {
     v: [3]u32,
     cc: Vec,
+    hash: f64,
 
     pub fn init(pts: []const Vec, a: u32, b: u32, c: u32) Tri {
         const pa = pts[a];
@@ -114,7 +141,7 @@ pub const Tri = struct {
         const e = abx * (pa.x + pb.x) + aby * (pa.y + pb.y);
         const f = acx * (pa.x + pc.x) + acy * (pa.y + pc.y);
         const g = 2 * (abx * bcy - aby * bcx);
-        return .{ .v = .{ a, b, c }, .cc = .{ .x = (acy * e - aby * f) / g, .y = (abx * f - acx * e) / g } };
+        return .{ .v = .{ a, b, c }, .hash = vertexHash(pa) + vertexHash(pb) + vertexHash(pc), .cc = .{ .x = (acy * e - aby * f) / g, .y = (abx * f - acx * e) / g } };
     }
 
     pub fn edge(t: Tri, i: usize) Edge {
