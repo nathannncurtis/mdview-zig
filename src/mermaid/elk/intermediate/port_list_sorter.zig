@@ -13,7 +13,7 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
                 try util.javaSort(*lg.LPort, g.a, ports, {}, cmpPortSide);
                 reverseWestAndSouthSide(ports);
             }
-            node.port_sides_cached = true;
+            node.cachePortSides();
         }
     }
 }
