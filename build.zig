@@ -130,7 +130,6 @@ pub fn build(b: *std.Build) void {
     });
     dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
-    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
     const math_mod = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = target, .optimize = optimize });
     math_mod.addImport("font", font_mod);
     const math_layout_tests = b.addTest(.{ .root_module = math_mod });
@@ -162,6 +161,7 @@ pub fn build(b: *std.Build) void {
         });
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("font", font_mod);
         for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
