@@ -198,7 +198,7 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
                 try cr(&out, a);
                 try out.appendSlice(a, "<hr />\n");
             },
-            .code_block => {
+            .code_block, .diagram => {
                 try cr(&out, a);
                 if (b.lang.len > 0) {
                     try out.appendSlice(a, "<pre><code class=\"language-");

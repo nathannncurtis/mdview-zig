@@ -6,6 +6,7 @@ const tables = @import("tables.zig");
 const testing = std.testing;
 const md = app.md;
 const c = @import("c");
+const view = @import("mermaid").view;
 
 const CGFloat = mac.CGFloat;
 const CGPoint = mac.CGPoint;
@@ -607,4 +608,65 @@ test "a semibold span picks a weight between regular and bold and keeps italic" 
     try testing.expect(weightOf(plain) < 0.1);
     try testing.expect(weightOf(term) > 0.1 and weightOf(term) < 0.39);
     try testing.expect((c.CTFontGetSymbolicTraits(term) & c.kCTFontItalicTrait) != 0);
+}
+
+fn waitDiagram(src: []const u8) !void {
+    const deadline = app.images.now() + 10_000;
+    while (app.images.now() < deadline) {
+        _ = app.images.tick();
+        if (app.images.diagram(src, 600) != .pending) return;
+        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
+    }
+    return error.Timeout;
+}
+
+test "a mermaid block is a frame with the zoom and pan buttons and a dialog, and a bad one is an error box" {
+    var canvas = try Canvas.init(800, 600);
+    defer canvas.deinit();
+    const fonts = makeFonts();
+    defer releaseFonts(fonts);
+    var doc = try md.parse(testing.allocator, "```mermaid\ninfo\n```\n\n```mermaid\ninfo foo\n```\n\n```mermaid\nnonsense\n```\n");
+    defer doc.deinit();
+    try testing.expectEqual(@as(usize, 3), doc.blocks.len);
+    try waitDiagram("info\n");
+    try waitDiagram("info foo\n");
+    const size = app.images.diagram("info\n", 600).picture;
+    try testing.expectEqual(@as(f32, 400), size.w);
+    try testing.expect(app.images.diagram("info foo\n", 600) == .err);
+
+    app.block_y.clearRetainingCapacity();
+    defer app.block_y.clearRetainingCapacity();
+    _ = layoutBlocks(canvas.ctx, doc.blocks, 40, 600, 10, fonts, true);
+    try testing.expectApproxEqAbs(view.frameHeight(size.h) + 16, app.block_y.items[1] - app.block_y.items[0], 0.01);
+    try testing.expect(app.block_y.items[2] - app.block_y.items[1] > 100);
+
+    const frame: view.Rect = .{ .x = 40, .y = app.block_y.items[0], .w = 600, .h = view.frameHeight(size.h) };
+    const key = app.images.diagramKey("info\n");
+    const zi = view.buttonRect(frame, .zoom_in);
+    try testing.expect(app.mouseDown(zi.x + 4, zi.y + 4));
+    try testing.expectApproxEqAbs(@as(f32, 1.1), app.images.viewState(key).zoom, 0.001);
+    const up = view.buttonRect(frame, .up);
+    try testing.expect(app.mouseDown(up.x + 4, up.y + 4));
+    try testing.expectEqual(@as(f32, 100), app.images.viewState(key).y);
+    const rs = view.buttonRect(frame, .reset);
+    try testing.expect(app.mouseDown(rs.x + 4, rs.y + 4));
+    try testing.expectEqual(@as(f32, 1), app.images.viewState(key).zoom);
+    try testing.expect(!app.mouseDown(frame.x + 4, frame.y + 4));
+
+    const expand = view.buttonRect(frame, .expand);
+    try testing.expect(app.mouseDown(expand.x + 4, expand.y + 4));
+    try testing.expect(app.dialog != null);
+    mac.drawDialog(canvas.ctx);
+    const box = view.modalRect(app.window_width, app.window_height, frame.h);
+    const inner = view.modalFrame(box, frame.h);
+    const dz = view.buttonRect(inner, .zoom_in);
+    try testing.expect(app.mouseDown(dz.x + 4, dz.y + 4));
+    try testing.expectApproxEqAbs(@as(f32, 1.1), app.images.viewState(key ^ app.dialog_salt).zoom, 0.001);
+    const close = view.closeRect(box);
+    try testing.expect(app.mouseDown(close.x + 4, close.y + 4));
+    try testing.expect(app.dialog == null);
+
+    var found_link = false;
+    for (app.hits.items) |h| found_link = found_link or (h.content.links.len == 1 and std.mem.eql(u8, h.content.links[0].target, view.docs_url));
+    try testing.expect(found_link);
 }

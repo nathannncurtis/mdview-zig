@@ -27,7 +27,7 @@ const data = [_][]const u8{
 
 const Builder = struct {
     // SAFETY: only ops[0..n] is ever read
-    ops: [160]Op = undefined,
+    ops: [400]Op = undefined,
     n: usize = 0,
     cx: f64 = 0,
     cy: f64 = 0,
@@ -149,7 +149,7 @@ fn flag(comptime d: []const u8, i: *usize) bool {
 }
 
 fn build(comptime d: []const u8) Builder {
-    @setEvalBranchQuota(400000);
+    @setEvalBranchQuota(4000000);
     var b: Builder = .{};
     var i: usize = 0;
     var cmd: u8 = 0;
@@ -244,6 +244,53 @@ test "icons end where they start and stay on the grid" {
     const info = icon(.note);
     try std.testing.expectEqual(@as(f32, 16), info[2].cubic[4]);
     try std.testing.expectEqual(@as(f32, 8), info[2].cubic[5]);
+}
+
+/// The icons GitHub draws on the Mermaid controls: the ones inside the frame are 16px, the close button of the dialog is 24px.
+pub const Octicon = enum { zoom_in, zoom_out, sync, up, down, left, right, expand, copy, check, close };
+
+// Octicons (github.com/primer/octicons, MIT), the path data of the buttons on a github.com page.
+const octicon_data = [_][]const u8{
+    "M3.75 7.5a.75.75 0 0 1 .75-.75h2.25V4.5a.75.75 0 0 1 1.5 0v2.25h2.25a.75.75 0 0 1 0 1.5H8.25v2.25a.75.75 0 0 1-1.5 0V8.25H4.5a.75.75 0 0 1-.75-.75ZM7.5 0a7.5 7.5 0 0 1 5.807 12.247l2.473 2.473a.749.749 0 1 1-1.06 1.06l-2.473-2.473A7.5 7.5 0 1 1 7.5 0Zm-6 7.5a6 6 0 1 0 12 0 6 6 0 0 0-12 0Z",
+    "M4.5 6.75h6a.75.75 0 0 1 0 1.5h-6a.75.75 0 0 1 0-1.5ZM0 7.5a7.5 7.5 0 1 1 13.307 4.747l2.473 2.473a.749.749 0 1 1-1.06 1.06l-2.473-2.473A7.5 7.5 0 0 1 0 7.5Zm7.5-6a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z",
+    "M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z",
+    "M3.22 10.53a.749.749 0 0 1 0-1.06l4.25-4.25a.749.749 0 0 1 1.06 0l4.25 4.25a.749.749 0 1 1-1.06 1.06L8 6.811 4.28 10.53a.749.749 0 0 1-1.06 0Z",
+    "M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z",
+    "M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06Z",
+    "M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z",
+    "M3.72 3.72a.75.75 0 0 1 1.06 1.06L2.56 7h10.88l-2.22-2.22a.75.75 0 0 1 1.06-1.06l3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 1 1-1.06-1.06l2.22-2.22H2.56l2.22 2.22a.75.75 0 1 1-1.06 1.06l-3.5-3.5a.75.75 0 0 1 0-1.06l3.5-3.5Z",
+    "M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25v-7.5ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25v-7.5Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25h-7.5Z",
+    "M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z",
+    "M5.72 5.72a.75.75 0 011.06 0L12 10.94l5.22-5.22a.75.75 0 111.06 1.06L13.06 12l5.22 5.22a.75.75 0 11-1.06 1.06L12 13.06l-5.22 5.22a.75.75 0 01-1.06-1.06L10.94 12 5.72 6.78a.75.75 0 010-1.06z",
+};
+
+pub fn octicon(o: Octicon) []const Op {
+    return switch (o) {
+        inline else => |k| comptime blk: {
+            const b = build(octicon_data[@intFromEnum(k)]);
+            const out = b.ops[0..b.n].*;
+            break :blk &out;
+        },
+    };
+}
+
+pub fn octiconSize(o: Octicon) f32 {
+    return if (o == .close) 24 else 16;
+}
+
+test "the control icons start with a move, end closed and stay on their grid" {
+    inline for (comptime std.enums.values(Octicon)) |o| {
+        const ops_ = octicon(o);
+        try std.testing.expect(ops_.len > 8);
+        try std.testing.expect(ops_[0] == .move);
+        try std.testing.expect(ops_[ops_.len - 1] == .close);
+        const size = octiconSize(o);
+        for (ops_) |op| switch (op) {
+            .move, .line => |p| try std.testing.expect(p[0] >= -0.01 and p[0] <= size + 0.01 and p[1] >= -0.01 and p[1] <= size + 0.01),
+            .cubic => |q| try std.testing.expect(q[4] >= -0.01 and q[4] <= size + 0.01 and q[5] >= -0.01 and q[5] <= size + 0.01),
+            .close => {},
+        };
+    }
 }
 
 // A page with a torn corner holding a hill and a sun; the frame is wound against its hole.

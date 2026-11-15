@@ -6,6 +6,7 @@ const hl = @import("../../markdown/highlight.zig");
 const alerts = @import("../../markdown/alerts.zig");
 const html = @import("html.zig");
 const tables = @import("tables.zig");
+const view = @import("mermaid").view;
 const c = @import("c");
 
 // ============================================================
@@ -91,7 +92,7 @@ pub const text_color = hexColor(0xc9d1d9);
 const h1_color = hexColor(0xf0f6fc);
 const h2_color = hexColor(0xe6edf3);
 const h3_color = hexColor(0xd2d8de);
-const code_bg_color = hexColor(0x161b22);
+const code_bg_color = hexColor(0x151b23);
 const border_color = hexColor(0x30363d);
 pub const table_border_color = hexColor(0x3d444d);
 pub const stripe_color = hexColor(0x151b23);
@@ -1122,7 +1123,9 @@ fn drawErrorBox(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, cg_y: CG
     const content = app.images.flow(content_in);
     const attr_str = createRichAttrStr(content, font, text_color, @max(w - 34, 20)) orelse return 0;
     defer c.CFRelease(attr_str);
-    const h = suggestSize(@ptrCast(attr_str), @max(w - 34, 20)).height + 32;
+    const text_h = suggestSize(@ptrCast(attr_str), @max(w - 34, 20)).height;
+    const h = text_h + 32;
+    noteHit(content, x + 17, cg_y - 16, @max(w - 34, 20), text_h, .body, false, .none);
     c.CGContextSetRGBFillColor(ctx, err_border_color.r, err_border_color.g, err_border_color.b, 1.0);
     drawRoundedRect(ctx, cgRect(x, cg_y - h, w, h), 6.0);
     c.CGContextFillPath(ctx);
@@ -1131,6 +1134,187 @@ fn drawErrorBox(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, cg_y: CG
     c.CGContextFillPath(ctx);
     _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x + 17, cg_y - 16, @max(w - 34, 20));
     return h;
+}
+
+fn cgBox(r: view.Rect) CGRect {
+    return cgRect(r.x, g_height - r.y - r.h, r.w, r.h);
+}
+
+fn fillIcon(ctx: c.CGContextRef, o: alerts.Octicon, x: CGFloat, screen_y: CGFloat, hex: u24) void {
+    const col = colorOf(hex);
+    const top = g_height - screen_y;
+    const path = c.CGPathCreateMutable();
+    defer c.CGPathRelease(path);
+    for (alerts.octicon(o)) |op| switch (op) {
+        .move => |p| c.CGPathMoveToPoint(path, null, x + p[0], top - p[1]),
+        .line => |p| c.CGPathAddLineToPoint(path, null, x + p[0], top - p[1]),
+        .cubic => |q| c.CGPathAddCurveToPoint(path, null, x + q[0], top - q[1], x + q[2], top - q[3], x + q[4], top - q[5]),
+        .close => c.CGPathCloseSubpath(path),
+    };
+    c.CGContextSetRGBFillColor(ctx, col.r, col.g, col.b, 1.0);
+    c.CGContextAddPath(ctx, path);
+    c.CGContextEOFillPath(ctx);
+}
+
+fn drawButton(ctx: c.CGContextRef, frame: view.Rect, b: view.Button, copied: bool) void {
+    const r = view.buttonRect(frame, b);
+    const border = colorOf(view.button_border);
+    const fill = colorOf(view.button_bg);
+    c.CGContextSetRGBFillColor(ctx, border.r, border.g, border.b, 1.0);
+    drawRoundedRect(ctx, cgBox(r), view.button_radius);
+    c.CGContextFillPath(ctx);
+    c.CGContextSetRGBFillColor(ctx, fill.r, fill.g, fill.b, 1.0);
+    drawRoundedRect(ctx, cgBox(.{ .x = r.x + 1, .y = r.y + 1, .w = r.w - 2, .h = r.h - 2 }), view.button_radius - 1);
+    c.CGContextFillPath(ctx);
+    const name = if (b == .copy and copied) "check" else view.iconName(b);
+    const icon = std.meta.stringToEnum(alerts.Octicon, name) orelse return;
+    fillIcon(ctx, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, view.iconColor(b, copied));
+}
+
+/// GitHub's "Copied!" bubble under the copy button, fading in over 0.1s.
+fn drawCopiedTip(ctx: c.CGContextRef, button: view.Rect) void {
+    const font = createFont("Helvetica Neue", view.tip_font_px, false, false);
+    defer c.CFRelease(font);
+    const attr = createRichAttrStr(.{ .text = "Copied!" }, font, text_color, 200) orelse return;
+    defer c.CFRelease(attr);
+    const size = suggestSize(@ptrCast(attr), 200);
+    const r = view.tipRect(button, @floatCast(size.width));
+    const bg = colorOf(view.tip_bg);
+    c.CGContextSetAlpha(ctx, app.copiedAlpha());
+    c.CGContextBeginTransparencyLayer(ctx, null);
+    c.CGContextSetRGBFillColor(ctx, bg.r, bg.g, bg.b, 1.0);
+    drawRoundedRect(ctx, cgBox(r), view.tip_radius);
+    c.CGContextFillPath(ctx);
+    const white = colorOf(view.tip_text);
+    const text = createRichAttrStr(.{ .text = "Copied!" }, font, white, 200) orelse {
+        c.CGContextEndTransparencyLayer(ctx);
+        c.CGContextSetAlpha(ctx, 1.0);
+        return;
+    };
+    defer c.CFRelease(text);
+    _ = measureAndDrawAttrStr(ctx, @ptrCast(text), r.x + view.tip_pad_x, g_height - (r.y + (r.h - size.height) / 2), 200);
+    c.CGContextEndTransparencyLayer(ctx);
+    c.CGContextSetAlpha(ctx, 1.0);
+}
+
+/// A rendered diagram in its frame with GitHub's controls; the frame clips what zoom and pan push out of it. A frame in the
+/// dialog has no expand and copy buttons.
+fn drawDiagram(ctx: c.CGContextRef, source: []const u8, x: CGFloat, screen_y: CGFloat, w: CGFloat, size: app.images.Size, in_dialog: bool) CGFloat {
+    const fh = view.frameHeight(size.h);
+    const key = app.images.diagramKey(source) ^ (if (in_dialog) app.dialog_salt else 0);
+    const frame: view.Rect = .{ .x = @floatCast(x), .y = @floatCast(screen_y), .w = @floatCast(w), .h = fh };
+    const doc_y: f32 = if (in_dialog) frame.y else frame.y + app.scroll_y;
+    app.noteDiagram(.{ .x = frame.x, .y = doc_y, .w = frame.w, .h = frame.h }, key, source, in_dialog);
+    if (frame.y + fh < 0 or frame.y > g_height) return fh;
+    const dest = view.placed(frame, size.w, size.h, app.images.viewState(key).*);
+    c.CGContextSaveGState(ctx);
+    c.CGContextClipToRect(ctx, cgBox(frame));
+    if (app.images.diagramBitmap(source, dest, frame)) |bm| {
+        c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
+        c.CGContextDrawImage(ctx, cgBox(bm.rect), @ptrCast(bm.native));
+    }
+    c.CGContextRestoreGState(ctx);
+    const copied = app.isCopied(key);
+    for (std.enums.values(view.Button)) |b| {
+        if (view.isAction(b) and in_dialog) continue;
+        drawButton(ctx, frame, b, copied);
+    }
+    if (copied and !in_dialog) drawCopiedTip(ctx, view.buttonRect(frame, .copy));
+    return fh;
+}
+
+/// The block of a diagram that has not rendered: GitHub's spinner, 40 down from the top and centred.
+fn drawSpinner(ctx: c.CGContextRef, block: view.Rect) void {
+    app.images.animate(16);
+    const at = view.spinnerAt(block);
+    const col = colorOf(view.frame_icon);
+    c.CGContextSetLineCap(ctx, c.kCGLineCapRound);
+    c.CGContextSetLineWidth(ctx, view.spinner_stroke);
+    c.CGContextSetRGBStrokeColor(ctx, col.r, col.g, col.b, 0.25);
+    const ring = view.spinnerRing();
+    c.CGContextMoveToPoint(ctx, at[0] + ring[0][0], g_height - (at[1] + ring[0][1]));
+    for (ring[1..]) |p| c.CGContextAddLineToPoint(ctx, at[0] + p[0], g_height - (at[1] + p[1]));
+    c.CGContextStrokePath(ctx);
+    c.CGContextSetRGBStrokeColor(ctx, col.r, col.g, col.b, 1.0);
+    const turn = @as(f32, @floatFromInt(@mod(app.images.now(), 1000))) / 1000;
+    const arc = view.spinnerArc(turn);
+    c.CGContextMoveToPoint(ctx, at[0] + arc[0][0], g_height - (at[1] + arc[0][1]));
+    for (arc[1..]) |p| c.CGContextAddLineToPoint(ctx, at[0] + p[0], g_height - (at[1] + p[1]));
+    c.CGContextStrokePath(ctx);
+}
+
+/// The dialog of the expand button over a dimmed page.
+pub fn drawDialog(ctx: c.CGContextRef) void {
+    const d = app.dialog orelse return;
+    c.CGContextSetAlpha(ctx, app.dialogAlpha());
+    c.CGContextBeginTransparencyLayer(ctx, null);
+    defer {
+        c.CGContextEndTransparencyLayer(ctx);
+        c.CGContextSetAlpha(ctx, 1.0);
+    }
+    const dim = colorOf(view.modal_backdrop);
+    c.CGContextSetRGBFillColor(ctx, dim.r, dim.g, dim.b, view.modal_backdrop_alpha);
+    c.CGContextFillRect(ctx, cgRect(0, 0, app.window_width, app.window_height));
+    const box = view.modalRect(app.window_width, app.window_height, d.frame_h);
+    for (0..view.shadow_rings) |i| {
+        const ring = view.shadowRing(i);
+        c.CGContextSetRGBFillColor(ctx, 0, 0, 0, ring.alpha);
+        drawRoundedRect(ctx, cgBox(.{ .x = box.x - ring.grow, .y = box.y - ring.grow, .w = box.w + 2 * ring.grow, .h = box.h + 2 * ring.grow }), 6 + ring.grow);
+        c.CGContextFillPath(ctx);
+    }
+    const border = colorOf(view.modal_border);
+    const bg = colorOf(view.modal_bg);
+    c.CGContextSetRGBFillColor(ctx, border.r, border.g, border.b, 1.0);
+    drawRoundedRect(ctx, cgBox(box), 6);
+    c.CGContextFillPath(ctx);
+    c.CGContextSetRGBFillColor(ctx, bg.r, bg.g, bg.b, 1.0);
+    drawRoundedRect(ctx, cgBox(.{ .x = box.x + 1, .y = box.y + 1, .w = box.w - 2, .h = box.h - 2 }), 5);
+    c.CGContextFillPath(ctx);
+    const close = view.closeRect(box);
+    fillIcon(ctx, .close, close.x + (close.w - 24) / 2, close.y + (close.h - 24) / 2, view.close_icon);
+    const frame = view.modalFrame(box, d.frame_h);
+    switch (app.images.diagram(d.source, frame.w)) {
+        .picture => |size| _ = drawDiagram(ctx, d.source, frame.x, frame.y, frame.w, size, true),
+        .pending => drawSpinner(ctx, frame),
+        else => {},
+    }
+}
+
+/// GitHub's error box for a diagram: a bold title, a 16px gap and the message, in a 1px red border with 20px padding.
+fn drawDiagramError(ctx: c.CGContextRef, title: md.Inline, body: md.Inline, x: CGFloat, cg_y: CGFloat, w: CGFloat, font: c.CTFontRef) CGFloat {
+    const inner = @max(w - 2 * view.error_left, 20);
+    const title_str = createRichAttrStr(title, font, text_color, inner) orelse return 0;
+    defer c.CFRelease(title_str);
+    const body_str = createRichAttrStr(body, font, text_color, inner) orelse return 0;
+    defer c.CFRelease(body_str);
+    const ht = suggestSize(@ptrCast(title_str), inner).height;
+    const hb = suggestSize(@ptrCast(body_str), inner).height;
+    const h = 2 * view.error_top + ht + view.error_title_gap + hb;
+    const body_off = view.error_top + ht + view.error_title_gap;
+    const bg = colorOf(view.error_bg);
+    c.CGContextSetRGBFillColor(ctx, err_border_color.r, err_border_color.g, err_border_color.b, 1.0);
+    drawRoundedRect(ctx, cgRect(x, cg_y - h, w, h), 6.0);
+    c.CGContextFillPath(ctx);
+    c.CGContextSetRGBFillColor(ctx, bg.r, bg.g, bg.b, 1.0);
+    drawRoundedRect(ctx, cgRect(x + 1, cg_y - h + 1, w - 2, h - 2), 5.0);
+    c.CGContextFillPath(ctx);
+    _ = measureAndDrawAttrStr(ctx, @ptrCast(title_str), x + view.error_left, cg_y - view.error_top, inner);
+    _ = measureAndDrawAttrStr(ctx, @ptrCast(body_str), x + view.error_left, cg_y - body_off, inner);
+    noteHit(body, x + view.error_left, cg_y - body_off, inner, hb, .body, false, .none);
+    return h;
+}
+
+/// Puts `text` on the general pasteboard as plain text.
+pub fn setClipboard(text: []const u8) void {
+    const cf = cfString(text) orelse return;
+    defer c.CFRelease(cf);
+    const kind = cfString("public.utf8-plain-text") orelse return;
+    defer c.CFRelease(kind);
+    const board = msgSend_id(objcClass("NSPasteboard"), sel("generalPasteboard"));
+    if (board == null) return;
+    _ = msgSend_i64(board, sel("clearContents"));
+    const set: *const fn (id, SEL, id, id) callconv(.c) u8 = @ptrCast(&c.objc_msgSend);
+    _ = set(board, sel("setString:forType:"), @constCast(@ptrCast(cf)), @constCast(@ptrCast(kind)));
 }
 
 fn drawMarker(ctx: c.CGContextRef, m: md.Mark, x: CGFloat, cg_y: CGFloat, font: c.CTFontRef) void {
@@ -1313,6 +1497,18 @@ fn layoutExtent(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, avai
             },
             .math => content_h = drawMathBlock(ctx, block.content.text, text_col, x, cg_y, w, screen_y + scroll, top),
             .code_block => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
+            .diagram => switch (app.images.diagram(block.content.text, @floatCast(w))) {
+                .code => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
+                .err => |box| {
+                    const box_h = drawDiagramError(ctx, box.title, box.body, x, cg_y, w, f.body);
+                    content_h = box_h + drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y - box_h, w);
+                },
+                .pending => {
+                    drawSpinner(ctx, .{ .x = @floatCast(x), .y = @floatCast(screen_y), .w = @floatCast(w), .h = view.pending_h });
+                    content_h = view.pending_h;
+                },
+                .picture => |size| content_h = drawDiagram(ctx, block.content.text, x, screen_y, w, size, false),
+            },
             .table => if (block.table.float == .none) {
                 content_h = tables.drawTable(ctx, block.table, x, cg_y, w, f.body, true, null);
             } else {
@@ -1399,6 +1595,7 @@ fn drawContent(ctx: c.CGContextRef, width: CGFloat, height: CGFloat) void {
     c.CGContextMoveToPoint(ctx, cx + off, cy - off);
     c.CGContextAddLineToPoint(ctx, cx - off, cy + off);
     c.CGContextStrokePath(ctx);
+    drawDialog(ctx);
     if (app.tooltip) |t| drawTooltip(ctx, t, width, height);
 }
 
@@ -1473,6 +1670,7 @@ fn keyDownCallback(_self: id, _sel: SEL, event: id) callconv(.c) void {
         if (key_code == 30) app.goForward();
     }
 
+    if (key_code == 53) app.closeDialog();
     // Q = keyCode 12
     if (key_code == 12 and ((mod_flags & cmd_mask) != 0 or (mod_flags & ctrl_mask) != 0)) {
         app.saveScrollPosition();
