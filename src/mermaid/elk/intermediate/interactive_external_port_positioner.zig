@@ -65,7 +65,7 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
         if (node.type != .external_port) {
             var buf: [256]u8 = undefined;
             var upper: [32]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "The node type {s} is not supported by the class org.eclipse.elk.alg.layered.intermediate.InteractiveExternalPortPositioner", .{std.ascii.upperString(&upper, @tagName(node.type))}) catch unreachable;
+            const msg = std.fmt.bufPrint(&buf, "The node type {s} is not supported by the class org.eclipse.elk.alg.layered.intermediate.InteractiveExternalPortPositioner", .{std.ascii.upperString(&upper, @tagName(node.type))}) catch "";
             lg.setElkMessage(msg);
             return error.ElkException;
         }
