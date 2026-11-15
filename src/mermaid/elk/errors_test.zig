@@ -32,6 +32,7 @@ test "FIRST node with an incoming edge throws the layer constraint message" {
     const nodes = try linkedPair(a, g);
     nodes[1].p.layer_constraint = .first;
     const layer = try g.newLayer();
+    try g.layers.append(a, layer);
     try nodes[0].setLayer(layer);
     try nodes[1].setLayer(layer);
     try std.testing.expectError(error.ElkException, post.process(g));
@@ -46,6 +47,7 @@ test "LAST node with an outgoing edge throws the layer constraint message" {
     const nodes = try linkedPair(a, g);
     nodes[0].p.layer_constraint = .last;
     const layer = try g.newLayer();
+    try g.layers.append(a, layer);
     try nodes[0].setLayer(layer);
     try nodes[1].setLayer(layer);
     try std.testing.expectError(error.ElkException, post.process(g));
