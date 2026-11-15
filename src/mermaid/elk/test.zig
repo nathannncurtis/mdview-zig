@@ -13,6 +13,13 @@ test {
     _ = @import("p4nodes/test.zig");
     _ = @import("p5edges/test.zig");
     _ = @import("graph/test.zig");
+    _ = @import("stress/test.zig");
+    _ = @import("force/test.zig");
+    _ = @import("mrtree/test.zig");
+    _ = @import("spore/test.zig");
+    _ = @import("box/test.zig");
+    _ = @import("rectpacking/test.zig");
+    _ = @import("radial/test.zig");
 }
 
 const node_tol = 0.5;
