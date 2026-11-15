@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60">
+  <filter id="sl" x="0" y="0" width="1" height="1"><feGaussianBlur in="SourceAlpha" stdDeviation="2" result="b"/><feSpecularLighting in="b" surfaceScale="5" specularConstant="1.2" specularExponent="20" lighting-color="#fff" result="s"><fePointLight x="40" y="15" z="25"/></feSpecularLighting><feComposite in="s" in2="SourceAlpha" operator="in" result="c"/><feComposite in="SourceGraphic" in2="c" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/></filter>
+  <rect x="8" y="8" width="44" height="44" rx="14" fill="#2e7d32" filter="url(#sl)"/>
+</svg>
