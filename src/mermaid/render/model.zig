@@ -236,11 +236,15 @@ test {
     _ = dom;
 }
 
+/// What the host knows about an image a diagram names; `pending` is a load still under way (size unknown for now).
+pub const ImageProbe = union(enum) { size: struct { w: f32, h: f32 }, pending, failed };
+
 pub const Ctx = struct {
     a: Allocator,
     measurer: Measurer,
     cfg: *const Config,
     diagram_id: []const u8,
+    image_probe: ?*const fn (href: []const u8) ImageProbe = null,
     /// The engine the diagram's `layout` setting names; anything but dagre takes the flat path.
     layout: layout_mod.Engine = .dagre,
 };

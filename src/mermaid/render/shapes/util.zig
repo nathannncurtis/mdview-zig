@@ -8,7 +8,7 @@ const El = dom.El;
 const Point = model.Point;
 const NodeData = model.NodeData;
 
-pub const Error = Allocator.Error || error{NoSuchShape};
+pub const Error = Allocator.Error || error{ NoSuchShape, ImageDecode };
 
 pub const Opts = struct { dir: ?[]const u8 = null };
 

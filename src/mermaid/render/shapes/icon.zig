@@ -10,9 +10,6 @@ const NodeData = model.NodeData;
 const Opts = u.Opts;
 const Error = u.Error;
 
-// Stand-in for the image loader: integration sets it once src/images.zig can report natural sizes.
-pub var natural_size_fn: ?*const fn (href: []const u8) ?[2]f64 = null;
-
 const Kind = enum { square, rounded, circle, plain };
 
 fn styleValue(node: *const NodeData, key: []const u8) ?[]const u8 {
@@ -220,7 +217,12 @@ pub fn icon(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) Error!
 pub fn imageSquare(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) Error!*El {
     const a = ctx.a;
     const href = node.img orelse "";
-    const natural: [2]f64 = if (natural_size_fn) |f| (f(href) orelse .{ 0, 0 }) else .{ 0, 0 };
+    const probe = ctx.image_probe orelse return error.ImageDecode;
+    const natural: [2]f64 = switch (probe(href)) {
+        .size => |s| .{ s.w, s.h },
+        .pending => .{ 0, 0 },
+        .failed => return error.ImageDecode,
+    };
     const aspect: f64 = if (natural[1] != 0) natural[0] / natural[1] else 1;
     node.image_aspect_ratio = aspect;
 

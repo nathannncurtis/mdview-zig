@@ -17,14 +17,18 @@ fn measure(_: ?*anyopaque, text: []const u8, _: model.Font) f64 {
     return 0;
 }
 
-fn natural(_: []const u8) ?[2]f64 {
-    return .{ 40, 20 };
+fn natural(_: []const u8) model.ImageProbe {
+    return .{ .size = .{ .w = 40, .h = 20 } };
+}
+
+fn failing(_: []const u8) model.ImageProbe {
+    return .failed;
 }
 
 fn size(arena: *std.heap.ArenaAllocator, node: model.NodeData) ![2]f64 {
     const cfg = model.testConfig(arena.allocator());
     var dummy: u8 = 0;
-    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, measure), .cfg = &cfg, .diagram_id = "t" };
+    const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, measure), .cfg = &cfg, .diagram_id = "t", .image_probe = natural };
     const root = try dom.El.create(ctx.a, "g");
     var n = node;
     n.padding = 15;
@@ -51,8 +55,6 @@ test "icon shapes match mermaid node sizes" {
 }
 
 test "image shapes match mermaid node sizes" {
-    icon.natural_size_fn = natural;
-    defer icon.natural_size_fn = null;
     const u = "data:x";
     try expectSize(.{ .id = "A", .shape = "imageSquare", .img = u, .label = "pic", .pos = 'b', .asset_width = 100, .asset_height = 60 }, 120, 96);
     try expectSize(.{ .id = "A", .shape = "imageSquare", .img = u, .label = "pic", .asset_width = 100, .asset_height = 60, .constraint = "on" }, 120, 96);
@@ -60,4 +62,18 @@ test "image shapes match mermaid node sizes" {
     try expectSize(.{ .id = "A", .shape = "imageSquare", .img = u, .label = "top label", .pos = 't', .asset_height = 90, .constraint = "on" }, 180, 126);
     try expectSize(.{ .id = "A", .shape = "imageSquare", .img = u }, 40, 20);
     try expectSize(.{ .id = "A", .shape = "imageSquare", .img = u, .label = "pic", .constraint = "on" }, 120, 96);
+}
+
+test "an image shape fails when the probe fails or is missing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = model.testConfig(arena.allocator());
+    var dummy: u8 = 0;
+    const probes = [_]?*const fn ([]const u8) model.ImageProbe{ failing, null };
+    for (probes) |p| {
+        const ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&dummy, measure), .cfg = &cfg, .diagram_id = "t", .image_probe = p };
+        const root = try dom.El.create(ctx.a, "g");
+        var n: model.NodeData = .{ .id = "A", .shape = "imageSquare", .img = "x.png" };
+        try std.testing.expectError(error.ImageDecode, shapes.insert(&ctx, root, &n, .{}));
+    }
 }
