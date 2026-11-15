@@ -169,6 +169,7 @@ test {
     _ = @import("../render/geom.zig");
     _ = @import("../render/pathlen.zig");
     _ = @import("../render/intersect.zig");
+    _ = @import("../render/line_jump.zig");
     _ = @import("../render/labels.zig");
     _ = @import("../render/markers.zig");
     _ = @import("../render/shapes_test.zig");
