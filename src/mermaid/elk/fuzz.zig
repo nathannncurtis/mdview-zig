@@ -3,6 +3,8 @@ const mermaid = @import("mermaid.zig");
 
 const max_input = 1024;
 
+const layering_strategies = [_][]const u8{ "NETWORK_SIMPLEX", "LONGEST_PATH", "LONGEST_PATH_SOURCE", "COFFMAN_GRAHAM", "MIN_WIDTH", "STRETCH_WIDTH", "INTERACTIVE" };
+
 fn seed(comptime bytes: []const u8) []const u8 {
     comptime {
         const len: [4]u8 = @bitCast(std.mem.nativeToLittle(u32, bytes.len));
@@ -101,13 +103,37 @@ pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
         });
     }
 
-    const cfg: mermaid.Config = .{ .direction = switch (r.next() % 5) {
+    const presets = [_][]const u8{ "default", "legacy", "modelOrder", "depthFirst" };
+    const cycle_breakers = [_]?[]const u8{ null, "GREEDY", "DEPTH_FIRST", "INTERACTIVE", "MODEL_ORDER", "GREEDY_MODEL_ORDER" };
+    const orderings = [_][]const u8{ "NONE", "NODES_AND_EDGES", "PREFER_EDGES", "PREFER_NODES" };
+    const direction: mermaid.Dir = switch (r.next() % 5) {
         0 => .tb,
         1 => .td,
         2 => .bt,
         3 => .lr,
         else => .rl,
-    } };
+    };
+    const placements = [_][]const u8{ "BRANDES_KOEPF", "SIMPLE", "LINEAR_SEGMENTS", "NETWORK_SIMPLEX" };
+    const alignments = [_][]const u8{ "NONE", "LEFTUP", "LEFTDOWN", "RIGHTUP", "RIGHTDOWN", "BALANCED" };
+    const strategy = layering_strategies[r.next() % layering_strategies.len];
+    const flags = r.next();
+    const cfg: mermaid.Config = .{
+        .direction = direction,
+        .elk = .{
+            .preset = presets[r.next() % presets.len],
+            .cycle_breaking_strategy = cycle_breakers[r.next() % cycle_breakers.len],
+            .consider_model_order = orderings[r.next() % orderings.len],
+            .force_node_model_order = flags & 1 != 0,
+            .merge_edges = flags & 2 != 0,
+            .keep_entry_node_on_top = flags & 4 != 0,
+            .node_placement_strategy = placements[r.next() % placements.len],
+            .node_placement_alignment = alignments[r.next() % alignments.len],
+            .layering_strategy = strategy,
+            .layering_layer_bound = 1 + @as(f64, @floatFromInt(r.next() % 6)),
+        },
+        .orient_feedback_edges = flags & 8 == 0,
+        .straighten_edges = flags & 16 == 0,
+    };
     const res = mermaid.layout(a, nodes, edges.items, cfg) catch return;
     for (res.nodes) |nd| {
         try std.testing.expect(std.math.isFinite(nd.x) and std.math.isFinite(nd.y));

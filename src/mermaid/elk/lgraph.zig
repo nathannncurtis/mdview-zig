@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 pub const Error = Allocator.Error || error{ Unsupported, ElkException };
 
-threadlocal var elk_message_buf: [512]u8 = undefined;
+threadlocal var elk_message_buf: [2048]u8 = undefined;
 threadlocal var elk_message_len: usize = 0;
 
 pub fn setElkMessage(msg: []const u8) void {
@@ -143,6 +143,22 @@ pub const HierarchyHandling = enum { inherit, separate_children, include_childre
 pub const CycleBreaking = enum { greedy, depth_first, interactive, model_order, greedy_model_order };
 pub const Layering = enum { network_simplex, longest_path, longest_path_source, coffman_graham, interactive, stretch_width, min_width, bf_model_order, df_model_order };
 pub const NodePlacement = enum { simple, interactive, linear_segments, brandes_koepf, network_simplex };
+pub const NodeFlexibility = enum {
+    none,
+    port_position,
+    node_size_where_space_permits,
+    node_size,
+
+    pub fn isFlexibleSize(f: NodeFlexibility) bool {
+        return f == .node_size;
+    }
+    pub fn isFlexibleSizeWhereSpacePermits(f: NodeFlexibility) bool {
+        return f == .node_size_where_space_permits or f == .node_size;
+    }
+    pub fn isFlexiblePorts(f: NodeFlexibility) bool {
+        return f == .port_position or f.isFlexibleSizeWhereSpacePermits();
+    }
+};
 pub const FixedAlignment = enum { none, leftdown, rightdown, leftup, rightup, balanced };
 pub const OrderingStrategy = enum { none, nodes_and_edges, prefer_edges, prefer_nodes };
 pub const LongEdgeOrderingStrategy = enum { dummy_node_over, dummy_node_under, equal };
@@ -231,9 +247,15 @@ pub const Props = struct {
     inside_self_loops_yo: bool = false,
     cycle_breaking: CycleBreaking = .greedy,
     layering: Layering = .network_simplex,
+    layering_coffman_graham_layer_bound: i32 = std.math.maxInt(i32),
+    layering_min_width_upper_bound_on_width: i32 = 4,
+    layering_min_width_upper_layer_estimation_scaling_factor: i32 = 2,
     node_placement: NodePlacement = .brandes_koepf,
     bk_fixed_alignment: FixedAlignment = .none,
     bk_edge_straightening: bool = true,
+    node_flexibility: ?NodeFlexibility = null,
+    node_flexibility_default: NodeFlexibility = .none,
+    linear_segments_deflection_dampening: f64 = 0.3,
     favor_straight_edges: ?bool = null,
     consider_model_order: OrderingStrategy = .none,
     force_node_model_order: bool = false,
@@ -303,6 +325,7 @@ pub const Props = struct {
     end_label_edge: ?*LEdge = null,
     original_dummy_node_position: ?f64 = null,
     origin: Origin = .none,
+    origin_id: []const u8 = "",
     coordinate_system_origin: ?*LGraph = null,
     hidden_nodes: std.ArrayList(*LNode) = .empty,
     original_opposite_port: ?*LPort = null,
@@ -486,6 +509,11 @@ pub const LNode = struct {
         self.layer = l;
         try l.nodes.insert(self.a, idx, self);
     }
+    // NodeFlexibility.getNodeFlexibility
+    pub fn nodeFlexibility(self: *const LNode) NodeFlexibility {
+        return self.p.node_flexibility orelse self.graph.?.p.node_flexibility_default;
+    }
+
     pub fn index(self: *const LNode) usize {
         if (self.layer) |l| {
             for (l.nodes.items, 0..) |n, i| if (n == self) return i;

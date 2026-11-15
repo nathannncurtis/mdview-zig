@@ -2,6 +2,7 @@
 // original_opposite_port (edges), hidden_nodes (graph).
 const std = @import("std");
 const lg = @import("../lgraph.zig");
+const gu = @import("../graph_util.zig");
 
 pub fn process(g: *lg.LGraph) lg.Error!void {
     var hidden: std.ArrayList(*lg.LNode) = .empty;
@@ -63,13 +64,17 @@ fn updateOppositeNodeLayerConstraints(hidden_node: *lg.LNode, opposite: *lg.LNod
     }
 }
 
-fn ensureNoInacceptableEdges(node: *lg.LNode) error{Unsupported}!void {
+fn ensureNoInacceptableEdges(node: *lg.LNode) lg.Error!void {
     const lc = node.p.layer_constraint;
     for (node.ports.items) |port| {
         if (lc == .first_separate) {
-            for (port.incoming.items) |e| if (!isAcceptableIncidentEdge(e)) return error.Unsupported;
+            for (port.incoming.items) |e| if (!isAcceptableIncidentEdge(e)) {
+                return gu.elkFail(node.a, "Node '{s}' has its layer constraint set to FIRST_SEPARATE, but has at least one incoming edge. FIRST_SEPARATE nodes must not have incoming edges.", .{try gu.designation(node.a, node)});
+            };
         } else if (lc == .last_separate) {
-            for (port.outgoing.items) |e| if (!isAcceptableIncidentEdge(e)) return error.Unsupported;
+            for (port.outgoing.items) |e| if (!isAcceptableIncidentEdge(e)) {
+                return gu.elkFail(node.a, "Node '{s}' has its layer constraint set to LAST_SEPARATE, but has at least one outgoing edge. LAST_SEPARATE nodes must not have outgoing edges.", .{try gu.designation(node.a, node)});
+            };
         }
     }
 }
