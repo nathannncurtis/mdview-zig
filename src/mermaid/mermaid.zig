@@ -16,6 +16,7 @@ pub const info = @import("info.zig");
 pub const flowchart = @import("flowchart/flowchart.zig");
 pub const layout = @import("layout.zig");
 pub const fuzz = @import("fuzz.zig");
+pub const view = @import("view.zig");
 
 /// The Mermaid release everything here is ported from.
 pub const version = diagram.version;
@@ -24,6 +25,7 @@ const max_text_size_default: f64 = 50_000;
 const max_text_message = "graph TB;a[Maximum text size in diagram exceeded];style a fill:#faa";
 
 const diagram = @import("diagram.zig");
+pub const ImageProbe = diagram.ImageProbe;
 pub const Error = diagram.Error;
 pub const ClassDef = diagram.ClassDef;
 pub const Acc = diagram.Acc;
@@ -408,6 +410,7 @@ test {
     _ = layout;
     _ = diagram;
     _ = fuzz;
+    _ = view;
 }
 
 test "info renders with the version and theme styles" {
