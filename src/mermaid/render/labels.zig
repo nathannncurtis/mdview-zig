@@ -25,6 +25,8 @@ pub const Atom = struct {
     text: []const u8,
     bold: bool = false,
     italic: bool = false,
+    sub: bool = false,
+    sup: bool = false,
     sp: bool = false,
     brk: bool = false,
 };
@@ -52,6 +54,8 @@ const Builder = struct {
     buf: std.ArrayList(u8) = .empty,
     bold: u32 = 0,
     italic: u32 = 0,
+    sub: u32 = 0,
+    sup: u32 = 0,
 
     fn flush(self: *Builder, brk: bool) Allocator.Error!void {
         if (self.buf.items.len == 0) {
@@ -62,6 +66,8 @@ const Builder = struct {
             .text = try self.a.dupe(u8, self.buf.items),
             .bold = self.bold > 0,
             .italic = self.italic > 0,
+            .sub = self.sub > 0,
+            .sup = self.sup > 0,
             .brk = brk,
         });
         self.buf.clearRetainingCapacity();
@@ -126,6 +132,10 @@ pub fn parseHtml(a: Allocator, s: []const u8) Allocator.Error![]Line {
                     } else if (eqi(name, "b") or eqi(name, "strong")) {
                         try b.flush(false);
                         if (closing) b.bold -|= 1 else b.bold += 1;
+                    } else if (eqi(name, "sub") or eqi(name, "sup")) {
+                        try b.flush(false);
+                        const counter = if (eqi(name, "sub")) &b.sub else &b.sup;
+                        if (closing) counter.* -|= 1 else counter.* += 1;
                     } else if (eqi(name, "i") or eqi(name, "em")) {
                         try b.flush(false);
                         if (closing) b.italic -|= 1 else b.italic += 1;
@@ -294,6 +304,19 @@ fn wrapLine(ctx: *const model.Ctx, a: Allocator, atoms: []const Atom, width: f64
     if (cur.items.len > 0) try out.append(a, cur);
 }
 
+// Chrome grows a line box around raised or lowered runs: at 16px a sub adds 3.171875 and a sup 3.328125.
+fn lineExtra(font_size: f64, atoms: []const Atom) f64 {
+    var sub = false;
+    var sup = false;
+    for (atoms) |at| {
+        sub = sub or at.sub;
+        sup = sup or at.sup;
+    }
+    const below: f64 = if (sub) 3.171875 else 0;
+    const above: f64 = if (sup) 3.328125 else 0;
+    return (below + above) * font_size / 16;
+}
+
 pub const Laid = struct { lines: []Line, w: f64, h: f64 };
 
 pub fn layout(ctx: *const model.Ctx, a: Allocator, html: []const u8, width: f64) Allocator.Error!Laid {
@@ -317,7 +340,9 @@ pub fn layout(ctx: *const model.Ctx, a: Allocator, html: []const u8, width: f64)
     } else {
         try lines.appendSlice(a, raw);
     }
-    return .{ .lines = lines.items, .w = w, .h = lh * @as(f64, @floatFromInt(lines.items.len)) };
+    var h: f64 = 0;
+    for (lines.items) |l| h += lh + lineExtra(ctx.cfg.font_size, l.items);
+    return .{ .lines = lines.items, .w = w, .h = h };
 }
 
 fn dropProps(a: Allocator, style: []const u8) Allocator.Error![]const u8 {
