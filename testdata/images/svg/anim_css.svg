@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60" viewBox="0 0 120 60">
+  <style>
+    @keyframes slide { 0% { transform: translateX(0) } 50% { transform: translateX(60px); opacity: .5 } 100% { transform: translateX(60px); opacity: 1 } }
+    @keyframes grow { 0% { stroke-width: 1 } 100% { stroke-width: 8 } }
+    @keyframes spin { to { transform: rotate(360deg) } }
+    @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
+    .a { animation: slide 2s ease-in-out infinite }
+    .b { animation: grow 1s linear 0.2s alternate infinite; stroke: #8e24aa; fill: none }
+    .c { transform-origin: center; transform-box: fill-box; animation: spin 3s linear infinite }
+    .d { animation: fade 1s steps(4) forwards }
+  </style>
+  <rect class="a" x="8" y="8" width="14" height="14" fill="#43a047"/>
+  <path class="b" d="M10 40 H50"/>
+  <rect class="c" x="80" y="30" width="24" height="24" fill="#fb8c00"/>
+  <circle class="d" cx="30" cy="52" r="6" fill="#3949ab"/>
+</svg>

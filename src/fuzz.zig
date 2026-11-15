@@ -1,7 +1,8 @@
 const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
 const html = @import("markdown/html.zig");
-const font = @import("font/font.zig");
+const font = @import("font");
+const svg = @import("image/svg.zig");
 const image = @import("image/image.zig");
 const fuzz_images = @import("image/fuzz_seeds.zig");
 
@@ -190,4 +191,30 @@ fn fontOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz font.parse" {
     try std.testing.fuzz({}, fontOne, .{ .corpus = &font_corpus });
+}
+
+const svg_corpus = [_][]const u8{
+    seed("<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><rect width='10' height='10' fill='red' stroke='blue'/></svg>"),
+    seed("<svg viewBox='0 0 10 10'><defs><linearGradient id='g'><stop offset='0' stop-color='#f00'/><stop offset='1'/></linearGradient><clipPath id='c'><circle r='4'/></clipPath></defs><path d='M1 1 C 5 9 9 1 9 9 A 3 3 0 1 1 2 2z' fill='url(#g)' clip-path='url(#c)' stroke-dasharray='1 2'/></svg>"),
+    seed("<svg><style>rect{fill:red} .a>g{stroke:blue}</style><g class='a'><use href='#x'/></g><g id='x'><use href='#x'/><text x='1 2' y='5'>hi</text></g></svg>"),
+    seed("<!DOCTYPE svg [<!ENTITY a \"aaaa\"><!ENTITY b \"&a;&a;&a;&a;\">]><svg x='&b;&b;&b;'><filter id='f'><feGaussianBlur stdDeviation='2'/></filter><rect width='5' height='5' filter='url(#f)' mask='url(#m)' opacity='.5'/></svg>"),
+    seed("<svg><pattern id='p' width='2' height='2'><rect width='1' height='1'/></pattern><marker id='m'><path d='M0 0L1 1'/></marker><path d='M0 0L9 9' fill='url(#p)' marker-end='url(#m)'/><image href='data:image/svg+xml;utf8,%3Csvg/%3E' width='4' height='4'/></svg>"),
+    seed(rep("<g opacity='.5'>", 80) ++ "<rect width='3' height='3'/>"),
+    seed("<svg><path d='M 1e308 1e308 L -1e308 3 A 1e300 1e300 0 1 1 3 3 z' stroke='red' stroke-width='1e300'/><circle r='nan'/></svg>"),
+    seed("<svg><text>ÿþÀ¯ &#x110000; &#0;</text></svg>"),
+    seed("<svg><style>@keyframes k{from{opacity:0}to{opacity:1}} @media (prefers-color-scheme:dark){rect{fill:var(--c,calc(1px + 2%))}} rect{animation:k 1s infinite}</style><rect width='4' height='4' style='mix-blend-mode:multiply;filter:blur(1px) drop-shadow(1px 1px 1px red)'><animate attributeName='x' values='0;1e9;-1' dur='1s' repeatCount='indefinite'/></rect><foreignObject width='9' height='9'><div xmlns='http://www.w3.org/1999/xhtml'>a <b>b</b><br/>c</div></foreignObject></svg>"),
+};
+
+fn svgOne(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [1536]u8 = undefined;
+    const input = buf[0..smith.slice(&buf)];
+    _ = svg.isSvg(input);
+    _ = svg.isAnimated(input);
+    if (svg.intrinsicSize(input)) |_| {} else |_| {}
+    var img = svg.renderAt(std.testing.allocator, input, 8, 8, 700) catch return;
+    img.deinit(std.testing.allocator);
+}
+
+test "fuzz svg.render" {
+    try std.testing.fuzz({}, svgOne, .{ .corpus = &svg_corpus });
 }
