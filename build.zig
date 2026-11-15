@@ -80,6 +80,26 @@ pub fn build(b: *std.Build) void {
     run_parser.setCwd(b.path("."));
     test_step.dependOn(&run_parser.step);
 
+    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
+    const svg_mod = b.createModule(.{
+        .root_source_file = b.path("src/image/svg.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    svg_mod.addImport("font", font_mod);
+    exe_mod.addImport("font", font_mod);
+    parser_tests.root_module.addImport("font", font_mod);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = svg_mod })).step);
+    const svg_render_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/image/svg_test.zig"),
+            .target = target,
+            .optimize = .ReleaseSafe,
+            .imports = &.{ .{ .name = "font", .module = font_mod }, .{ .name = "testdata", .module = testdata } },
+        }),
+    });
+    test_step.dependOn(&b.addRunArtifact(svg_render_tests).step);
+
     const font_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/font/font.zig"),
@@ -96,6 +116,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    image_tests.root_module.addImport("font", font_mod);
     const run_image_tests = b.addRunArtifact(image_tests);
     run_image_tests.setCwd(b.path("."));
     test_step.dependOn(&run_image_tests.step);
@@ -109,7 +130,6 @@ pub fn build(b: *std.Build) void {
     });
     dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
-    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
     const math_mod = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = target, .optimize = optimize });
     math_mod.addImport("font", font_mod);
     const math_layout_tests = b.addTest(.{ .root_module = math_mod });
@@ -127,6 +147,7 @@ pub fn build(b: *std.Build) void {
         for ([_][]const u8{ "x11", "cairo", "pangocairo-1.0", "pango-1.0", "gobject-2.0" }) |lib| layout_tests.root_module.linkSystemLibrary(lib, .{});
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
 
@@ -140,6 +161,7 @@ pub fn build(b: *std.Build) void {
         });
         layout_tests.root_module.addImport("c", c.createModule());
         layout_tests.root_module.addImport("testdata", testdata);
+        layout_tests.root_module.addImport("font", font_mod);
         for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
@@ -182,6 +204,7 @@ pub fn build(b: *std.Build) void {
         .filters = &.{"stress files"},
     });
     stress_tests.root_module.addImport("testdata", testdata);
+    stress_tests.root_module.addImport("font", font_mod);
     const run_stress = b.addRunArtifact(stress_tests);
     if (b.option([]const u8, "stress-dir", "Directory of files from gen-stress for the stress step")) |dir| {
         run_stress.setEnvironmentVariable("MDVIEW_STRESS_DIR", dir);
@@ -203,6 +226,7 @@ pub fn build(b: *std.Build) void {
             hit_tests.root_module.linkSystemLibrary(lib, .{});
         }
         hit_tests.root_module.addImport("testdata", testdata);
+        hit_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
 
@@ -213,6 +237,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/fuzz.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{.{ .name = "font", .module = font_mod }},
         }),
     });
     fuzz_tests.root_module.addImport("testdata", testdata);
