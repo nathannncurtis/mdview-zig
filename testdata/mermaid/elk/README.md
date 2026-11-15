@@ -31,3 +31,7 @@ ELK Java 0.9.1 (tag v0.9.1 of eclipse/elk) is the version elkjs 0.9.3 is built f
 ## e2e/cases.json
 
 216 flowchart cases from `testdata/mermaid/refs` (the default ELK path of 12.2.0). Each holds the layout input as Mermaid's renderer builds it (nodes in layout order with parent, group flag, shape, measured size or group title size, subgraph direction; edges with start, end, label size and arrow types) and what the reference SVG shows (node translates, cluster rects, edge `data-points`, edge label centres). The input comes from the same capture run as the fixtures above (the recorded `elkGraph` before it is trimmed), the expected values are read from the reference SVGs by a scratch Node script. `src/mermaid/elk/e2e_test.zig` runs `mermaid.layout` on each case and compares.
+
+## opt-*.json
+
+`opt-<setting>--<base>.json` are the same capture with one `elk:` option set in the front matter (mergeEdges, cycleBreakingStrategy, forceNodeModelOrder, considerModelOrder, keepEntryNodeOnTop, orientFeedbackEdges, preset legacy, and two combinations). `<base>` is one of 13 graphs of the first set or `big-cyc-a` to `big-cyc-d`, seeded graphs of 24 to 48 nodes with back edges, multi edges, fans around a hub and subgraphs. Their `output` edges also carry `junctionPoints`, which `test.zig` compares for these files only. Made with the same patched mermaid@12.2.0 and Playwright script as above, one `---\nconfig:\n  layout: elk\n  elk:\n    <option>: <value>\n---` header per file.

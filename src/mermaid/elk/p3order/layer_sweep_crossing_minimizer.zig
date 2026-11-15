@@ -1,6 +1,7 @@
 const std = @import("std");
 const lg = @import("../lgraph.zig");
 const util = @import("../util.zig");
+const gu = @import("../graph_util.zig");
 const GraphInfoHolder = @import("graph_info_holder.zig").GraphInfoHolder;
 const SweepCopy = @import("sweep_copy.zig").SweepCopy;
 const cmu = @import("counting/cross_min_util.zig");
@@ -195,8 +196,7 @@ pub const LayerSweepCrossingMinimizer = struct {
                 i += 1;
             }
         }
-        // ELK throws when fewer hierarchical ports than dummies are found; keep the layer as it is
-        if (i < layer.len) return layer;
+        if (i < layer.len) return gu.elkFail(self.a, "Expected {d} hierarchical ports, but found only {d}.", .{ layer.len, i });
         return sorted;
     }
 

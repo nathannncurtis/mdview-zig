@@ -101,13 +101,30 @@ pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
         });
     }
 
-    const cfg: mermaid.Config = .{ .direction = switch (r.next() % 5) {
+    const presets = [_][]const u8{ "default", "legacy", "modelOrder", "depthFirst" };
+    const cycle_breakers = [_]?[]const u8{ null, "GREEDY", "DEPTH_FIRST", "INTERACTIVE", "MODEL_ORDER", "GREEDY_MODEL_ORDER" };
+    const orderings = [_][]const u8{ "NONE", "NODES_AND_EDGES", "PREFER_EDGES", "PREFER_NODES" };
+    const direction: mermaid.Dir = switch (r.next() % 5) {
         0 => .tb,
         1 => .td,
         2 => .bt,
         3 => .lr,
         else => .rl,
-    } };
+    };
+    const flags = r.next();
+    const cfg: mermaid.Config = .{
+        .direction = direction,
+        .elk = .{
+            .preset = presets[r.next() % presets.len],
+            .cycle_breaking_strategy = cycle_breakers[r.next() % cycle_breakers.len],
+            .consider_model_order = orderings[r.next() % orderings.len],
+            .force_node_model_order = flags & 1 != 0,
+            .merge_edges = flags & 2 != 0,
+            .keep_entry_node_on_top = flags & 4 != 0,
+        },
+        .orient_feedback_edges = flags & 8 == 0,
+        .straighten_edges = flags & 16 == 0,
+    };
     const res = mermaid.layout(a, nodes, edges.items, cfg) catch return;
     for (res.nodes) |nd| {
         try std.testing.expect(std.math.isFinite(nd.x) and std.math.isFinite(nd.y));

@@ -1,5 +1,6 @@
 // LayerConstraintPostprocessor. Props: layer_constraint (nodes), hidden_nodes (graph), original_opposite_port (edges).
 const lg = @import("../lgraph.zig");
+const gu = @import("../graph_util.zig");
 
 pub fn process(g: *lg.LGraph) lg.Error!void {
     const a = g.a;
@@ -78,11 +79,14 @@ fn restoreHiddenNodes(g: *lg.LGraph, first_separate_layer: *lg.Layer, last_separ
     }
 }
 
-fn throwUpUnlessNoEdges(node: *lg.LNode, incoming: bool) error{Unsupported}!void {
+fn throwUpUnlessNoEdges(node: *lg.LNode, incoming: bool) lg.Error!void {
     for (node.ports.items) |port| {
         for (if (incoming) port.incoming.items else port.outgoing.items) |edge| {
             const other = if (incoming) edge.source.?.owner.? else edge.target.?.owner.?;
-            if (other.type != .label) return error.Unsupported;
+            if (other.type == .label) continue;
+            const name = try gu.designation(node.a, node);
+            if (incoming) return gu.elkFail(node.a, "Node '{s}' has its layer constraint set to FIRST, but has at least one incoming edge that  does not come from a FIRST_SEPARATE node. That must not happen.", .{name});
+            return gu.elkFail(node.a, "Node '{s}' has its layer constraint set to LAST, but has at least one outgoing edge that  does not go to a LAST_SEPARATE node. That must not happen.", .{name});
         }
     }
 }

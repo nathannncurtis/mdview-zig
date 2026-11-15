@@ -9,7 +9,12 @@ const compound_post = @import("compound/compound_graph_postprocessor.zig");
 const components = @import("components/components_processor.zig");
 const recursive = @import("recursive_layout.zig");
 
-const p1 = @import("p1cycles/depth_first_cycle_breaker.zig");
+const p1 = struct {
+    const depth_first = @import("p1cycles/depth_first_cycle_breaker.zig");
+    const greedy = @import("p1cycles/greedy_cycle_breaker.zig");
+    const interactive = @import("p1cycles/interactive_cycle_breaker.zig");
+    const model_order = @import("p1cycles/model_order_cycle_breaker.zig");
+};
 const p2 = @import("p2layers/network_simplex_layerer.zig");
 const p3 = @import("p3order/layer_sweep_crossing_minimizer.zig");
 const p4 = @import("p4nodes/bk/bk_node_placer.zig");
@@ -44,6 +49,7 @@ const im = struct {
     const reversed_edge_restorer = @import("intermediate/reversed_edge_restorer.zig");
     const hierarchical_node_resizer = @import("intermediate/hierarchical_node_resizing_processor.zig");
     const hyperedge_dummy_merger = @import("intermediate/hyperedge_dummy_merger.zig");
+    const interactive_external_port_positioner = @import("intermediate/interactive_external_port_positioner.zig");
 };
 
 // LayeredPhases, then IntermediateProcessorStrategy in its declaration order (the order AlgorithmAssembler sorts
@@ -136,10 +142,10 @@ const Config = struct {
 };
 
 fn phaseConfigurations(g: *const lg.LGraph, c: *Config) lg.Error!void {
-    if (g.p.cycle_breaking != .depth_first or g.p.layering != .network_simplex or g.p.node_placement != .brandes_koepf or g.p.edge_routing != .orthogonal) {
+    if (g.p.layering != .network_simplex or g.p.node_placement != .brandes_koepf or g.p.edge_routing != .orthogonal) {
         return error.Unsupported;
     }
-    // DepthFirstCycleBreaker
+    if (g.p.cycle_breaking == .interactive) c.before(.p1_cycle_breaking, .interactive_external_port_positioner);
     c.after(.p5_edge_routing, .reversed_edge_restorer);
     // NetworkSimplexLayerer
     c.before(.p1_cycle_breaking, .edge_and_layer_constraint_edge_reverser);
@@ -286,7 +292,13 @@ fn endLabelPreprocessor(g: *lg.LGraph) void {
 fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
     switch (p) {
         .phase => |ph| switch (ph) {
-            .p1_cycle_breaking => try p1.process(g),
+            .p1_cycle_breaking => switch (g.p.cycle_breaking) {
+                .depth_first => try p1.depth_first.process(g),
+                .greedy => try p1.greedy.process(g, false),
+                .greedy_model_order => try p1.greedy.process(g, true),
+                .interactive => try p1.interactive.process(g),
+                .model_order => try p1.model_order.process(g),
+            },
             .p2_layering => try p2.process(g),
             .p3_node_ordering => try p3.process(g),
             .p4_node_placement => try p4.process(g),
@@ -324,6 +336,7 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
             .label_dummy_remover => try im.label_dummy_remover.process(g),
             .reversed_edge_restorer => try im.reversed_edge_restorer.process(g),
             .hierarchical_node_resizer => try im.hierarchical_node_resizer.process(g),
+            .interactive_external_port_positioner => try im.interactive_external_port_positioner.process(g),
             .hyperedge_dummy_merger => try im.hyperedge_dummy_merger.process(g),
             .end_label_preprocessor => endLabelPreprocessor(g),
             // they act on HEAD / TAIL labels only, which Mermaid's layout-elk never hands to ELK
