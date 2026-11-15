@@ -829,6 +829,10 @@ pub fn render(ctx: *const model.Ctx, data: *model.LayoutData) Error!Rendered {
             _ = try t.attrNum("x", b.x + b.w / 2);
             _ = try t.attrNum("y", -cfg.title_top_margin);
             try t.setAttr("class", "flowchartTitleText");
+            const font: model.Font = .{ .family = cfg.font_family, .size = 18 };
+            const tw = ctx.measurer.measure(title, font).w;
+            const ad = model.ascentDescent(ctx.measurer, font);
+            t.box = .{ .x = b.x + b.w / 2 - tw / 2, .y = -cfg.title_top_margin - ad[0], .w = tw, .h = ad[0] + ad[1] };
         }
     }
     const b = svg.bbox() orelse dom.Box{ .x = 0, .y = 0, .w = 0, .h = 0 };
