@@ -162,8 +162,7 @@ jobs:
           - target: html.Builder
             iterations: 150K
           - target: mermaid.elk
-<<<<<<< HEAD
-            iterations: 200K
+            iterations: 180K
           - target: elk.stress
             iterations: 250K
           - target: elk.force
@@ -178,11 +177,6 @@ jobs:
             iterations: 250K
           - target: elk.rectpacking
             iterations: 250K
-||||||| 54e69d8
-            iterations: 200K
-=======
-            iterations: 180K
->>>>>>> origin/mermaid-elk
           - target: mermaid.render
             iterations: 300K
           - target: font.parse
