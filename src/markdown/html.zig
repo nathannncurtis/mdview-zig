@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const entities = @import("../data/entities.zig");
+const entities = @import("entities");
 const allow = @import("html_allow.zig");
 
 pub const max_open = 512;
