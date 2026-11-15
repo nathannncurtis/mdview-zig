@@ -114,28 +114,66 @@ pub fn rootProcessor(a: Allocator, g: *TGraph) lg.Error!void {
     }
 }
 
-// intermediate.FanProcessor: FAN is the widest level below a node, DESCENDANTS counts the node itself too
+// intermediate.FanProcessor. The Java code keys fan and descendants by string ids that are built per level and
+// compared by reference, so a node reachable from two parents (BFS treeifying) shares or steals ids exactly as there.
+const Id = struct { s: []const u8 };
+
 pub fn fanProcessor(a: Allocator, g: *TGraph) lg.Error!void {
-    _ = try t.getRoot(g);
-    for (g.nodes.items) |n| {
-        var fan: i32 = 0;
-        var desc: i32 = 1;
-        var cur: std.ArrayList(*TNode) = .empty;
-        try cur.append(a, n);
-        var iter: usize = 0;
-        while (true) {
-            var next: std.ArrayList(*TNode) = .empty;
-            for (cur.items) |c| for (c.outgoing.items) |e| try next.append(a, e.target);
-            if (next.items.len == 0) break;
-            const w: i32 = @intCast(next.items.len);
-            fan = @max(fan, w);
-            desc += w;
-            try guard(next.items.len, iter, g.nodes.items.len);
-            iter += 1;
-            cur = next;
+    const root = try t.getRoot(g);
+    const empty: *const Id = &.{ .s = "" };
+    var ids = std.AutoHashMap(*TNode, *const Id).init(a);
+    for (g.nodes.items) |n| try ids.put(n, empty);
+    var fan_map = std.StringHashMap(i32).init(a);
+    var desc_map = std.StringHashMap(i32).init(a);
+    var level: std.ArrayList(*TNode) = .empty;
+    try level.append(a, root);
+    var iter: usize = 0;
+    while (level.items.len > 0) : (iter += 1) {
+        var next: std.ArrayList(*TNode) = .empty;
+        const digits = std.fmt.count("{d}", .{level.items.len});
+        var last: *const Id = empty;
+        var p_id: ?*const Id = null;
+        var index: usize = 0;
+        for (level.items) |n| {
+            const cur = ids.get(n).?;
+            if (p_id != cur) {
+                p_id = cur;
+                index = 0;
+            }
+            const id = try a.create(Id);
+            id.* = .{ .s = try std.fmt.allocPrint(a, "{s}{d:0>[2]}", .{ p_id.?.s, index, digits }) };
+            index += 1;
+            last = id;
+            try ids.put(n, id);
+            for (n.outgoing.items) |e| {
+                try next.append(a, e.target);
+                try ids.put(e.target, id);
+            }
         }
-        n.fan = fan;
-        n.descendants = desc;
+        var loc = std.StringHashMap(i32).init(a);
+        var i: usize = 0;
+        while (i + digits < last.s.len) : (i += 1) {
+            for (level.items) |n| {
+                const id = ids.get(n).?.s;
+                if (id.len < i + 1) return error.ElkException;
+                const r = try loc.getOrPut(id[0 .. i + 1]);
+                r.value_ptr.* = if (r.found_existing) r.value_ptr.* + 1 else 1;
+            }
+        }
+        var it = loc.iterator();
+        while (it.next()) |en| {
+            const d = try desc_map.getOrPut(en.key_ptr.*);
+            d.value_ptr.* = en.value_ptr.* + (if (d.found_existing) d.value_ptr.* else 0);
+            const f = try fan_map.getOrPut(en.key_ptr.*);
+            if (!f.found_existing or f.value_ptr.* < en.value_ptr.*) f.value_ptr.* = en.value_ptr.*;
+        }
+        try guard(next.items.len, iter, g.nodes.items.len);
+        level = next;
+    }
+    for (g.nodes.items) |n| {
+        const key = ids.get(n).?.s;
+        n.fan = fan_map.get(key) orelse 0;
+        n.descendants = 1 + (desc_map.get(key) orelse 0);
     }
 }
 
