@@ -229,10 +229,55 @@ fn userStyles(ctx: *Ctx, defs: []const ClassDef) Allocator.Error![]const u8 {
     return out.items;
 }
 
+/// The browser serialises the colours of a class rule as rgb(), so #rgb and #rrggbb in `s` become rgb(r, g, b).
+fn rgbHex(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < s.len) {
+        if (s[i] == '#') {
+            var n: usize = 0;
+            while (i + 1 + n < s.len and std.ascii.isHex(s[i + 1 + n])) n += 1;
+            const boundary = i + 1 + n >= s.len or !std.ascii.isAlphanumeric(s[i + 1 + n]);
+            if (boundary and (n == 3 or n == 6)) {
+                const h = s[i + 1 ..][0..n];
+                var c: [3]u8 = undefined;
+                for (&c, 0..) |*v, k| v.* = if (n == 3)
+                    std.fmt.parseInt(u8, &[_]u8{ h[k], h[k] }, 16) catch 0
+                else
+                    std.fmt.parseInt(u8, h[k * 2 ..][0..2], 16) catch 0;
+                try out.print(a, "rgb({d}, {d}, {d})", .{ c[0], c[1], c[2] });
+                i += 1 + n;
+                continue;
+            }
+        }
+        try out.append(a, s[i]);
+        i += 1;
+    }
+    return out.items;
+}
+
+/// The browser writes a space separated stroke-dasharray as a comma list.
+fn dasharrayList(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
+    const t = std.mem.trimStart(u8, s, " ");
+    if (!std.mem.startsWith(u8, t, "stroke-dasharray")) return s;
+    const colon = std.mem.indexOfScalar(u8, s, ':') orelse return s;
+    var out: std.ArrayList(u8) = .empty;
+    try out.appendSlice(a, s[0 .. colon + 1]);
+    var it = std.mem.tokenizeAny(u8, s[colon + 1 ..], " ,");
+    var first = true;
+    while (it.next()) |tok| {
+        if (!first) try out.appendSlice(a, ", ");
+        first = false;
+        try out.appendSlice(a, tok);
+    }
+    return out.items;
+}
+
 fn important(a: Allocator, out: *std.ArrayList(u8), class: []const u8, element: []const u8, items: []const []const u8, text_fill: bool) Allocator.Error!void {
     var block: std.ArrayList(u8) = .empty;
     try block.appendSlice(a, "{ ");
-    for (items, 0..) |s, i| {
+    for (items, 0..) |raw, i| {
+        const s = try dasharrayList(a, try rgbHex(a, raw));
         if (i > 0) try block.appendSlice(a, " !important; ");
         if (text_fill) {
             if (std.mem.indexOf(u8, s, "color")) |at| {

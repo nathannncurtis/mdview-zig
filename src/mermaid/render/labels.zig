@@ -231,6 +231,9 @@ fn plainBreaks(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
         if (s[i] == '\\' and i + 1 < s.len and s[i + 1] == 'n') {
             try out.appendSlice(a, "<br/>");
             i += 2;
+        } else if (s[i] == '\n') {
+            try out.appendSlice(a, "<br/>");
+            i += 1;
         } else {
             try out.append(a, s[i]);
             i += 1;
