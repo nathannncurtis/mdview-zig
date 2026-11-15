@@ -91,7 +91,7 @@ fn unknownIcon(parent: *El, size: f64) Allocator.Error!*El {
 }
 
 fn labelBox(h: u.Helper) [2]f64 {
-    return if (h.w > 0 or h.h > 0) .{ h.w + 4, h.h + 4 } else .{ 0, 0 };
+    return if (h.w > 0 or h.h > 0) .{ h.w, h.h + 4 } else .{ 0, 0 };
 }
 
 fn iconShape(ctx: *const model.Ctx, parent: *El, node: *NodeData, kind: Kind) Error!*El {

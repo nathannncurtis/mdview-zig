@@ -12,7 +12,7 @@ const Replay = struct {
         const self: *const Replay = @ptrCast(@alignCast(ctx.?));
         const s = self.sizes.measure(text, "", 0, 0) catch return .{ .w = 8 * @as(f32, @floatFromInt(text.len)), .h = font.size * 1.15 };
         if (s.h > self.wrapped_height) return .{ .w = 4000, .h = font.size * 1.15 };
-        return .{ .w = @floatCast(s.w), .h = font.size * 1.15 };
+        return .{ .w = @floatCast(@round(s.w * 64) / 64), .h = font.size * 1.15 };
     }
 };
 

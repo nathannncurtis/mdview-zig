@@ -703,8 +703,8 @@ fn renderElk(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
         } else {
             const el = try nodes_mod.insertNode(ctx, nodes_g, node, .{ .dir = resolveDir(&by_id, node, data.direction) });
             if (el.bbox()) |b| {
-                node.width = b.w;
-                node.height = b.h;
+                node.width = dom.r32(b.w);
+                node.height = dom.r32(b.h);
             }
         }
     }
