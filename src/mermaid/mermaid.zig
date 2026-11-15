@@ -378,9 +378,9 @@ test "parse errors, unknown types and unsupported types" {
     const unknown = try render(std.testing.allocator, "foo", .{});
     defer free(std.testing.allocator, unknown);
     try std.testing.expectEqualStrings("No diagram type detected matching given configuration for text: foo", unknown.err);
-    const flow = try render(std.testing.allocator, "flowchart TD\nA-->B", .{});
-    defer free(std.testing.allocator, flow);
-    try std.testing.expectEqualStrings("flowchart-v2", flow.unsupported);
+    const seq = try render(std.testing.allocator, "sequenceDiagram\nA->>B: hi", .{});
+    defer free(std.testing.allocator, seq);
+    try std.testing.expectEqualStrings("sequence", seq.unsupported);
     const dashes = try render(std.testing.allocator, "---\nfoo", .{});
     defer free(std.testing.allocator, dashes);
     try std.testing.expectEqualStrings(errors.dashes_message, dashes.err);

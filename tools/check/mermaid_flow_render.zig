@@ -113,7 +113,14 @@ pub fn main(init: std.process.Init) !u8 {
                 if (full.passed()) {
                     if (dagre) dagre_ok += 1 else other_ok += 1;
                 } else std.log.info("FAIL {s} [{s}] items={d} bad={d} missing={d} extra={d} max={d:.2}: {s}", .{ name, tag, full.items, full.bad, full.missing, full.extra, full.max_dev, full.first });
-                if (!style_same) std.log.info("CSS {s} [{s}] differs", .{ name, tag });
+                if (!style_same) {
+                    const rs = styleOf(ref);
+                    const cs = styleOf(img.bytes);
+                    var at: usize = 0;
+                    while (at < rs.len and at < cs.len and rs[at] == cs[at]) at += 1;
+                    const from = at -| 60;
+                    std.log.info("CSS {s} [{s}] differs at {d}: ref {s} | got {s}", .{ name, tag, at, rs[from..@min(rs.len, at + 80)], cs[from..@min(cs.len, at + 80)] });
+                }
                 if (size_problem) |p| std.log.info("SIZE {s} [{s}]: {s}", .{ name, tag, p });
             },
             .err => |m| std.log.info("ERROR {s} [{s}]: {s}", .{ name, tag, m }),
