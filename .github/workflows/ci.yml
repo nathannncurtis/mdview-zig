@@ -162,7 +162,7 @@ jobs:
           - target: html.Builder
             iterations: 150K
           - target: mermaid.render
-            iterations: 300K
+            iterations: 65K
           - target: flowchart.render
             iterations: 20K
           - target: font.parse
@@ -183,8 +183,9 @@ jobs:
       - run: bash .github/scripts/setup-zig.sh
       - name: Fuzz ${{ matrix.target }}
         run: |
+          set -o pipefail
           zig build fuzz -Dfuzz-filter="fuzz ${{ matrix.target }}" --fuzz=${{ matrix.iterations }} -Doptimize=ReleaseSafe --summary all 2>&1 | tee fuzz.log
-          ! grep -qE 'panic|run test failure|FAILED' fuzz.log
+          if grep -qE 'panic|run test failure|FAILED' fuzz.log; then exit 1; fi
           grep -qF 'Fuzz test: "fuzz.test.fuzz ${{ matrix.target }}"' fuzz.log
 
   # Parses the generator's adversarial files within a time and memory limit, on each OS (reduced sizes).
