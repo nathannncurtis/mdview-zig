@@ -4,6 +4,22 @@ const app = @import("../../main.zig");
 const md = app.md;
 const hl = @import("../../markdown/highlight.zig");
 const alerts = @import("../../markdown/alerts.zig");
+const tl = @import("../../markdown/table_layout.zig");
+const html = @import("html.zig");
+const setAlign = html.setAlign;
+const padded = html.padded;
+const isKbd = html.isKbd;
+const kbdScale = html.kbdScale;
+const applyStyles = html.applyStyles;
+const drawStyleRects = html.drawStyleRects;
+const naturalSize = html.naturalSize;
+const floatOnly = html.floatOnly;
+const placeFloats = html.placeFloats;
+const renderBeside = html.renderBeside;
+const drawSummaryMarker = html.drawSummaryMarker;
+const resetSplits = html.resetSplits;
+const Bands = html.Bands;
+const kbd_pad = html.kbd_pad;
 
 const c = @import("c");
 
@@ -48,15 +64,15 @@ fn detectScale(dpy: *c.Display) f32 {
 // ============================================================
 // Colors
 // ============================================================
-const Color = struct { r: f64, g: f64, b: f64 };
+pub const Color = struct { r: f64, g: f64, b: f64 };
 
 const col_bg = Color{ .r = 13.0 / 255.0, .g = 17.0 / 255.0, .b = 23.0 / 255.0 };
-const col_text = Color{ .r = 201.0 / 255.0, .g = 209.0 / 255.0, .b = 217.0 / 255.0 };
+pub const col_text = Color{ .r = 201.0 / 255.0, .g = 209.0 / 255.0, .b = 217.0 / 255.0 };
 const col_code_bg = Color{ .r = 22.0 / 255.0, .g = 27.0 / 255.0, .b = 34.0 / 255.0 };
-const col_quote = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
+pub const col_quote = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 const col_hr = Color{ .r = 33.0 / 255.0, .g = 38.0 / 255.0, .b = 45.0 / 255.0 };
-const col_table_border = hexColor(0x3d444d);
-const col_stripe = hexColor(0x151b23);
+pub const col_table_border = hexColor(0x3d444d);
+pub const col_stripe = hexColor(0x151b23);
 const col_close = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 const col_link = Color{ .r = 68.0 / 255.0, .g = 147.0 / 255.0, .b = 248.0 / 255.0 };
 
@@ -407,18 +423,43 @@ fn render(dpy: *c.Display, win: c.Window) void {
 
     const padding: f32 = 40;
     const max_width = @max(app.window_width - padding * 2, 100);
-    var y: f32 = padding - app.scroll_y;
     app.beginFrame();
+    resetSplits();
 
-    for (app.blocks) |*block| {
-        app.noteBlock(y + app.scroll_y);
+    const y = layoutBlocks(cr, pango_layout, app.blocks, padding, max_width, padding - app.scroll_y);
+    app.content_height = y + app.scroll_y + padding;
+
+    // Close button (X) — drawn in screen coordinates (not scrolled)
+    drawCloseButton(cr);
+    if (app.tooltip) |t| drawTooltip(cr, t);
+
+    _ = c.cairo_surface_flush(surface);
+    if (app.afterRender()) needs_redraw = true;
+}
+
+/// Draws `blocks` between `left` and `left + width` from `y0` down and returns the y after the last one.
+pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []const md.Block, left: f32, width: f32, y0: f32) f32 {
+    var y = y0;
+    var bands: Bands = .{};
+    var prev_gap: f32 = 0;
+    for (blocks) |*block| {
+        if (!html.measuring and html.nested == 0) app.noteBlock(y + app.scroll_y);
+        if (app.collapsed(block.*)) continue;
         const inset = block.inset();
-        const x = padding + inset;
-        const cw = @max(max_width - inset, 60);
+        var x = left + inset;
+        var cw = @max(width - inset, 60);
         const top = y;
         var gap: f32 = 0;
         const text_col = if (block.muted()) col_quote else col_text;
-        for (block.marks) |l| drawMarker(cr, pango_layout, l.mark, padding + l.inset, y);
+        html.block_align = block.alignment;
+        for (block.marks) |l| drawMarker(cr, pango_layout, l.mark, left + l.inset, y);
+
+        if (block.kind == .paragraph) placeFloats(cr, block, x, cw, y, &bands);
+        const beside = bands.at(y);
+        if (block.kind != .paragraph) {
+            x += beside.left;
+            cw = @max(cw - beside.left - beside.right, 60);
+        }
 
         switch (block.kind) {
             .h1 => {
@@ -456,8 +497,14 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, if (block.kind == .h6) col_quote else col_text, font);
                 gap = 16;
             },
-            .paragraph => {
-                y += renderTextBlock(cr, pango_layout, block.content, x, y, cw, text_col, "Sans 12");
+            .paragraph => if (block.role == .empty) {
+                gap = block.paragraphGap();
+            } else if (block.role == .break_lines) {
+                y += html.breakLinesHeight(block.content);
+            } else if (!floatOnly(block.content)) {
+                const before = y;
+                y += renderBeside(cr, pango_layout, block.content, x, y, cw, text_col, "Sans 12", beside);
+                if (block.role == .summary) drawSummaryMarker(cr, pango_layout, block, x + beside.left, before, y - before, cw - beside.left - beside.right);
                 gap = block.paragraphGap();
             },
             .alert_title => {
@@ -477,16 +524,25 @@ fn render(dpy: *c.Display, win: c.Window) void {
                 gap = 16;
             },
             .table => {
-                y += renderTable(cr, pango_layout, block.table, x, y, cw, true, null);
-                gap = 16;
+                var tw: f32 = 0;
+                const side = tableFloat(block.table);
+                if (side == .none) {
+                    y += renderTable(cr, pango_layout, block.table, x, y, cw, !html.measuring, &tw);
+                    gap = 16;
+                } else {
+                    const th = renderTable(cr, pango_layout, block.table, x, y, cw, false, &tw);
+                    const spot = bands.place(side == .left, x, cw, y, tw, th);
+                    _ = renderTable(cr, pango_layout, block.table, spot.x, spot.y, cw, !html.measuring, null);
+                }
+                html.extent = @max(html.extent, x + tw);
             },
             .hr => {
-                y += 12;
-                setColor(cr, col_hr);
-                c.cairo_rectangle(cr, x, y, cw, 2);
+                y += @max(md.hr_margin - prev_gap, 0);
+                setColor(cr, col_table_border);
+                c.cairo_rectangle(cr, x, y, cw, md.hr_height);
                 c.cairo_fill(cr);
-                y += 2;
-                gap = 14;
+                y += md.hr_height;
+                gap = md.hr_margin;
             },
         }
 
@@ -494,29 +550,24 @@ fn render(dpy: *c.Display, win: c.Window) void {
             if (f.kind != .quote) continue;
             if (f.alert != .none and !f.open) y += 8;
             setColor(cr, if (f.alert == .none) col_bar else hexColor(alerts.style(f.alert).border));
-            c.cairo_rectangle(cr, padding + block.insetBefore(i), top, md.quote_bar, y + (if (f.open) gap else 0) - top);
+            c.cairo_rectangle(cr, left + block.insetBefore(i), top, md.quote_bar, y + (if (f.open) gap else 0) - top);
             c.cairo_fill(cr);
         }
         y += gap;
+        prev_gap = gap;
     }
-
-    app.content_height = y + app.scroll_y + padding;
-
-    // Close button (X) — drawn in screen coordinates (not scrolled)
-    drawCloseButton(cr);
-    if (app.tooltip) |t| drawTooltip(cr, t);
-
-    _ = c.cairo_surface_flush(surface);
-    if (app.afterRender()) needs_redraw = true;
+    html.block_align = .none;
+    return y;
 }
 
-fn setColor(cr: *c.cairo_t, col: Color) void {
+pub fn setColor(cr: *c.cairo_t, col: Color) void {
     c.cairo_set_source_rgb(cr, col.r, col.g, col.b);
 }
 
 const LineBox = struct { start: u32, y: c_int, height: c_int };
 
-fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inline, x: f32, y: f32) void {
+fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32) void {
+    const content = padded(content_in);
     if (content.code.len == 0) return;
     const scale: f64 = c.PANGO_SCALE;
 
@@ -545,7 +596,7 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inlin
         while (k < spans.len and leftMark(spans, k) < line_end) : (k += 1) {
             const from = @max(leftMark(spans, k), box.start);
             const to = @min(rightMark(spans, k) + pad_len, line_end);
-            if (from >= to) continue;
+            if (from >= to or isKbd(content_in, spans[k])) continue;
             var found: ?[*]c_int = null;
             var n: c_int = 0;
             c.pango_layout_line_get_x_ranges(line, @intCast(from), @intCast(to), &found, &n);
@@ -561,21 +612,26 @@ fn drawCodeBackgrounds(cr: *c.cairo_t, layout: *c.PangoLayout, content: md.Inlin
     }
 }
 
-fn renderTextBlock(
+pub fn renderTextBlock(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32, max_width: f32, color: Color, font_desc_str: [*:0]const u8) f32 {
+    return renderFlowed(cr, pango_layout, app.images.flow(content_in), x, y, max_width, color, font_desc_str);
+}
+
+pub fn renderFlowed(
     cr: *c.cairo_t,
     pango_layout: *c.PangoLayout,
-    content_in: md.Inline,
+    content: md.Inline,
     x: f32,
     y: f32,
     max_width: f32,
     color: Color,
     font_desc_str: [*:0]const u8,
 ) f32 {
-    const content = app.images.flow(content_in);
     if (content.text.len == 0) return 0;
     setInline(pango_layout, content, max_width, font_desc_str);
+    setAlign(pango_layout, html.block_align);
 
     drawCodeBackgrounds(cr, pango_layout, content, x, y);
+    drawStyleRects(cr, pango_layout, content, x, y);
     setColor(cr, color);
     c.cairo_move_to(cr, x, y);
     c.pango_cairo_show_layout(cr, pango_layout);
@@ -584,11 +640,13 @@ fn renderTextBlock(
     var pw: c_int = 0;
     var ph: c_int = 0;
     c.pango_layout_get_pixel_size(pango_layout, &pw, &ph);
+    html.extent = @max(html.extent, x + @as(f32, @floatFromInt(pw)));
 
     // Clean up layout state for next use
     c.pango_layout_set_attributes(pango_layout, null);
+    setAlign(pango_layout, .left);
 
-    app.noteHit(.{ .content = content, .x = x, .y = y + app.scroll_y, .w = max_width, .h = @floatFromInt(ph), .font = fontOfDesc(font_desc_str) });
+    html.noteHit(.{ .content = content, .x = x, .y = y + app.scroll_y, .w = max_width, .h = @floatFromInt(ph), .font = fontOfDesc(font_desc_str), .alignment = html.block_align });
     return @floatFromInt(ph);
 }
 
@@ -636,7 +694,7 @@ pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
     var trailing: c_int = 0;
     const scale: f32 = @floatFromInt(c.PANGO_SCALE);
     if (c.pango_layout_xy_to_index(layout, @intFromFloat(x * scale), @intFromFloat(y * scale), &index, &trailing) == 0) return null;
-    return @intCast(unmap(hit.content.code, @intCast(index)));
+    return @intCast(unmap(padded(hit.content).code, @intCast(index)));
 }
 
 fn openUrl(url: []u8) void {
@@ -660,7 +718,7 @@ pub fn openExternal(url: []const u8) void {
 }
 
 const pad_mark = "\u{200d}";
-const pad_len = pad_mark.len;
+pub const pad_len = pad_mark.len;
 
 /// A code span is wrapped in two zero-width placeholders whose shape has the CSS padding as its width, so the neighbouring letters do not move.
 fn paddedText(a: std.mem.Allocator, content: md.Inline) std.mem.Allocator.Error![]u8 {
@@ -689,23 +747,23 @@ fn countBelow(spans: []const md.Span, i: usize, inclusive: bool, at_end: bool) u
     return lo;
 }
 
-fn mapStart(spans: []const md.Span, i: usize) usize {
+pub fn mapStart(spans: []const md.Span, i: usize) usize {
     return i + pad_len * (countBelow(spans, i, false, false) + countBelow(spans, i, false, true));
 }
 
-fn mapEnd(spans: []const md.Span, i: usize) usize {
+pub fn mapEnd(spans: []const md.Span, i: usize) usize {
     return i + pad_len * (countBelow(spans, i, true, false) + countBelow(spans, i, true, true));
 }
 
-fn leftMark(spans: []const md.Span, k: usize) usize {
+pub fn leftMark(spans: []const md.Span, k: usize) usize {
     return spans[k][0] + 2 * pad_len * k;
 }
 
-fn rightMark(spans: []const md.Span, k: usize) usize {
+pub fn rightMark(spans: []const md.Span, k: usize) usize {
     return spans[k][0] + spans[k][1] + pad_len * (2 * k + 1);
 }
 
-fn unmap(spans: []const md.Span, m: usize) usize {
+pub fn unmap(spans: []const md.Span, m: usize) usize {
     var lo: usize = 0;
     var hi: usize = 2 * spans.len;
     while (lo < hi) {
@@ -729,7 +787,7 @@ fn addShape(attr_list: *c.PangoAttrList, at: usize, width: c_int) void {
     c.pango_attr_list_insert(attr_list, attr);
 }
 
-fn insertRange(attr_list: *c.PangoAttrList, attr: ?*c.PangoAttribute, start: usize, end: usize) void {
+pub fn insertRange(attr_list: *c.PangoAttrList, attr: ?*c.PangoAttribute, start: usize, end: usize) void {
     const a = attr orelse return;
     a.*.start_index = @intCast(start);
     a.*.end_index = @intCast(end);
@@ -747,11 +805,11 @@ const broken_w: f32 = 18;
 const broken_h: f32 = 16;
 
 /// One image in a layout, found again by the shape renderer through the attribute's data pointer.
-const ImageBox = struct { w: f32, h: f32, kind: ImageKind, image: *const md.Image };
+pub const ImageBox = struct { w: f32, h: f32, kind: ImageKind, image: *const md.Image };
 
-var boxes: ?std.heap.ArenaAllocator = null;
+pub var boxes: ?std.heap.ArenaAllocator = null;
 
-fn resetBoxes() void {
+pub fn resetBoxes() void {
     if (boxes) |*a| _ = a.reset(.free_all);
 }
 
@@ -764,16 +822,18 @@ fn setAlt(layout: *c.PangoLayout, alt: []const u8, width: f32) void {
     c.pango_layout_set_text(layout, alt.ptr, @intCast(alt.len));
 }
 
-fn imageBox(im: *const md.Image, avail: f32) ?*ImageBox {
+pub fn imageBox(im: *const md.Image, avail: f32) ?*ImageBox {
     if (boxes == null) boxes = .init(app.gpa);
     const box = boxes.?.allocator().create(ImageBox) catch return null;
     box.* = .{ .w = 0, .h = 0, .kind = .pending, .image = im };
+    if (im.float != .none and !html.sizing_float) return box;
     switch (app.images.look(im.target, avail)) {
         .pending => {},
         .picture => |s| {
-            box.w = s.w;
-            box.h = s.h;
-            box.kind = if (s.w > 0) .picture else .pending;
+            const size = if (im.width > 0 or im.height > 0) app.images.requested(naturalSize(im.target), im.width, im.height, avail) else s;
+            box.w = size.w;
+            box.h = size.h;
+            box.kind = if (size.w > 0) .picture else .pending;
         },
         .missing => if (im.alt.len > 0) {
             box.w = broken_w;
@@ -809,7 +869,7 @@ fn blit(ctx: *c.cairo_t, handle: *anyopaque, pw: u32, ph: u32, x: f64, y: f64, w
     c.cairo_restore(ctx);
 }
 
-fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: ?*anyopaque) callconv(.c) void {
+pub fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: ?*anyopaque) callconv(.c) void {
     const ctx = cr orelse return;
     const box: *const ImageBox = @ptrCast(@alignCast(attr.*.data orelse return));
     var x: f64 = 0;
@@ -900,7 +960,8 @@ fn drawTooltip(cr: *c.cairo_t, t: app.Tooltip) void {
     c.pango_cairo_show_layout(cr, layout);
 }
 
-fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
+pub fn setInline(pango_layout: *c.PangoLayout, content_in: md.Inline, max_width: ?f32, font_desc_str: [*:0]const u8) void {
+    const content = padded(content_in);
     const desc = c.pango_font_description_from_string(font_desc_str) orelse return;
     defer c.pango_font_description_free(desc);
 
@@ -927,18 +988,20 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
     for (content.code, 0..) |span, k| {
         const start = if (spans.len == 0) span[0] else leftMark(spans, k) + pad_len;
         const end = if (spans.len == 0) span[0] + span[1] else rightMark(spans, k);
+        const kbd = isKbd(content_in, span);
         insertRange(attr_list, c.pango_attr_family_new("monospace"), start, end);
-        insertRange(attr_list, c.pango_attr_scale_new(md.code_scale), start, end);
-        insertRange(attr_list, c.pango_attr_foreground_new(
+        insertRange(attr_list, c.pango_attr_scale_new(if (kbd) kbdScale(desc) else md.code_scale), start, end);
+        if (!kbd) insertRange(attr_list, c.pango_attr_foreground_new(
             @intFromFloat(col_hl_string.r * 65535.0),
             @intFromFloat(col_hl_string.g * 65535.0),
             @intFromFloat(col_hl_string.b * 65535.0),
         ), start, end);
         if (spans.len > 0) {
-            addShape(attr_list, leftMark(spans, k), pad);
-            addShape(attr_list, rightMark(spans, k), pad);
+            addShape(attr_list, leftMark(spans, k), if (kbd) kbd_pad else pad);
+            addShape(attr_list, rightMark(spans, k), if (kbd) kbd_pad else pad);
         }
     }
+    applyStyles(attr_list, content, spans, desc);
 
     for (content.links) |l| {
         const start = mapStart(spans, l.start);
@@ -967,107 +1030,144 @@ fn setInline(pango_layout: *c.PangoLayout, content: md.Inline, max_width: ?f32, 
     c.pango_layout_set_attributes(pango_layout, attr_list);
 }
 
-const cell_pad_x: f32 = 13;
-const cell_pad_y: f32 = 6;
+pub const cell_pad_x: f32 = 13;
+pub const cell_pad_y: f32 = 6;
 
-fn setCell(pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: ?f32) void {
+pub fn setCell(pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: ?f32) void {
     const bold = (row == 0 and t.header_row) or (col == 0 and t.header_col);
     setInline(pango_layout, app.images.flow(t.cell(row, col)), width, if (bold) "Sans Bold 12" else "Sans 12");
-    c.pango_layout_set_alignment(pango_layout, @intCast(switch (t.aligns[col]) {
-        .none, .left => c.PANGO_ALIGN_LEFT,
-        .center => c.PANGO_ALIGN_CENTER,
-        .right => c.PANGO_ALIGN_RIGHT,
-    }));
+    setAlign(pango_layout, t.alignAt(row, col));
 }
 
-fn layoutPixelSize(pango_layout: *c.PangoLayout) [2]f32 {
+pub fn layoutPixelSize(pango_layout: *c.PangoLayout) [2]f32 {
     var pw: c_int = 0;
     var ph: c_int = 0;
     c.pango_layout_get_pixel_size(pango_layout, &pw, &ph);
     return .{ @floatFromInt(pw), @floatFromInt(ph) };
 }
 
-fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
-    if (out_width) |o| o.* = 0;
-    if (t.rows() == 0) return 0;
-    const widths = app.gpa.alloc(f32, t.columns) catch return 0;
-    defer app.gpa.free(widths);
+const FloatSide = @FieldType(md.Image, "float");
 
-    @memset(widths, 0);
-    for (0..t.rows()) |row| {
-        for (widths, 0..) |*w, col| {
-            if (t.nestedAt(row, col)) |nt| {
-                var nw: f32 = 0;
-                _ = renderTable(cr, pango_layout, nt, 0, 0, 100000, false, &nw);
-                w.* = @max(w.*, nw);
-                continue;
-            }
-            setCell(pango_layout, t, row, col, null);
-            w.* = @max(w.*, layoutPixelSize(pango_layout)[0]);
+fn tableFloat(t: md.Table) FloatSide {
+    if (comptime @hasField(md.Table, "float")) return @field(t, "float");
+    return .none;
+}
+
+fn cellNatural(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize) f32 {
+    const blocks = t.cellBlocks(row, col);
+    if (blocks.len > 0) return html.measureBlocks(pango_layout, blocks, 100000).w;
+    if (t.nestedAt(row, col)) |nt| {
+        var nw: f32 = 0;
+        _ = renderTable(cr, pango_layout, nt, 0, 0, 100000, false, &nw);
+        return nw;
+    }
+    setCell(pango_layout, t, row, col, null);
+    return layoutPixelSize(pango_layout)[0];
+}
+
+fn cellContentHeight(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, row: usize, col: usize, width: f32) f32 {
+    const blocks = t.cellBlocks(row, col);
+    if (blocks.len > 0) return html.measureBlocks(pango_layout, blocks, width).h;
+    if (t.nestedAt(row, col)) |nt| return renderTable(cr, pango_layout, nt, 0, 0, width, false, null) + md.nested_table_margin;
+    setCell(pango_layout, t, row, col, width);
+    return layoutPixelSize(pango_layout)[1];
+}
+
+pub fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32, y: f32, max_width: f32, draw: bool, out_width: ?*f32) f32 {
+    if (out_width) |o| o.* = 0;
+    const rows = t.rows();
+    if (rows == 0) return 0;
+    const cols = t.columns;
+    const count = rows * cols;
+    const buf = app.gpa.alloc(f32, count * 2 + cols + rows) catch return 0;
+    defer app.gpa.free(buf);
+    @memset(buf, 0);
+    const sizes_w = buf[0..count];
+    const sizes_h = buf[count .. count * 2];
+    const widths = buf[count * 2 ..][0..cols];
+    const heights = buf[count * 2 + cols ..][0..rows];
+
+    for (0..rows) |row| {
+        for (0..cols) |col| {
+            if (tl.covered(t, row, col)) continue;
+            sizes_w[row * cols + col] = cellNatural(cr, pango_layout, t, row, col) + cell_pad_x * 2 + 1;
         }
     }
-    for (widths) |*w| w.* += cell_pad_x * 2 + 1;
-    md.fitColumns(widths, max_width, cell_pad_x * 2 + 24);
+    tl.columnWidths(widths, sizes_w, t, max_width, cell_pad_x * 2 + 24);
     var table_w: f32 = 0;
     for (widths) |w| table_w += w;
     if (out_width) |o| o.* = table_w;
 
-    var row_y = y;
-    for (0..t.rows()) |row| {
-        var text_h: f32 = 0;
-        for (widths, 0..) |w, col| {
-            if (t.nestedAt(row, col)) |nt| {
-                text_h = @max(text_h, renderTable(cr, pango_layout, nt, 0, 0, w - cell_pad_x * 2, false, null) + md.nested_table_margin);
-                continue;
-            }
-            setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
-            text_h = @max(text_h, layoutPixelSize(pango_layout)[1]);
+    for (0..rows) |row| {
+        for (0..cols) |col| {
+            if (tl.covered(t, row, col)) continue;
+            const w = tl.cellWidth(t, widths, row, col);
+            sizes_h[row * cols + col] = cellContentHeight(cr, pango_layout, t, row, col, w - cell_pad_x * 2) + cell_pad_y * 2;
         }
-        const row_h = text_h + cell_pad_y * 2;
-        if (draw) {
-            if (md.Table.striped(t, row)) {
-                setColor(cr, col_stripe);
-                c.cairo_rectangle(cr, x, row_y, table_w, row_h);
-                c.cairo_fill(cr);
-            }
-            var cx = x;
-            for (widths, 0..) |w, col| {
-                if (t.nestedAt(row, col)) |nt| {
-                    _ = renderTable(cr, pango_layout, nt, cx + cell_pad_x, row_y + cell_pad_y, w - cell_pad_x * 2, true, null);
-                } else {
-                    setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
-                    drawCodeBackgrounds(cr, pango_layout, app.images.flow(t.cell(row, col)), cx + cell_pad_x, row_y + cell_pad_y);
-                    setColor(cr, col_text);
-                    c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
-                    c.pango_cairo_show_layout(cr, pango_layout);
-                    app.noteHit(.{
-                        .content = app.images.flow(t.cell(row, col)), .x = cx + cell_pad_x, .y = row_y + cell_pad_y + app.scroll_y, .w = w - cell_pad_x * 2,
-                        .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
-                    });
-                }
-                cx += w;
-            }
-            setColor(cr, col_table_border);
-            c.cairo_rectangle(cr, x, row_y, table_w, 1);
-            c.cairo_fill(cr);
-        }
-        row_y += row_h;
     }
-    c.pango_layout_set_attributes(pango_layout, null);
-    c.pango_layout_set_alignment(pango_layout, c.PANGO_ALIGN_LEFT);
+    tl.solve(heights, sizes_h, t, .row);
+    var table_h: f32 = 0;
+    for (heights) |h| table_h += h;
 
     if (draw) {
-        setColor(cr, col_table_border);
-        c.cairo_rectangle(cr, x, row_y, table_w, 1);
-        c.cairo_rectangle(cr, x, y, 1, row_y + 1 - y);
-        var cx = x;
-        for (widths) |w| {
-            cx += w;
-            c.cairo_rectangle(cr, cx - 1, y, 1, row_y + 1 - y);
+        var row_y = y;
+        for (0..rows) |row| {
+            if (md.Table.striped(t, row)) {
+                setColor(cr, col_stripe);
+                c.cairo_rectangle(cr, x, row_y, table_w, heights[row]);
+                c.cairo_fill(cr);
+            }
+            for (0..cols) |col| {
+                if (tl.covered(t, row, col)) continue;
+                const cx = x + tl.sum(widths, 0, col);
+                const w = tl.cellWidth(t, widths, row, col);
+                const h = tl.cellHeight(t, heights, row, col);
+                const text_h = cellContentHeight(cr, pango_layout, t, row, col, w - cell_pad_x * 2);
+                const ty = row_y + valignOffset(t, row, col, h, text_h);
+                const blocks = t.cellBlocks(row, col);
+                if (blocks.len > 0) {
+                    html.nested += 1;
+                    _ = layoutBlocks(cr, pango_layout, blocks, cx + cell_pad_x, w - cell_pad_x * 2, ty);
+                    html.nested -= 1;
+                } else if (t.nestedAt(row, col)) |nt| {
+                    _ = renderTable(cr, pango_layout, nt, cx + cell_pad_x, ty, w - cell_pad_x * 2, true, null);
+                } else {
+                    const cell = app.images.flow(t.cell(row, col));
+                    setCell(pango_layout, t, row, col, w - cell_pad_x * 2);
+                    drawCodeBackgrounds(cr, pango_layout, cell, cx + cell_pad_x, ty);
+                    drawStyleRects(cr, pango_layout, cell, cx + cell_pad_x, ty);
+                    setColor(cr, col_text);
+                    c.cairo_move_to(cr, cx + cell_pad_x, ty);
+                    c.pango_cairo_show_layout(cr, pango_layout);
+                    app.noteHit(.{
+                        .content = cell, .x = cx + cell_pad_x, .y = ty + app.scroll_y, .w = w - cell_pad_x * 2,
+                        .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.alignAt(row, col),
+                    });
+                }
+                setColor(cr, col_table_border);
+                c.cairo_rectangle(cr, cx, row_y, w, 1);
+                c.cairo_rectangle(cr, cx + w - 1, row_y, 1, h);
+                if (col == 0) c.cairo_rectangle(cr, cx, row_y, 1, h);
+                if (row + t.spanAt(row, col)[1] >= rows) c.cairo_rectangle(cr, cx, row_y + h, w, 1);
+                c.cairo_fill(cr);
+            }
+            row_y += heights[row];
         }
-        c.cairo_fill(cr);
     }
-    return row_y + 1 - y;
+    c.pango_layout_set_attributes(pango_layout, null);
+    setAlign(pango_layout, .left);
+    return table_h + 1;
+}
+
+/// Spanned HTML cells centre by default as browsers do; plain Markdown cells keep their text at the top.
+fn valignOffset(t: md.Table, row: usize, col: usize, cell_h: f32, text_h: f32) f32 {
+    const v = t.valignAt(row, col);
+    return switch (v) {
+        .top => cell_pad_y,
+        .bottom => @max(cell_h - text_h - cell_pad_y, cell_pad_y),
+        .middle => @max((cell_h - text_h) / 2, cell_pad_y),
+        .none => if (t.spans().len == 0) cell_pad_y else @max((cell_h - text_h) / 2, cell_pad_y),
+    };
 }
 
 fn renderCodeBlock(
@@ -1217,7 +1317,7 @@ fn drawMarker(cr: *c.cairo_t, pango_layout: *c.PangoLayout, m: md.Mark, x: f32, 
     }
 }
 
-fn drawRoundedRect(cr: *c.cairo_t, x: f32, y: f32, w: f32, h: f32, r: f32) void {
+pub fn drawRoundedRect(cr: *c.cairo_t, x: f32, y: f32, w: f32, h: f32, r: f32) void {
     const pi = std.math.pi;
     c.cairo_new_sub_path(cr);
     c.cairo_arc(cr, x + w - r, y + r, r, -pi / 2.0, 0);
@@ -1299,7 +1399,7 @@ fn addColorAttr(attr_list: *c.PangoAttrList, color: Color, start: u32, end: u32)
     c.pango_attr_list_insert(attr_list, attr);
 }
 
-fn glyphX(layout: *c.PangoLayout, byte: usize) c.PangoRectangle {
+pub fn glyphX(layout: *c.PangoLayout, byte: usize) c.PangoRectangle {
     // SAFETY: written by pango_layout_index_to_pos
     var r: c.PangoRectangle = undefined;
     c.pango_layout_index_to_pos(layout, @intCast(byte), &r);
@@ -1348,7 +1448,7 @@ test "the code span padding keeps the neighbouring letters where they were" {
     try std.testing.expectEqual(@as(usize, 3), unmap(spans, mapEnd(spans, 3)));
 }
 
-fn imageLayoutSize(content: md.Inline, width: f32) ![2]f32 {
+pub fn imageLayoutSize(content: md.Inline, width: f32) ![2]f32 {
     const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return error.NoSurface;
     defer c.cairo_surface_destroy(surface);
     const cr = c.cairo_create(surface) orelse return error.NoContext;
@@ -1401,6 +1501,10 @@ test "a missing image lays out a glyph and its alt text in the flow and a refere
     const plain = try imageLayoutSize(.{ .text = "a long alt text" }, 400);
     try std.testing.expectApproxEqAbs(plain[0] + broken_w, alt[0], 2);
     try std.testing.expectApproxEqAbs(plain[1], alt[1], 2);
+}
+
+test {
+    _ = html;
 }
 
 test "the X resource database gives the text scale as Xft.dpi" {
