@@ -483,7 +483,7 @@ fn recombine(a: Allocator, comps: []*FGraph, cfg: *const Cfg) !*FGraph {
         max_row_width = util.javaMax(max_row_width, sx);
         total_area += sx * sy;
     }
-    max_row_width = util.javaMax(max_row_width, @sqrt(total_area) * cfg.aspect_ratio);
+    max_row_width = util.javaMax(max_row_width, @as(f64, @as(f32, @floatCast(@sqrt(total_area)))) * cfg.aspect_ratio);
     const spacing = cfg.spacing;
     var xpos: f64 = 0;
     var ypos: f64 = 0;
