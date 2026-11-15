@@ -5,6 +5,9 @@ const text_mod = @import("../text.zig");
 const Allocator = std.mem.Allocator;
 const El = dom.El;
 
+// createText.ts: a label with no width of its own wraps at 200
+const default_width: f64 = 200;
+
 pub const TextOpts = struct {
     style: []const u8 = "",
     is_title: bool = false,
@@ -442,7 +445,7 @@ fn svgText(ctx0: *const model.Ctx, ctx: *const model.Ctx, parent: *El, text: []c
     const a = ctx.a;
     const markdown = std.mem.eql(u8, opts.label_type, "markdown");
     const html = if (markdown) try markdownToHtml(a, text) else try plainBreaks(a, text);
-    const width = opts.width orelse ctx0.cfg.wrapping_width;
+    const width = opts.width orelse default_width;
     const raw = try parseHtml(a, html);
     const lines = try svgWrap(ctx0, a, raw, width);
 
@@ -540,7 +543,7 @@ pub fn createText(ctx0: *const model.Ctx, parent: *El, text0: []const u8, opts: 
     const a = ctx.a;
     const markdown = std.mem.eql(u8, opts.label_type, "markdown");
     const html = if (markdown) try markdownToHtml(a, text) else try plainBreaks(a, text);
-    const width = opts.width orelse ctx.cfg.wrapping_width;
+    const width = opts.width orelse default_width;
     var laid = try layout(ctx, a, html, width);
     if (laid.w != width and laid.w < opts.min_width) laid.w = opts.min_width;
 
