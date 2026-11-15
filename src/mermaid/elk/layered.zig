@@ -152,6 +152,59 @@ const Config = struct {
     }
 };
 
+// InteractiveCycleBreaker reverses edges by node position; nodes without positions leave every cycle in place. The
+// layerers then loop or fail in ELK, and elkjs ends in an exception.
+fn checkAcyclic(g: *lg.LGraph) lg.Error!void {
+    const a = g.a;
+    var index: std.AutoHashMapUnmanaged(*lg.LNode, usize) = .empty;
+    for (g.layerless_nodes.items, 0..) |n, i| try index.put(a, n, i);
+    const in_degree = try a.alloc(usize, g.layerless_nodes.items.len);
+    @memset(in_degree, 0);
+    for (g.layerless_nodes.items) |n| for (n.ports.items) |p| for (p.outgoing.items) |e| {
+        const t = e.target.?.owner.?;
+        if (t == n) continue;
+        if (index.get(t)) |ti| in_degree[ti] += 1;
+    };
+    var queue: std.ArrayList(*lg.LNode) = .empty;
+    for (g.layerless_nodes.items, 0..) |n, i| if (in_degree[i] == 0) try queue.append(a, n);
+    var head: usize = 0;
+    while (head < queue.items.len) : (head += 1) {
+        const n = queue.items[head];
+        for (n.ports.items) |p| for (p.outgoing.items) |e| {
+            const t = e.target.?.owner.?;
+            if (t == n) continue;
+            const ti = index.get(t) orelse continue;
+            in_degree[ti] -= 1;
+            if (in_degree[ti] == 0) try queue.append(a, t);
+        };
+    }
+    if (queue.items.len != g.layerless_nodes.items.len) {
+        lg.setElkMessage("The interactive cycle breaker left a cycle in the graph");
+        return error.ElkException;
+    }
+}
+
+// A cycle the cycle breaker left in the graph (INTERACTIVE with nodes at equal positions) yields edges that run against
+// the layer direction; ELK's later phases do not handle them (elkjs ends in an exception), so report it here.
+fn checkLayering(g: *lg.LGraph) lg.Error!void {
+    for (g.layers.items, 0..) |layer, i| layer.id = @intCast(i);
+    for (g.layers.items) |layer| for (layer.nodes.items) |node| for (node.ports.items) |port| for (port.outgoing.items) |edge| {
+        const target = edge.target.?.owner.?;
+        const target_layer = target.layer orelse {
+            lg.setElkMessage("The layering has an edge to a node that is in no layer");
+            return error.ElkException;
+        };
+        if (target_layer.id < 0 or target_layer.id >= g.layers.items.len or g.layers.items[@intCast(target_layer.id)] != target_layer) {
+            lg.setElkMessage("The layering has an edge to a node of another graph");
+            return error.ElkException;
+        }
+        if (target_layer.id < layer.id) {
+            lg.setElkMessage("The layering has an edge that runs against the layer direction");
+            return error.ElkException;
+        }
+    };
+}
+
 fn phaseConfigurations(g: *const lg.LGraph, c: *Config) lg.Error!void {
     if (g.p.node_placement == .interactive or g.p.edge_routing != .orthogonal) {
         return error.Unsupported;
@@ -311,7 +364,10 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
                 .depth_first => try p1.depth_first.process(g),
                 .greedy => try p1.greedy.process(g, false),
                 .greedy_model_order => try p1.greedy.process(g, true),
-                .interactive => try p1.interactive.process(g),
+                .interactive => {
+                    try p1.interactive.process(g);
+                    try checkAcyclic(g);
+                },
                 .model_order => try p1.model_order.process(g),
             },
 
@@ -325,7 +381,10 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
                 .interactive => try p2.interactive.process(g),
                 else => return error.Unsupported,
             },
-            .p3_node_ordering => try p3.process(g),
+            .p3_node_ordering => {
+                try checkLayering(g);
+                try p3.process(g);
+            },
             .p4_node_placement => switch (g.p.node_placement) {
                 .brandes_koepf => try p4_bk.process(g),
                 .simple => try p4_simple.process(g),

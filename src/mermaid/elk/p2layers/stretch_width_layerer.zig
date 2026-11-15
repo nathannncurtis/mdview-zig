@@ -110,6 +110,10 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
 
     while (temp.items.len > 0) {
         const selected = st.selectNode(temp.items);
+        if (selected == null and placed_now.items.len == 0) {
+            lg.setElkMessage("StretchWidth layering cannot place a node");
+            return error.ElkException;
+        }
         if (selected == null or (st.conditionGoUp(selected.?) and placed_now.items.len != 0)) {
             st.updateOutGoing(current_layer);
             current_layer = try g.newLayer();
@@ -120,8 +124,8 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
         } else {
             const sel = selected.?;
             if (st.conditionGoUp(sel)) {
-                // ELK loops forever here when the influence is 0 (every edge enters from a hidden node); report instead
-                if (st.upper_layer_influence == 0 and st.in_degree[@intCast(sel.id)] > 0) {
+                // ELK loops forever here when the influence is 0 (every edge enters from a hidden node) or a node height is 0 (infinite normalized size); report instead
+                if (std.math.isInf(st.norm_size[@intCast(sel.id)]) or (st.upper_layer_influence == 0 and st.in_degree[@intCast(sel.id)] > 0)) {
                     lg.setElkMessage("StretchWidth layering cannot place a node");
                     return error.ElkException;
                 }
