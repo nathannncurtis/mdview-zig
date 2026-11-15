@@ -310,6 +310,7 @@ pub const Node = struct {
     attrs: []const Attr = &.{},
     raw_attrs: []const Attr = &.{},
     text: []const u8 = "",
+    text_cap: usize = 0,
     parent: u32 = nil,
     first: u32 = nil,
     last: u32 = nil,
@@ -591,11 +592,17 @@ pub const Builder = struct {
             while (c != nil and c != loc.before) : (c = b.node(c).next) prev = c;
         }
         if (prev != nil and b.node(prev).kind == .text) {
-            const old = b.node(prev).text;
-            const joined = try b.a().alloc(u8, old.len + s.len);
-            @memcpy(joined[0..old.len], old);
-            @memcpy(joined[old.len..], s);
-            b.node(prev).text = joined;
+            const t = b.node(prev);
+            const need = t.text.len + s.len;
+            if (need > t.text_cap) {
+                const grown = try b.a().alloc(u8, need * 2);
+                @memcpy(grown[0..t.text.len], t.text);
+                t.text = grown[0..t.text.len];
+                t.text_cap = grown.len;
+            }
+            const buf = @constCast(t.text.ptr)[0..need];
+            @memcpy(buf[t.text.len..], s);
+            t.text = buf;
         } else {
             try b.nodes.append(b.a(), .{ .kind = .text, .text = try b.a().dupe(u8, s) });
             b.link(loc, @intCast(b.nodes.items.len - 1));

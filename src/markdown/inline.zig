@@ -5,6 +5,9 @@ const emoji = @import("../data/emoji.zig");
 const unicode = @import("../data/unicode.zig");
 
 pub const Kind = enum { em, strong, strike, code, emoji, link, image, sup };
+/// An image takes one of these in the text; the alt text travels with the image.
+pub const object_char = "\u{fffc}";
+
 pub const EventTag = enum { open, close, html, soft, hard };
 
 /// `pos` is a byte offset into `Parsed.text`. `soft` and `hard` consume one byte of text
@@ -63,6 +66,34 @@ pub fn parseWithHeap(a: Allocator, heap: Allocator, src: []const u8, hooks: *con
     return s.flatten();
 }
 
+pub const CharRef = struct { end: usize, text: []const u8 };
+
+/// The character reference starting at `src[i]` (an `&`); numeric ones are encoded into `buf`.
+pub fn charRef(src: []const u8, i: usize, buf: *[4]u8) ?CharRef {
+    var j = i + 1;
+    if (j < src.len and src[j] == '#') {
+        j += 1;
+        const hex = j < src.len and (src[j] == 'x' or src[j] == 'X');
+        if (hex) j += 1;
+        const start = j;
+        var v: u32 = 0;
+        const limit: usize = if (hex) 6 else 7;
+        while (j < src.len and j - start < limit) : (j += 1) {
+            const d = std.fmt.charToDigit(src[j], if (hex) 16 else 10) catch break;
+            v = v * (if (hex) @as(u32, 16) else 10) + d;
+        }
+        if (j == start or j >= src.len or src[j] != ';') return null;
+        const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
+        const n = std.unicode.utf8Encode(cp, buf) catch return null;
+        return .{ .end = j + 1, .text = buf[0..n] };
+    }
+    const start = j;
+    while (j < src.len and j - start < 32 and std.ascii.isAlphanumeric(src[j])) j += 1;
+    if (j == start or j >= src.len or src[j] != ';') return null;
+    const v = entities.lookup(src[start..j]) orelse return null;
+    return .{ .end = j + 1, .text = v };
+}
+
 const none: u32 = std.math.maxInt(u32);
 
 const NodeTag = enum { text, open, close, html, soft, hard };
@@ -111,7 +142,7 @@ const Scanner = struct {
     dtail: u32 = none,
     brackets: std.ArrayList(Bracket) = .empty,
     bare_count: u32 = 0,
-    html_miss: [3]usize = @splat(std.math.maxInt(usize)),
+    html_miss: [4]usize = @splat(std.math.maxInt(usize)),
     /// Once a backtick run finds no closer, the last start of every run length from there on.
     tick_last: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     tick_from: usize = std.math.maxInt(usize),
@@ -156,6 +187,26 @@ const Scanner = struct {
         const nx = items[id].next;
         if (pv != none) items[pv].next = nx else s.head = nx;
         if (nx != none) items[nx].prev = pv else s.tail = pv;
+    }
+
+    /// The plain text of everything after node `from`, which is what an image shows when it cannot be drawn.
+    fn altText(s: *Scanner, from: u32) Allocator.Error![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(s.heap);
+        var id = s.nodes.items[from].next;
+        while (id != none) : (id = s.nodes.items[id].next) {
+            const n = s.nodes.items[id];
+            switch (n.tag) {
+                .text => try out.appendSlice(s.heap, n.s),
+                .open => if (n.kind == .image) {
+                    try out.appendSlice(s.heap, n.s);
+                    id = s.nodes.items[id].next;
+                },
+                .soft, .hard => try out.append(s.heap, ' '),
+                .close, .html => {},
+            }
+        }
+        return s.a.dupe(u8, out.items);
     }
 
     fn text(s: *Scanner, str: []const u8) Allocator.Error!void {
@@ -255,32 +306,10 @@ const Scanner = struct {
     }
 
     fn entity(s: *Scanner, i: usize) Allocator.Error!?usize {
-        const src = s.src;
-        var j = i + 1;
-        if (j < src.len and src[j] == '#') {
-            j += 1;
-            const hex = j < src.len and (src[j] == 'x' or src[j] == 'X');
-            if (hex) j += 1;
-            const start = j;
-            var v: u32 = 0;
-            const limit: usize = if (hex) 6 else 7;
-            while (j < src.len and j - start < limit) : (j += 1) {
-                const d = std.fmt.charToDigit(src[j], if (hex) 16 else 10) catch break;
-                v = v * (if (hex) @as(u32, 16) else 10) + d;
-            }
-            if (j == start or j >= src.len or src[j] != ';') return null;
-            const cp: u21 = if (v == 0 or v > 0x10FFFF or (v >= 0xD800 and v <= 0xDFFF)) 0xFFFD else @intCast(v);
-            const buf = try s.a.alloc(u8, 4);
-            const n = std.unicode.utf8Encode(cp, buf) catch return null;
-            try s.text(buf[0..n]);
-            return j + 1;
-        }
-        const start = j;
-        while (j < src.len and j - start < 32 and std.ascii.isAlphanumeric(src[j])) j += 1;
-        if (j == start or j >= src.len or src[j] != ';') return null;
-        const v = entities.lookup(src[start..j]) orelse return null;
-        try s.text(v);
-        return j + 1;
+        var buf: [4]u8 = undefined;
+        const r = charRef(s.src, i, &buf) orelse return null;
+        try s.text(try s.a.dupe(u8, r.text));
+        return r.end;
     }
 
     fn codeSpan(s: *Scanner, i: usize) Allocator.Error!usize {
@@ -425,12 +454,15 @@ const Scanner = struct {
             if (s.nodes.items[inner].bare) s.unlink(inner);
             inner = nx;
         }
+        const alt = if (b.image) try s.altText(b.node) else "";
+        if (b.image) while (s.tail != b.node) s.unlink(s.tail);
         const opener = &s.nodes.items[b.node];
         opener.tag = .open;
         opener.kind = if (b.image) .image else .link;
-        opener.s = "";
+        opener.s = alt;
         opener.url = m.url;
         opener.title = m.title;
+        if (b.image) try s.text(object_char);
         if (m.replace.len > 0) {
             if (m.sup) _ = try s.push(.{ .tag = .open, .kind = .sup });
             try s.text(m.replace);
@@ -545,7 +577,7 @@ const Scanner = struct {
             }
             switch (n.tag) {
                 .text => try buf.appendSlice(s.heap, n.s),
-                .open => try events.append(s.heap, .{ .tag = .open, .kind = n.kind, .pos = pos, .url = n.url, .title = n.title }),
+                .open => try events.append(s.heap, .{ .tag = .open, .kind = n.kind, .pos = pos, .url = n.url, .title = n.title, .raw = n.s }),
                 .close => try events.append(s.heap, .{ .tag = .close, .kind = n.kind, .pos = pos }),
                 .html => try events.append(s.heap, .{ .tag = .html, .pos = pos, .raw = n.s }),
                 .soft => {
@@ -607,7 +639,7 @@ fn findFrom(src: []const u8, from: usize, needle: []const u8, miss: *usize) ?usi
 }
 
 /// `miss` remembers where a terminator was last found absent, so unclosed constructs do not rescan the rest of the text.
-fn htmlEnd(src: []const u8, i: usize, miss: *[3]usize) ?usize {
+fn htmlEnd(src: []const u8, i: usize, miss: *[4]usize) ?usize {
     var j = i + 1;
     if (j >= src.len) return null;
     const c = src[j];
@@ -627,9 +659,10 @@ fn htmlEnd(src: []const u8, i: usize, miss: *[3]usize) ?usize {
     j += 1;
     if (std.mem.startsWith(u8, src[j..], "--")) {
         const body = j + 2;
-        if (std.mem.startsWith(u8, src[body..], ">") or std.mem.startsWith(u8, src[body..], "->")) return null;
-        const e = std.mem.indexOfPos(u8, src, body, "--") orelse return null;
-        return if (std.mem.startsWith(u8, src[e..], "-->")) e + 3 else null;
+        if (std.mem.startsWith(u8, src[body..], ">")) return body + 1;
+        if (std.mem.startsWith(u8, src[body..], "->")) return body + 2;
+        const e = findFrom(src, body, "-->", &miss[3]) orelse return null;
+        return e + 3;
     }
     if (std.mem.startsWith(u8, src[j..], "[CDATA[")) {
         const e = findFrom(src, j + 7, "]]>", &miss[1]) orelse return null;
