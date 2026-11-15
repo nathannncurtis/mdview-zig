@@ -67,3 +67,7 @@ Same shape (`source` is empty), checked by `src/mermaid/elk/box/test.zig` and `s
 - `<algorithm>-s-*`: 60 generated graphs (seeded, 1 to 60 nodes of mixed sizes, some nested, some with node labels) with varied algorithm options (box: `box.packingMode`, `expandNodes`, `interactive`, `priority`; rectpacking: width approximation, optimization goal, packing strategy, compaction iterations, whitespace elimination, `trybox`, `inNewRow`, `desiredPosition`) and the common ones (`aspectRatio`, `spacing.nodeNode`, `padding`, `nodeSize.*`, `contentAlignment`).
 
 `output` is what elkjs 0.9.3 returned for `input`, reduced to the same fields as above.
+
+## glue-*.json
+
+Mermaid's own input for the non-layered diagram layouts, three per algorithm (`glue-<algo>-flat`, `-sub`, `-own`; algo is `stress`, `force`, `mrtree`, `spore`, `box` or `rectpacking`), with the sources in each file's `source`: a flat decision flow with edge labels, two subgraphs joined by cross-boundary edges, and a subgraph that asks for its own algorithm (`S1@{ algorithm: elk.box }`, `elk.rectpacking`, `elk.stress`). Made with the patched mermaid@12.2.0 and Playwright script described above, with `layout: elk.<algorithm>` in the front matter (`elk.sporeOverlap` for spore), then reduced to the same fields. `input` is what Mermaid hands to elkjs, `output` what elkjs 0.9.3 returned. `src/mermaid/elk/algorithm_test.zig` checks every file except the mrtree ones, which belong to the mrtree test.
