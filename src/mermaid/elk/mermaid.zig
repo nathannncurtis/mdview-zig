@@ -106,6 +106,7 @@ pub const Algorithm = enum {
 };
 
 pub const Config = struct {
+    deadline: ?lg.Deadline = null,
     algorithm: Algorithm = .layered,
     direction: Dir = .tb,
     straighten_edges: bool = true,
@@ -465,6 +466,8 @@ fn setIncludeChildren(st: *State, i: usize, anc: ?usize) Allocator.Error!void {
 }
 
 pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Config) Error!Result {
+    lg.deadline = cfg.deadline;
+    defer lg.deadline = null;
     const n = nodes.len;
     var st: State = .{
         .a = a,

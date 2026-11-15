@@ -1,7 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const Error = Allocator.Error || error{ Unsupported, ElkException };
+pub const Error = Allocator.Error || error{ Unsupported, ElkException, Timeout };
+
+/// Asks whether the diagram's time limit has run out; set for the duration of one layout.
+pub const Deadline = struct { ctx: *anyopaque, expired: *const fn (ctx: *anyopaque) bool };
+
+pub threadlocal var deadline: ?Deadline = null;
+
+pub fn checkDeadline() Error!void {
+    if (deadline) |d| if (d.expired(d.ctx)) return error.Timeout;
+}
 
 threadlocal var elk_message_buf: [2048]u8 = undefined;
 threadlocal var elk_message_len: usize = 0;
