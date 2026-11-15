@@ -178,7 +178,11 @@ pub const Block = struct {
         var lower = b.min_width;
         var viable = b.width;
         var new_width = (upper - lower) / 2 + lower;
+        // a width of infinity never narrows; Java loops forever, this stops after more halvings than a double has
+        var halvings: u32 = 0;
         while (lower + 1 < upper) {
+            halvings += 1;
+            if (halvings > 1100) break;
             if (try b.fits(new_width, height, false)) {
                 viable = new_width;
                 upper = new_width;
@@ -360,7 +364,11 @@ pub const BlockStack = struct {
         var lower = min_width;
         var viable = s.width;
         var new_width = (upper - lower) / 2 + lower;
+        // a width of infinity never narrows; Java loops forever, this stops after more halvings than a double has
+        var halvings: u32 = 0;
         while (lower + 1 < upper) {
+            halvings += 1;
+            if (halvings > 1100) break;
             var total_height: f64 = 0;
             for (s.blocks.items) |block| total_height += try block.heightForTargetWidth(new_width);
             if (total_height < height) {

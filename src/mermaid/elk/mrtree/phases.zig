@@ -6,12 +6,18 @@ const TNode = t.TNode;
 const TEdge = t.TEdge;
 const TGraph = t.TGraph;
 
-const max_level_len = 1 << 20;
-const max_steps = 1 << 24;
+// A tree needs at most about n^2 steps; far more means duplicated children that make ELK loop or overflow.
+fn levelCap(nodes: usize) usize {
+    return nodes * nodes + 1024;
+}
+
+fn stepCap(nodes: usize) usize {
+    return 64 * nodes * nodes + 4096;
+}
 
 // Duplicate children (parallel edges under BFS) make Java loop or overflow its stack; fail instead of hanging.
 fn guard(next_len: usize, iter: usize, nodes: usize) lg.Error!void {
-    if (next_len > max_level_len or iter > nodes + 2) return error.ElkException;
+    if (next_len > levelCap(nodes) or iter > nodes + 2) return error.ElkException;
 }
 
 fn removeEdge(list: *std.ArrayList(*TEdge), e: *TEdge) void {
@@ -70,7 +76,7 @@ fn bfs(a: Allocator, visited: []u8, eliminated: *std.ArrayList(*TEdge), start: *
             } else if (visited[tid] == 2) {
                 visited[tid] = 1;
             } else {
-                if (queue.items.len > max_level_len) return error.ElkException;
+                if (queue.items.len > levelCap(visited.len)) return error.ElkException;
                 try queue.append(a, e.target);
             }
         }
@@ -259,19 +265,26 @@ pub fn levelHeightProcessor(a: Allocator, g: *TGraph) lg.Error!void {
 // p2order.NodeOrderer
 pub fn orderNodes(a: Allocator, g: *TGraph, cfg: *const t.Config) lg.Error!void {
     const root = try t.getRoot(g);
+    // a node reachable twice makes the recursion below exponential (and ELK overflows its stack)
+    var budget: usize = stepCap(g.nodes.items.len);
     switch (cfg.weighting) {
         .model_order => {},
         .fan, .descendants => {
             var level: std.ArrayList(*TNode) = .empty;
             try level.append(a, root);
-            try orderLevelFanDescendants(a, &level, cfg.weighting == .descendants);
+            try orderLevelFanDescendants(a, &level, cfg.weighting == .descendants, &budget);
         },
         .constraint => {
             var level: std.ArrayList(*TNode) = .empty;
             try level.append(a, root);
-            try orderLevelConstraint(a, &level);
+            try orderLevelConstraint(a, &level, &budget);
         },
     }
+}
+
+fn spend(budget: *usize) lg.Error!void {
+    if (budget.* == 0) return error.ElkException;
+    budget.* -= 1;
 }
 
 fn weight(n: *const TNode, by_descendants: bool) i32 {
@@ -293,7 +306,13 @@ fn positionDescending(_: void, x: *TNode, y: *TNode) bool {
     return x.position > y.position;
 }
 
-fn sortOutgoing(a: Allocator, parent: *TNode, children: []const *TNode) Allocator.Error!void {
+// Parallel edges make every pass square the outgoing list in ELK as well (it runs out of memory); stop before that.
+fn sortOutgoing(a: Allocator, parent: *TNode, children: []const *TNode) lg.Error!void {
+    var count: usize = 0;
+    for (children) |c| for (parent.outgoing.items) |e| {
+        if (e.target == c) count += 1;
+    };
+    if (count > 4096 + 16 * parent.outgoing.items.len) return error.ElkException;
     var sorted: std.ArrayList(*TEdge) = .empty;
     for (children) |c| for (parent.outgoing.items) |e| {
         if (e.target == c) try sorted.append(a, e);
@@ -304,7 +323,8 @@ fn sortOutgoing(a: Allocator, parent: *TNode, children: []const *TNode) Allocato
 
 // The leaf list of the Java code stays empty whenever there are inner nodes (ascending sort puts zeros first), so
 // only the all-leaves case assigns positions directly.
-fn orderLevelFanDescendants(a: Allocator, level: *std.ArrayList(*TNode), by_descendants: bool) lg.Error!void {
+fn orderLevelFanDescendants(a: Allocator, level: *std.ArrayList(*TNode), by_descendants: bool, budget: *usize) lg.Error!void {
+    try spend(budget);
     std.mem.sort(*TNode, level.items, Weights{ .descendants = by_descendants }, Weights.less);
     var first_occ = level.items.len;
     while (first_occ > 0 and weight(level.items[first_occ - 1], by_descendants) == 0) first_occ -= 1;
@@ -321,13 +341,14 @@ fn orderLevelFanDescendants(a: Allocator, level: *std.ArrayList(*TNode), by_desc
         p.position = pos;
         pos += 1;
         var children = try p.childrenCopy(a);
-        try orderLevelFanDescendants(a, &children, by_descendants);
+        try orderLevelFanDescendants(a, &children, by_descendants, budget);
         std.mem.sort(*TNode, children.items, {}, positionDescending);
         try sortOutgoing(a, p, children.items);
     }
 }
 
-fn orderLevelConstraint(a: Allocator, level: *std.ArrayList(*TNode)) lg.Error!void {
+fn orderLevelConstraint(a: Allocator, level: *std.ArrayList(*TNode), budget: *usize) lg.Error!void {
+    try spend(budget);
     const n: i32 = @intCast(level.items.len);
     var undefined_nodes: std.ArrayList(*TNode) = .empty;
     var in_bound: std.ArrayList(*TNode) = .empty;
@@ -354,6 +375,7 @@ fn orderLevelConstraint(a: Allocator, level: *std.ArrayList(*TNode)) lg.Error!vo
         const tp = cur.position_constraint;
         var j: i32 = 0;
         while (true) : (j += 1) {
+            if (j > @as(i32, @intCast(sorted.len)) * 2 + 2) return error.ElkException;
             var nt = tp + j;
             if (nt < @as(i32, @intCast(sorted.len)) and nt >= 0 and sorted[@intCast(nt)] == null) {
                 sorted[@intCast(nt)] = cur;
@@ -388,7 +410,7 @@ fn orderLevelConstraint(a: Allocator, level: *std.ArrayList(*TNode)) lg.Error!vo
     for (level.items) |x| if (x.fan != 0) try inners.append(a, x);
     for (inners.items) |p| {
         var children = try p.childrenCopy(a);
-        try orderLevelConstraint(a, &children);
+        try orderLevelConstraint(a, &children, budget);
         std.mem.sort(*TNode, children.items, {}, positionAscending);
         try sortOutgoing(a, p, children.items);
     }
@@ -396,7 +418,7 @@ fn orderLevelConstraint(a: Allocator, level: *std.ArrayList(*TNode)) lg.Error!vo
 
 // p3place.NodePlacer
 pub fn placeNodes(a: Allocator, g: *TGraph, cfg: *const t.Config) lg.Error!void {
-    var p: Placer = .{ .a = a, .spacing = cfg.spacing_node_node, .direction = g.direction, .max_depth = g.nodes.items.len + 2 };
+    var p: Placer = .{ .a = a, .spacing = cfg.spacing_node_node, .direction = g.direction, .max_depth = g.nodes.items.len + 2, .step_limit = stepCap(g.nodes.items.len) };
     if (p.direction == .undefined) {
         p.direction = .down;
         g.direction = .down;
@@ -411,11 +433,12 @@ const Placer = struct {
     spacing: f64,
     direction: lg.Direction,
     max_depth: usize,
+    step_limit: usize,
     steps: usize = 0,
 
     fn tick(self: *Placer) lg.Error!void {
         self.steps += 1;
-        if (self.steps > max_steps) return error.ElkException;
+        if (self.steps > self.step_limit) return error.ElkException;
     }
 
     fn firstWalk(self: *Placer, cn: *TNode, depth: usize) lg.Error!void {
