@@ -153,7 +153,7 @@ const Config = struct {
 };
 
 fn phaseConfigurations(g: *const lg.LGraph, c: *Config) lg.Error!void {
-    if (g.p.cycle_breaking != .depth_first or g.p.node_placement == .interactive or g.p.edge_routing != .orthogonal) {
+    if (g.p.node_placement == .interactive or g.p.edge_routing != .orthogonal) {
         return error.Unsupported;
     }
     if (g.p.cycle_breaking == .interactive) c.before(.p1_cycle_breaking, .interactive_external_port_positioner);
