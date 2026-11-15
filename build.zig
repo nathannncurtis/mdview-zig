@@ -17,6 +17,10 @@ pub fn build(b: *std.Build) void {
     });
     mermaid_mod.addImport("yaml", yaml_mod);
     mermaid_mod.addImport("testdata", testdata);
+    const entities_mod = b.createModule(.{ .root_source_file = b.path("src/data/entities.zig"), .target = target, .optimize = optimize });
+    const html_mod = b.createModule(.{ .root_source_file = b.path("src/markdown/html.zig"), .target = target, .optimize = optimize });
+    html_mod.addImport("entities", entities_mod);
+    mermaid_mod.addImport("html", html_mod);
     const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
 
     const exe_mod = b.createModule(.{
@@ -26,6 +30,8 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addImport("mermaid", mermaid_mod);
     exe_mod.addImport("yaml_parse", yaml_mod);
+    exe_mod.addImport("html", html_mod);
+    exe_mod.addImport("entities", entities_mod);
 
     const resolved = target.result;
     var linux_c: ?*std.Build.Step.TranslateC = null;
@@ -93,6 +99,8 @@ pub fn build(b: *std.Build) void {
     parser_tests.root_module.addImport("testdata", testdata);
     parser_tests.root_module.addImport("mermaid", mermaid_mod);
     parser_tests.root_module.addImport("yaml_parse", yaml_mod);
+    parser_tests.root_module.addImport("html", html_mod);
+    parser_tests.root_module.addImport("entities", entities_mod);
     const test_step = b.step("test", "Run parser tests");
     const run_parser = b.addRunArtifact(parser_tests);
     run_parser.setCwd(b.path("."));
@@ -187,6 +195,8 @@ pub fn build(b: *std.Build) void {
         layout_tests.root_module.addImport("testdata", testdata);
         layout_tests.root_module.addImport("mermaid", mermaid_mod);
         layout_tests.root_module.addImport("yaml_parse", yaml_mod);
+        layout_tests.root_module.addImport("html", html_mod);
+        layout_tests.root_module.addImport("entities", entities_mod);
         layout_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
     }
@@ -203,6 +213,8 @@ pub fn build(b: *std.Build) void {
         layout_tests.root_module.addImport("testdata", testdata);
         layout_tests.root_module.addImport("mermaid", mermaid_mod);
         layout_tests.root_module.addImport("yaml_parse", yaml_mod);
+        layout_tests.root_module.addImport("html", html_mod);
+        layout_tests.root_module.addImport("entities", entities_mod);
         layout_tests.root_module.addImport("font", font_mod);
         for ([_][]const u8{ "Cocoa", "CoreText", "CoreGraphics", "CoreFoundation" }) |fw| layout_tests.root_module.linkFramework(fw, .{});
         test_step.dependOn(&b.addRunArtifact(layout_tests).step);
@@ -221,6 +233,8 @@ pub fn build(b: *std.Build) void {
     });
     stress_tests.root_module.addImport("testdata", testdata);
     stress_tests.root_module.addImport("yaml_parse", yaml_mod);
+    stress_tests.root_module.addImport("html", html_mod);
+    stress_tests.root_module.addImport("entities", entities_mod);
     stress_tests.root_module.addImport("font", font_mod);
     const run_stress = b.addRunArtifact(stress_tests);
     if (b.option([]const u8, "stress-dir", "Directory of files from gen-stress for the stress step")) |dir| {
@@ -245,6 +259,8 @@ pub fn build(b: *std.Build) void {
         hit_tests.root_module.addImport("testdata", testdata);
         hit_tests.root_module.addImport("mermaid", mermaid_mod);
         hit_tests.root_module.addImport("yaml_parse", yaml_mod);
+        hit_tests.root_module.addImport("html", html_mod);
+        hit_tests.root_module.addImport("entities", entities_mod);
         hit_tests.root_module.addImport("font", font_mod);
         test_step.dependOn(&b.addRunArtifact(hit_tests).step);
     }
@@ -261,6 +277,8 @@ pub fn build(b: *std.Build) void {
     });
     fuzz_tests.root_module.addImport("testdata", testdata);
     fuzz_tests.root_module.addImport("yaml_parse", yaml_mod);
+    fuzz_tests.root_module.addImport("html", html_mod);
+    fuzz_tests.root_module.addImport("entities", entities_mod);
     const run_fuzz = b.addRunArtifact(fuzz_tests);
     test_step.dependOn(&run_fuzz.step);
     const fuzz_step = b.step("fuzz", "Fuzz the parser (zig build fuzz --fuzz=N)");

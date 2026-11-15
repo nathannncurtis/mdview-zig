@@ -86,6 +86,8 @@ const Entry = struct {
     mm_err: ?*ErrBox = null,
     mm_code: bool = false,
     mm_used: u64 = 0,
+    // The images this diagram was laid out without because they were still loading, one per line.
+    mm_wait: ?[]u8 = null,
     // The previous version of an edited diagram, drawn until this one has rendered.
     prev: ?*Entry = null,
 
@@ -101,6 +103,7 @@ const Entry = struct {
         if (e.svg_bytes) |b| gpa.free(b);
         if (e.fallback) |f| gpa.free(f);
         if (e.mm_src) |m| gpa.free(m);
+        if (e.mm_wait) |w| gpa.free(w);
         if (e.mm_err) |b| b.destroy();
         if (e.prev) |p| p.release();
         gpa.free(e.key);
@@ -798,12 +801,27 @@ fn measureText(_: ?*anyopaque, text: []const u8, f: mermaid.text.Font) mermaid.t
     return .{ .w = @floatCast(m.w), .h = @floatCast(m.h) };
 }
 
+threadlocal var probe_waits: std.ArrayList(u8) = .empty;
+
 fn imageProbe(href: []const u8) mermaid.ImageProbe {
     return switch (probe_adapter.probe(href)) {
         .size => |sz| .{ .size = .{ .w = sz.w, .h = sz.h } },
-        .pending => .pending,
+        .pending => blk: {
+            probe_waits.appendSlice(gpa, href) catch {};
+            probe_waits.append(gpa, 0x0a) catch {};
+            break :blk .pending;
+        },
         .failed => .failed,
     };
+}
+
+fn stillLoading(waits: []const u8) bool {
+    var it = std.mem.splitScalar(u8, waits, 0x0a);
+    while (it.next()) |href| {
+        if (href.len == 0) continue;
+        if (look(href, std.math.floatMax(f32)) == .pending) return true;
+    }
+    return false;
 }
 
 fn clockNs() i64 {
@@ -811,6 +829,10 @@ fn clockNs() i64 {
 }
 
 fn loadDiagram(e: *Entry) !void {
+    defer {
+        if (probe_waits.items.len > 0) e.mm_wait = gpa.dupe(u8, probe_waits.items) catch null;
+        probe_waits.clearAndFree(gpa);
+    }
     const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText }, .clock = clockNs, .image_probe = imageProbe });
     switch (r) {
         .svg => |i| {
@@ -893,7 +915,20 @@ pub const Diagram = union(enum) {
 
 /// What a mermaid block takes up in a layout `avail` wide.
 pub fn diagram(source: []const u8, avail: f32) Diagram {
-    const e = diagramEntry(source) orelse return .code;
+    var e = diagramEntry(source) orelse return .code;
+    if (e.mm_wait) |w| if (e.state.load(.acquire) == .ready and !stillLoading(w)) {
+        // The images this diagram was drawn without have loaded: lay it out again, showing this picture meanwhile.
+        _ = entries.remove(e.key);
+        const displaced = carry.fetchPut(gpa, e.mm_hash, e) catch blk: {
+            e.release();
+            break :blk null;
+        };
+        if (displaced) |old| {
+            old.value.dropNatives();
+            old.value.release();
+        }
+        e = diagramEntry(source) orelse return .code;
+    };
     switch (e.state.load(.acquire)) {
         .queued, .loading => {
             if (e.prev) |p| if (drawable(p)) return .{ .picture = fit(p.size, avail) };
@@ -1337,6 +1372,28 @@ test "a diagram renders once per source and is fitted to the width, never enlarg
 }
 
 const nl = "\n";
+
+test "a diagram drawn before its image loaded is laid out again with the real size" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const wait = try gpa.create(Entry);
+    wait.* = .{ .key = try gpa.dupe(u8, "wait.png"), .started = now() };
+    wait.state.store(.loading, .release);
+    try entries.put(gpa, wait.key, wait);
+    const src = "flowchart TD\n  A@{ img: \"wait.png\", label: \"x\" }\n";
+    const first = (try waitDiagram(src)).picture;
+    wait.size = .{ .w = 60, .h = 30 };
+    wait.state.store(.ready, .release);
+    var d = diagram(src, 1000);
+    const deadline = now() + 10_000;
+    while (d == .picture and d.picture.h == first.h and now() < deadline) {
+        std.Io.sleep(io, .fromMilliseconds(5), .awake) catch break;
+        d = diagram(src, 1000);
+    }
+    try testing.expect(d == .picture);
+    try testing.expect(d.picture.h != first.h);
+}
 
 test "a flowchart renders through the same path as any diagram" {
     init(testing.allocator, testing.io);

@@ -1,6 +1,7 @@
 const std = @import("std");
 const frontmatter = @import("../frontmatter.zig");
 const numfmt = @import("../numfmt.zig");
+const html = @import("html");
 const model = @import("../render/model.zig");
 const Allocator = std.mem.Allocator;
 const List = std.ArrayList;
@@ -933,8 +934,21 @@ fn inList(list: []const []const u8, s: []const u8) bool {
 }
 
 
+fn appendText(o: *List(u8), a: Allocator, s: []const u8) Allocator.Error!void {
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) switch (s[i]) {
+        '&' => try o.appendSlice(a, "&amp;"),
+        '<' => try o.appendSlice(a, "&lt;"),
+        '>' => try o.appendSlice(a, "&gt;"),
+        0xC2 => if (i + 1 < s.len and s[i + 1] == 0xA0) {
+            try o.appendSlice(a, "&nbsp;");
+            i += 1;
+        } else try o.append(a, s[i]),
+        else => |c| try o.append(a, c),
+    };
+}
 
-fn appendAttr(o: *List(u8), a: Allocator, at: Attr) Allocator.Error!void {
+fn appendAttr(o: *List(u8), a: Allocator, at: html.Attr) Allocator.Error!void {
     if (!inList(&allowed_attrs, at.name)) return;
     const url_attr = eq(at.name, "href") or eq(at.name, "src");
     const val = std.mem.trim(u8, at.value, " \t\r\n");
@@ -965,120 +979,38 @@ fn closeTo(o: *List(u8), a: Allocator, stack: *List([]const u8), name: []const u
     }
 }
 
-const Attr = struct { name: []const u8, value: []const u8 };
-
-const Tag = struct { name: []const u8, attrs: []const Attr, closing: bool, self_closing: bool, end: usize };
-
-fn isNameChar(c: u8) bool {
-    return std.ascii.isAlphanumeric(c) or c == '-' or c == ':';
-}
-
-/// The tag that starts at `s[at]` (a '<'), or null when the '<' is plain text.
-fn scanTag(a: Allocator, s: []const u8, at: usize) Allocator.Error!?Tag {
-    var i = at + 1;
-    const closing = i < s.len and s[i] == '/';
-    if (closing) i += 1;
-    const name_start = i;
-    if (i >= s.len or !std.ascii.isAlphabetic(s[i])) return null;
-    while (i < s.len and isNameChar(s[i])) i += 1;
-    const name = s[name_start..i];
-    var attrs: List(Attr) = .empty;
-    var self_closing = false;
-    while (i < s.len) {
-        while (i < s.len and (std.ascii.isWhitespace(s[i]) or s[i] == '/')) : (i += 1) {
-            if (s[i] == '/') self_closing = true;
-        }
-        if (i >= s.len) return null;
-        if (s[i] == '>') return .{ .name = name, .attrs = attrs.items, .closing = closing, .self_closing = self_closing, .end = i + 1 };
-        self_closing = false;
-        const an = i;
-        while (i < s.len and s[i] != '=' and s[i] != '>' and s[i] != '/' and !std.ascii.isWhitespace(s[i])) i += 1;
-        const attr_name = s[an..i];
-        var value: []const u8 = "";
-        while (i < s.len and std.ascii.isWhitespace(s[i])) i += 1;
-        if (i < s.len and s[i] == '=') {
-            i += 1;
-            while (i < s.len and std.ascii.isWhitespace(s[i])) i += 1;
-            if (i < s.len and (s[i] == '"' or s[i] == '\'')) {
-                const q = s[i];
-                const vs = i + 1;
-                const ve = std.mem.indexOfScalarPos(u8, s, vs, q) orelse return null;
-                value = s[vs..ve];
-                i = ve + 1;
-            } else {
-                const vs = i;
-                while (i < s.len and s[i] != '>' and !std.ascii.isWhitespace(s[i])) i += 1;
-                value = s[vs..i];
-            }
-        }
-        if (attr_name.len > 0) try attrs.append(a, .{ .name = attr_name, .value = value });
-    }
-    return null;
-}
-
-/// A character reference kept as written; any other '&' is text.
-fn isCharRef(s: []const u8, at: usize) bool {
-    var i = at + 1;
-    if (i < s.len and s[i] == '#') i += 1;
-    const start = i;
-    while (i < s.len and std.ascii.isAlphanumeric(s[i])) i += 1;
-    return i > start and i < s.len and s[i] == ';';
-}
-
-fn appendRawText(o: *List(u8), a: Allocator, s: []const u8) Allocator.Error!void {
-    var i: usize = 0;
-    while (i < s.len) : (i += 1) switch (s[i]) {
-        '&' => if (isCharRef(s, i)) try o.append(a, '&') else try o.appendSlice(a, "&amp;"),
-        '<' => try o.appendSlice(a, "&lt;"),
-        '>' => try o.appendSlice(a, "&gt;"),
-        0xC2 => if (i + 1 < s.len and s[i + 1] == 0xA0) {
-            try o.appendSlice(a, "&nbsp;");
-            i += 1;
-        } else try o.append(a, s[i]),
-        else => |c| try o.append(a, c),
-    };
-}
-
-/// DOMPurify as Mermaid's sanitizeText uses it: disallowed tags and attributes dropped, script-like elements removed
-/// with their content, open tags closed at the end.
+/// DOMPurify as Mermaid's sanitizeText uses it: tokenised with the viewer's HTML tokenizer, disallowed tags and
+/// attributes dropped, script-like elements removed with their content, open tags closed at the end.
 pub fn purify(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
     if (std.mem.indexOfAny(u8, s, "<&>") == null) return s;
+    var tk = html.Tokenizer.init(a, s);
     var o: List(u8) = .empty;
     var stack: List([]const u8) = .empty;
     var skip: ?[]const u8 = null;
-    var i: usize = 0;
-    while (i < s.len) {
-        if (s[i] == '<') {
-            if (std.mem.startsWith(u8, s[i..], "<!--")) {
-                i = if (std.mem.indexOfPos(u8, s, i + 4, "-->")) |e| e + 3 else s.len;
+    while (try tk.next()) |tok| switch (tok) {
+        .text => |t| if (skip == null) try appendText(&o, a, t),
+        .comment, .doctype => {},
+        .end => |name| {
+            if (skip) |su| {
+                if (eq(su, name)) skip = null;
                 continue;
             }
-            if (try scanTag(a, s, i)) |tag| {
-                i = tag.end;
-                if (tag.closing) {
-                    if (skip) |su| {
-                        if (eq(su, tag.name)) skip = null;
-                    } else if (inList(&allowed_tags, tag.name)) try closeTo(&o, a, &stack, tag.name);
-                    continue;
-                }
-                if (skip != null) continue;
-                if (inList(&drop_content_tags, tag.name)) {
-                    if (!tag.self_closing) skip = tag.name;
-                    continue;
-                }
-                if (!inList(&allowed_tags, tag.name)) continue;
-                try o.append(a, '<');
-                try o.appendSlice(a, tag.name);
-                for (tag.attrs) |at| try appendAttr(&o, a, at);
-                try o.append(a, '>');
-                if (!inList(&void_tags, tag.name)) try stack.append(a, tag.name);
+            if (inList(&allowed_tags, name)) try closeTo(&o, a, &stack, name);
+        },
+        .start => |st| {
+            if (skip != null) continue;
+            if (inList(&drop_content_tags, st.name)) {
+                if (!st.self_closing) skip = st.name;
                 continue;
             }
-        }
-        const next = std.mem.indexOfScalarPos(u8, s, i + 1, '<') orelse s.len;
-        if (skip == null) try appendRawText(&o, a, s[i..next]);
-        i = next;
-    }
+            if (!inList(&allowed_tags, st.name)) continue;
+            try o.append(a, '<');
+            try o.appendSlice(a, st.name);
+            for (st.attrs) |at| try appendAttr(&o, a, at);
+            try o.append(a, '>');
+            if (!inList(&void_tags, st.name)) try stack.append(a, st.name);
+        },
+    };
     while (stack.pop()) |t| {
         try o.appendSlice(a, "</");
         try o.appendSlice(a, t);
