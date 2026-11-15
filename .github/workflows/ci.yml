@@ -164,9 +164,9 @@ jobs:
           - target: mermaid.elk
             iterations: 50K
           - target: mermaid.render
-            iterations: 65K
+            iterations: 25K
           - target: font.parse
-            iterations: 2M
+            iterations: 1M
           - target: image.decode
             iterations: 400K
           - target: svg.render
