@@ -98,6 +98,9 @@ pub const Options = struct {
     stress_dimension: ?StressDimension = null,
     stress_epsilon: ?f64 = null,
     stress_iteration_limit: ?i32 = null,
+    underlying_layout_algorithm: ?[]const u8 = null,
+    overlap_removal_max_iterations: ?i32 = null,
+    overlap_removal_run_scanline: ?bool = null,
 
     // MapPropertyHolder.copyProperties onto the layered property bag
     pub fn applyTo(o: *const Options, p: *lg.Props) void {
@@ -202,6 +205,9 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.stress.dimension", "stress_dimension" },
     .{ "org.eclipse.elk.stress.epsilon", "stress_epsilon" },
     .{ "org.eclipse.elk.stress.iterationLimit", "stress_iteration_limit" },
+    .{ "org.eclipse.elk.underlyingLayoutAlgorithm", "underlying_layout_algorithm" },
+    .{ "org.eclipse.elk.overlapRemoval.maxIterations", "overlap_removal_max_iterations" },
+    .{ "org.eclipse.elk.overlapRemoval.runScanline", "overlap_removal_run_scanline" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.

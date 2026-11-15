@@ -4,6 +4,7 @@ const html = @import("markdown/html.zig");
 const elk_fuzz = @import("mermaid/elk/fuzz.zig");
 const elk_force_fuzz = @import("mermaid/elk/force/fuzz.zig");
 const elk_stress_fuzz = @import("mermaid/elk/stress/fuzz.zig");
+const spore_fuzz = @import("mermaid/elk/spore/fuzz.zig");
 const font = @import("font/font.zig");
 const image = @import("image/image.zig");
 const fuzz_images = @import("image/fuzz_seeds.zig");
@@ -152,6 +153,10 @@ test "fuzz elk.force" {
 
 test "fuzz elk.stress" {
     try std.testing.fuzz({}, elk_stress_fuzz.fuzzOne, .{ .corpus = &elk_fuzz.corpus });
+}
+
+test "fuzz mermaid.elk.spore" {
+    try std.testing.fuzz({}, spore_fuzz.fuzzOne, .{ .corpus = &spore_fuzz.corpus });
 }
 
 const font_corpus = [_][]const u8{

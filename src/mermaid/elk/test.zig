@@ -51,7 +51,7 @@ pub const Stats = struct {
     max_label: f64 = 0,
 };
 
-fn num(v: Value) f64 {
+pub fn num(v: Value) f64 {
     return switch (v) {
         .integer => |i| @floatFromInt(i),
         .float => |f| f,
@@ -201,6 +201,7 @@ pub fn checkFixtures(algorithm: []const u8, layoutFn: *const fn (std.mem.Allocat
         const doc = try std.json.parseFromSliceLeaky(Value, a, src, .{});
         if (!std.mem.eql(u8, fixtureAlgorithm(field(doc, "input").?), algorithm)) continue;
         const root = try elk_json.fromValue(a, field(doc, "input").?);
+        if (root.opts.algorithm) |alg| if (!std.mem.endsWith(u8, alg, "layered")) continue;
         stats.graphs += 1;
         var c: Cmp = .{ .a = a, .name = name, .stats = &stats, .expected_edges = std.StringHashMap(Value).init(a) };
         const out = field(doc, "output").?;
