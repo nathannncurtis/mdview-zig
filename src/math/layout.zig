@@ -1281,7 +1281,7 @@ fn layNode(c: Ctx, n: *const Node) Err!Box {
         .link => |x| return layRow(c, x.body),
         .array => |a| return layArray(c, a),
         .undefined_cs => |s| return layText(c.with(.t), s, .rm, error_rgb),
-        .parse_error => |s| return layText(c.with(.t), s, .rm, error_rgb),
+        .parse_error => |s| return layText(c.with(.t), s, .rm, null),
     }
 }
 
@@ -1302,7 +1302,7 @@ pub fn layoutNodes(alloc: Allocator, nodes: []const Node, f: *const Font, opts: 
     };
     return layRow(c, nodes) catch |e| switch (e) {
         error.OutOfMemory => error.OutOfMemory,
-        error.TooComplex => layText(c.with(.t), "Math too complex", .rm, error_rgb) catch error.OutOfMemory,
+        error.TooComplex => layText(c.with(.t), "Math too complex", .rm, null) catch error.OutOfMemory,
     };
 }
 

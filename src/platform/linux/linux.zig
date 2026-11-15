@@ -205,7 +205,11 @@ pub fn run() void {
                 c.ButtonPress => {
                     const be = ev.xbutton;
                     // Scroll up
-                    if (be.button == 4) {
+                    if ((be.button == 4 or be.button == 5) and (be.state & c.ShiftMask) != 0 and app.scrollMath(if (be.button == 4) -60 else 60)) {
+                        needs_redraw = true;
+                    } else if (be.button == 6 or be.button == 7) {
+                        if (app.scrollMath(if (be.button == 6) -60 else 60)) needs_redraw = true;
+                    } else if (be.button == 4) {
                         app.scroll_y -= 60;
                         if (app.scroll_y < 0) app.scroll_y = 0;
                         needs_redraw = true;
@@ -523,6 +527,10 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
                 y += renderErrorBox(cr, pango_layout, block.content, x, y, cw);
                 gap = 16;
             },
+            .math => {
+                y += renderMathBlock(cr, block.content.text, text_col, x, y, cw);
+                gap = 16;
+            },
             .code_block => {
                 y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, x, y, cw);
                 gap = 16;
@@ -817,14 +825,25 @@ fn padUnits(desc: *const c.PangoFontDescription) c_int {
     return @intFromFloat(md.code_pad_em * md.code_scale * @as(f32, @floatFromInt(c.pango_font_description_get_size(desc))) * 96.0 / 72.0);
 }
 
-const ImageKind = enum { pending, picture, broken };
+const ImageKind = enum { pending, picture, broken, math };
 
 /// Width of the broken image glyph with its gap to the alt text that follows, and its height.
 const broken_w: f32 = 18;
 const broken_h: f32 = 16;
 
 /// One image in a layout, found again by the shape renderer through the attribute's data pointer.
-pub const ImageBox = struct { w: f32, h: f32, kind: ImageKind, image: *const md.Image };
+pub const ImageBox = struct {
+    w: f32,
+    h: f32,
+    kind: ImageKind,
+    image: ?*const md.Image,
+    /// Height above the baseline; an image sits wholly above it.
+    ascent: f32 = 0,
+    math: ?*const md.MathSpan = null,
+    size: f32 = 0,
+    /// Full width of a formula wider than the line, which scrolls inside `w`.
+    math_w: f32 = 0,
+};
 
 pub var boxes: ?std.heap.ArenaAllocator = null;
 
@@ -863,9 +882,18 @@ pub fn imageBox(im: *const md.Image, avail: f32) ?*ImageBox {
     return box;
 }
 
+fn mathBox(m: *const md.MathSpan, size: f32, max_width: f32) ?*ImageBox {
+    if (boxes == null) boxes = .init(app.gpa);
+    const look = app.math.look(m.src, m.display, size) orelse return null;
+    const box = boxes.?.allocator().create(ImageBox) catch return null;
+    box.* = .{ .w = @min(look.w, max_width), .h = look.ascent + look.descent, .kind = .math, .image = null, .ascent = look.ascent, .math = m, .size = size, .math_w = look.w };
+    return box;
+}
+
 fn addImageShape(attr_list: *c.PangoAttrList, box: *ImageBox, start: usize, end: usize) void {
     const scale: f32 = c.PANGO_SCALE;
-    const rect: c.PangoRectangle = .{ .x = 0, .y = -@as(c_int, @intFromFloat(box.h * scale)), .width = @intFromFloat(box.w * scale), .height = @intFromFloat(box.h * scale) };
+    const up = if (box.kind == .math) box.ascent else box.h;
+    const rect: c.PangoRectangle = .{ .x = 0, .y = -@as(c_int, @intFromFloat(up * scale)), .width = @intFromFloat(box.w * scale), .height = @intFromFloat(box.h * scale) };
     const attr = c.pango_attr_shape_new_with_data(&rect, &rect, box, null, null) orelse return;
     attr.*.start_index = @intCast(start);
     attr.*.end_index = @intCast(end);
@@ -894,13 +922,23 @@ pub fn drawShape(cr: ?*c.cairo_t, attr: [*c]c.PangoAttrShape, _: c.gboolean, _: 
     var x: f64 = 0;
     var y: f64 = 0;
     c.cairo_get_current_point(ctx, &x, &y);
-    const top = y - box.h;
+    const top = y - (if (box.kind == .math) box.ascent else box.h);
     if (box.w <= 0 or top + box.h < 0 or top > app.window_height) return;
     switch (box.kind) {
         .pending => {},
         .picture => {
-            const bm = app.images.bitmap(box.image.target, .{ .w = box.w, .h = box.h }) orelse return;
+            const bm = app.images.bitmap((box.image orelse return).target, .{ .w = box.w, .h = box.h }) orelse return;
             blit(ctx, bm.native, bm.w, bm.h, x, top, box.w, box.h);
+        },
+        .math => {
+            const m = box.math orelse return;
+            var rgba: [4]f64 = .{ 0, 0, 0, 1 };
+            _ = c.cairo_pattern_get_rgba(c.cairo_get_source(ctx), &rgba[0], &rgba[1], &rgba[2], &rgba[3]);
+            const key = @intFromPtr(m.src.ptr);
+            const max = box.math_w - box.w;
+            const fx: f32 = @floatCast(x);
+            if (max > 0 and !html.measuring) app.noteMathBlock(.{ .x = fx, .y = @as(f32, @floatCast(top)) + app.scroll_y, .w = box.w, .h = box.h }, key, max);
+            drawMathPieces(ctx, m.src, m.display, box.size, packRgb(.{ .r = rgba[0], .g = rgba[1], .b = rgba[2] }), fx, fx + box.w, fx - app.mathOffset(key) + app.math.pad_x, @floatCast(top), box.h);
         },
         .broken => {
             if (app.images.brokenIcon()) |icon| {
@@ -1046,6 +1084,12 @@ pub fn setInline(pango_layout: *c.PangoLayout, content_in: md.Inline, max_width:
         addImageShape(attr_list, box, mapStart(spans, im.start), mapEnd(spans, im.start + im.len));
     }
 
+    const size_px = @as(f32, @floatFromInt(c.pango_font_description_get_size(desc))) / @as(f32, c.PANGO_SCALE) * 96.0 / 72.0;
+    for (content.math) |*m| {
+        const box = mathBox(m, size_px, max_width orelse 100000) orelse continue;
+        addImageShape(attr_list, box, mapStart(spans, m.start), mapEnd(spans, m.start + m.len));
+    }
+
     c.pango_layout_set_attributes(pango_layout, attr_list);
 }
 
@@ -1187,6 +1231,42 @@ fn valignOffset(t: md.Table, row: usize, col: usize, cell_h: f32, text_h: f32) f
         .middle => @max((cell_h - text_h) / 2, cell_pad_y),
         .none => if (t.spans().len == 0) cell_pad_y else @max((cell_h - text_h) / 2, cell_pad_y),
     };
+}
+
+fn packRgb(col: Color) u24 {
+    const r: u24 = @intFromFloat(@round(col.r * 255));
+    const g: u24 = @intFromFloat(@round(col.g * 255));
+    const b: u24 = @intFromFloat(@round(col.b * 255));
+    return r << 16 | g << 8 | b;
+}
+
+/// A display formula: centred in the column with 6px above and below, or pinned left and scrolled sideways when wider than it.
+fn renderMathBlock(cr: *c.cairo_t, src: []const u8, color: Color, x: f32, y: f32, w: f32) f32 {
+    const look = app.math.look(src, true, 16) orelse return 0;
+    const h = app.math.displayHeight(look);
+    if (html.measuring) return h;
+    const key = @intFromPtr(src.ptr);
+    app.noteMathBlock(.{ .x = x, .y = y + app.scroll_y, .w = w, .h = h }, key, app.math.maxScroll(w, look.w));
+    if (y + h < 0 or y > app.window_height) return h;
+    const left = x + app.math.displayX(w, look.w, app.mathOffset(key)) + app.math.pad_x;
+    drawMathPieces(cr, src, true, 16, packRgb(color), x, x + w, left, y + app.math.pad_y, look.ascent + look.descent);
+    return h;
+}
+
+/// Draws the tiles of a formula whose bitmap starts at `left`, showing only `vl..vr`.
+fn drawMathPieces(cr: *c.cairo_t, src: []const u8, block: bool, size: f32, rgb: u24, vl: f32, vr: f32, left: f32, top: f32, h: f32) void {
+    var out: [app.math.max_tiles]app.math.Piece = undefined;
+    for (app.math.pieces(src, block, size, rgb, vl - left, vr - left, &out)) |p| {
+        const at = left + p.x;
+        const l = @max(vl, at);
+        const r = @min(vr, at + p.w);
+        if (r <= l) continue;
+        c.cairo_save(cr);
+        c.cairo_rectangle(cr, l, top, r - l, h);
+        c.cairo_clip(cr);
+        blit(cr, p.native, p.px_w, p.px_h, at, top, p.w, h);
+        c.cairo_restore(cr);
+    }
 }
 
 fn renderCodeBlock(
@@ -1673,6 +1753,39 @@ pub fn imageLayoutSize(content: md.Inline, width: f32) ![2]f32 {
     defer c.g_object_unref(layout);
     setInline(layout, content, width, "Sans 12");
     return layoutPixelSize(layout);
+}
+
+fn mathLine(src: []const u8) !struct { base: f32, height: f32, look: app.math.Look } {
+    var doc = try md.parse(std.testing.allocator, src);
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    try std.testing.expectEqual(@as(usize, 1), content.math.len);
+    const look = app.math.look(content.math[0].src, content.math[0].display, 16) orelse return error.TestUnexpectedResult;
+    const surface = c.cairo_image_surface_create(c.CAIRO_FORMAT_ARGB32, 1, 1) orelse return error.NoSurface;
+    defer c.cairo_surface_destroy(surface);
+    const cr = c.cairo_create(surface) orelse return error.NoContext;
+    defer c.cairo_destroy(cr);
+    const layout = c.pango_cairo_create_layout(cr) orelse return error.NoLayout;
+    defer c.g_object_unref(layout);
+    setInline(layout, content, 600, "Sans 12");
+    const base = @as(f32, @floatFromInt(c.pango_layout_get_baseline(layout))) / @as(f32, c.PANGO_SCALE);
+    return .{ .base = base, .height = layoutPixelSize(layout)[1], .look = look };
+}
+
+test "inline math sits on the text baseline with its depth below it" {
+    app.gpa = std.testing.allocator;
+    app.images.init(std.testing.allocator, std.testing.io);
+    app.images.dpi_scale = 1;
+    defer app.math.reset();
+    defer resetBoxes();
+    const r = try mathLine("a $\\frac{a}{b}$ b");
+    try std.testing.expect(r.look.descent > 1);
+    try std.testing.expect(r.base + 0.5 >= r.look.ascent);
+    try std.testing.expect(r.base < r.look.ascent + r.look.descent - 1);
+    try std.testing.expect(r.height - r.base + 1 >= r.look.descent);
+    const plain = try mathLine("a $x$ b");
+    try std.testing.expect(plain.look.descent < 0.5);
+    try std.testing.expect(r.height > plain.height);
 }
 
 test "an image scales down to the layout width and is hit like a character" {
