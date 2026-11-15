@@ -24,6 +24,14 @@ const default_spacing_node_node = 8.0;
 const default_spacing_label_node = 5.0;
 const default_max_iterations = 64;
 
+fn dcmp(o: std.math.Order) i32 {
+    return switch (o) {
+        .lt => -1,
+        .eq => 0,
+        .gt => 1,
+    };
+}
+
 const Tree = struct {
     node: u32,
     children: std.ArrayList(*Tree) = .empty,
@@ -148,7 +156,7 @@ const Graph = struct {
     }
 
     fn cmpEvent(g: *const Graph, p1: SweepEvent, p2: SweepEvent) lg.Error!i32 {
-        const cmp: i32 = @backingInt(util.doubleCompare(g.eventY(p1), g.eventY(p2)));
+        const cmp: i32 = dcmp(util.doubleCompare(g.eventY(p1), g.eventY(p2)));
         if (cmp == 0) {
             if (!p1.low and p2.low) return -1;
             if (!p2.low and p1.low) return 1;
@@ -159,11 +167,11 @@ const Graph = struct {
     fn cmpLeft(g: *const Graph, n1: u32, n2: u32) i32 {
         const a = g.nodes[n1];
         const b = g.nodes[n2];
-        var c: i32 = @backingInt(util.doubleCompare(a.rect.x, b.rect.x));
+        var c: i32 = dcmp(util.doubleCompare(a.rect.x, b.rect.x));
         if (c != 0) return c;
-        c = @backingInt(util.doubleCompare(a.orig.x, b.orig.x));
+        c = dcmp(util.doubleCompare(a.orig.x, b.orig.x));
         if (c != 0) return c;
-        return @backingInt(util.doubleCompare(a.orig.y, b.orig.y));
+        return dcmp(util.doubleCompare(a.orig.y, b.orig.y));
     }
 
     fn overlapsX(g: *const Graph, n1: u32, n2: u32) bool {
@@ -231,7 +239,7 @@ const Graph = struct {
     const Weighted = struct { e: Edge, w: f64 };
 
     fn cmpWeight(_: void, x: Weighted, y: Weighted) lg.Error!i32 {
-        return @backingInt(util.doubleCompare(x.w, y.w));
+        return dcmp(util.doubleCompare(x.w, y.w));
     }
 
     // NaiveMinST.createSpanningTree
