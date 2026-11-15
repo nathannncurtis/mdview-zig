@@ -413,6 +413,18 @@ test {
     _ = view;
 }
 
+test "a default flowchart is laid out by ELK, layout dagre by dagre" {
+    const elk_r = try render(std.testing.allocator, "flowchart TD\nA-->B\n", .{});
+    defer free(std.testing.allocator, elk_r);
+    try std.testing.expect(std.mem.indexOf(u8, elk_r.svg.bytes, "viewBox=\"-36 -36 ") != null);
+    const dagre_r = try render(std.testing.allocator, "%%{init: {\"layout\": \"dagre\"}}%%\nflowchart TD\nA-->B\n", .{});
+    defer free(std.testing.allocator, dagre_r);
+    try std.testing.expect(std.mem.indexOf(u8, dagre_r.svg.bytes, "viewBox=\"-36 -36 ") == null);
+    const stress = try render(std.testing.allocator, "%%{init: {\"layout\": \"elk.stress\"}}%%\nflowchart TD\nA-->B\n", .{});
+    defer free(std.testing.allocator, stress);
+    try std.testing.expect(stress == .svg);
+}
+
 test "info renders with the version and theme styles" {
     const r = try render(std.testing.allocator, "info", .{});
     defer free(std.testing.allocator, r);

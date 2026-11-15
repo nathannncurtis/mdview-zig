@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const text = @import("../text.zig");
 const core_config = @import("../config.zig");
 const layout_mod = @import("../layout.zig");
+const elk = @import("../elk/mermaid.zig");
 
 pub const Point = struct { x: f64, y: f64 };
 pub const Box = dom.Box;
@@ -42,6 +43,15 @@ pub fn testConfig(a: Allocator) Config {
 
 pub const SubGraphTitleMargin = struct { top: f64 = 0, bottom: f64 = 0 };
 
+fn lineHops(v: ?core_config.Value) LineHops {
+    const x = v orelse return .arc;
+    return switch (x) {
+        .bool => |b| if (b) .arc else .off,
+        .string => |t| if (std.mem.eql(u8, t, "gap")) .gap else .arc,
+        else => .arc,
+    };
+}
+
 fn pxSize(s: ?[]const u8) ?f64 {
     const t = s orelse return null;
     return std.fmt.parseFloat(f64, std.mem.trimEnd(u8, t, "px")) catch null;
@@ -50,6 +60,8 @@ fn pxSize(s: ?[]const u8) ?f64 {
 fn isDarkTheme(name: []const u8) bool {
     return std.mem.eql(u8, name, "dark") or std.mem.endsWith(u8, name, "-dark") or std.mem.indexOf(u8, name, "-dark-") != null;
 }
+
+pub const LineHops = enum { off, arc, gap };
 
 pub const Config = struct {
     font_family: []const u8,
@@ -80,6 +92,8 @@ pub const Config = struct {
     max_edges: usize,
     max_text_size: usize,
     security_level: []const u8,
+    elk: elk.Config,
+    line_hops: LineHops,
 
     /// The values the flowchart code reads, taken from the config Mermaid's core resolved for this diagram.
     pub fn fromCore(c: *const core_config.Config) Config {
@@ -116,6 +130,23 @@ pub const Config = struct {
             .max_edges = @intFromFloat(@max(0, c.num("maxEdges") orelse 500)),
             .max_text_size = @intFromFloat(@max(0, c.num("maxTextSize") orelse 50000)),
             .security_level = c.str("securityLevel") orelse "strict",
+            .elk = .{
+                .straighten_edges = c.boolean("elk.straightenEdges") orelse true,
+                .orient_feedback_edges = c.boolean("elk.orientFeedbackEdges") orelse true,
+                .elk = .{
+                    .merge_edges = c.boolean("elk.mergeEdges") orelse false,
+                    .node_placement_strategy = c.str("elk.nodePlacementStrategy"),
+                    .node_placement_alignment = c.str("elk.nodePlacementAlignment"),
+                    .preset = c.str("elk.preset") orelse "default",
+                    .layering_strategy = c.str("elk.layeringStrategy"),
+                    .layering_layer_bound = c.num("elk.layeringLayerBound") orelse 4,
+                    .cycle_breaking_strategy = c.str("elk.cycleBreakingStrategy"),
+                    .force_node_model_order = c.boolean("elk.forceNodeModelOrder") orelse false,
+                    .consider_model_order = c.str("elk.considerModelOrder") orelse "NODES_AND_EDGES",
+                    .keep_entry_node_on_top = c.boolean("elk.keepEntryNodeOnTop") orelse false,
+                },
+            },
+            .line_hops = lineHops(c.get("elk.lineHops")),
         };
     }
 };
@@ -261,4 +292,6 @@ pub const Ctx = struct {
     image_probe: ?*const fn (href: []const u8) ImageProbe = null,
     /// The engine the diagram's `layout` setting names; anything but dagre takes the flat path.
     layout: layout_mod.Engine = .dagre,
+    /// The `elk.<name>` algorithm the layout names, for the ELK engine.
+    elk_algorithm: ?[]const u8 = null,
 };

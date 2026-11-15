@@ -14,7 +14,7 @@ pub const Choice = struct {
 };
 
 /// Flips to true when the ELK port in `src/mermaid/elk` is wired in; until then ELK choices are drawn by dagre.
-pub const elk_ported = false;
+pub const elk_ported = true;
 
 const registered = [_]Choice{
     .{ .name = "dagre", .engine = .dagre },
