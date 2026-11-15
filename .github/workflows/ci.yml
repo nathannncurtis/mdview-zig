@@ -161,6 +161,8 @@ jobs:
             iterations: 250K
           - target: html.Builder
             iterations: 150K
+          - target: mermaid.elk
+            iterations: 180K
           - target: mermaid.render
             iterations: 65K
           - target: flowchart.render

@@ -147,6 +147,15 @@ pub fn build(b: *std.Build) void {
     });
     dagre_tests.root_module.addImport("testdata", testdata);
     test_step.dependOn(&b.addRunArtifact(dagre_tests).step);
+    const elk_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mermaid/elk/test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    elk_tests.root_module.addImport("testdata", testdata);
+    test_step.dependOn(&b.addRunArtifact(elk_tests).step);
     const math_mod = b.createModule(.{ .root_source_file = b.path("src/math/math.zig"), .target = target, .optimize = optimize });
     math_mod.addImport("font", font_mod);
     const math_layout_tests = b.addTest(.{ .root_module = math_mod });
