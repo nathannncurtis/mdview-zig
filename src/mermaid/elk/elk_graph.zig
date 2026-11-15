@@ -12,6 +12,7 @@ pub const WidthApproximationStrategy = enum { greedy, target_width };
 pub const OptimizationGoal = enum { aspect_ratio_driven, max_scale_driven, area_driven };
 pub const PackingStrategy = enum { compaction, simple, none };
 pub const WhiteSpaceEliminationStrategy = enum { equal_between_structures, to_aspect_ratio };
+const mrtree_options = @import("mrtree/options.zig");
 
 // Layout options as set on an ELK graph element. null = not set (Java hasProperty false), so copying onto an
 // LGraph element (copyProperties) only overrides what was given.
@@ -124,6 +125,12 @@ pub const Options = struct {
     rp_trybox: ?bool = null,
     rp_desired_position: ?i32 = null,
     rp_in_new_row: ?bool = null,
+    mrtree_weighting: ?mrtree_options.OrderWeighting = null,
+    mrtree_search_order: ?mrtree_options.TreeifyingOrder = null,
+    mrtree_edge_routing_mode: ?mrtree_options.EdgeRoutingMode = null,
+    mrtree_compaction: ?bool = null,
+    mrtree_edge_end_texture_length: ?f64 = null,
+    mrtree_position_constraint: ?i32 = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
     stress_fixed: ?bool = null,
@@ -267,6 +274,12 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.rectpacking.trybox", "rp_trybox" },
     .{ "org.eclipse.elk.rectpacking.desiredPosition", "rp_desired_position" },
     .{ "org.eclipse.elk.rectpacking.inNewRow", "rp_in_new_row" },
+    .{ "org.eclipse.elk.mrtree.weighting", "mrtree_weighting" },
+    .{ "org.eclipse.elk.mrtree.searchOrder", "mrtree_search_order" },
+    .{ "org.eclipse.elk.mrtree.edgeRoutingMode", "mrtree_edge_routing_mode" },
+    .{ "org.eclipse.elk.mrtree.compaction", "mrtree_compaction" },
+    .{ "org.eclipse.elk.mrtree.edgeEndTextureLength", "mrtree_edge_end_texture_length" },
+    .{ "org.eclipse.elk.mrtree.positionConstraint", "mrtree_position_constraint" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.

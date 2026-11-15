@@ -2,6 +2,7 @@ const std = @import("std");
 const eg = @import("elk_graph.zig");
 const elk_json = @import("elk_json.zig");
 const layered = @import("layered.zig");
+const lg = @import("lgraph.zig");
 const Value = std.json.Value;
 
 test {
@@ -24,8 +25,6 @@ test {
     _ = @import("rectpacking/test.zig");
     _ = @import("radial/test.zig");
 }
-
-const lg = @import("lgraph.zig");
 
 // elk.algorithm of a fixture input's root, without the package prefix
 fn fixtureAlgorithm(input: Value) []const u8 {
@@ -160,12 +159,6 @@ pub const Cmp = struct {
         if (!(d <= point_tol)) self.report("edge {s} point got {d:.3},{d:.3} want {d:.3},{d:.3}", .{ id, gx, gy, wx, wy });
     }
 };
-
-fn isLayeredFixture(doc: Value) bool {
-    const opts = field(field(doc, "input") orelse return true, "layoutOptions") orelse return true;
-    const alg = field(opts, "elk.algorithm") orelse return true;
-    return alg == .string and std.mem.endsWith(u8, alg.string, "layered");
-}
 
 test "elk layout matches elkjs on the fixtures" {
     try checkFixtures("layered", layered.layout, 200);

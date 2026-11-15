@@ -8,6 +8,7 @@ const spore_fuzz = @import("mermaid/elk/spore/fuzz.zig");
 const elk_radial_fuzz = @import("mermaid/elk/radial/fuzz.zig");
 const elk_box_fuzz = @import("mermaid/elk/box/fuzz.zig");
 const elk_rect_fuzz = @import("mermaid/elk/rectpacking/fuzz.zig");
+const mrtree_fuzz = @import("mermaid/elk/mrtree/fuzz.zig");
 const font = @import("font/font.zig");
 const image = @import("image/image.zig");
 const fuzz_images = @import("image/fuzz_seeds.zig");
@@ -172,6 +173,10 @@ test "fuzz elk.spore" {
 
 test "fuzz elk.radial" {
     try std.testing.fuzz({}, elk_radial_fuzz.fuzzOne, .{ .corpus = &elk_radial_fuzz.corpus });
+}
+
+test "fuzz elk.mrtree" {
+    try std.testing.fuzz({}, mrtree_fuzz.fuzzOne, .{ .corpus = &mrtree_fuzz.corpus });
 }
 
 const font_corpus = [_][]const u8{
