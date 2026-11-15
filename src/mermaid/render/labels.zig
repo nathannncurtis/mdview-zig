@@ -280,7 +280,8 @@ fn wrapLine(ctx: *const model.Ctx, a: Allocator, atoms: []const Atom, width: f64
         }
         const start = cur.items.len;
         try cur.appendSlice(a, chunk);
-        if (lineWidth(ctx, cur.items) > width) {
+        const space_w: f64 = if (chunk[chunk.len - 1].sp) runWidth(ctx, " ", false, false) else 0;
+        if (lineWidth(ctx, cur.items) + space_w > width) {
             var first: Line = .empty;
             try first.appendSlice(a, cur.items[0..start]);
             first.items[start - 1].sp = false;

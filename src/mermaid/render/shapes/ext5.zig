@@ -136,5 +136,5 @@ pub fn curlyBraces(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts)
     try circ(a, &rp, true, -w / 2 - r / 2, r, r, 20, -90, 0);
     try rp.append(a, .{ .x = w / 2 - r / 2, .y = -r });
     try circ(a, &rp, true, -w / 2 + r + r / 2, h / 2, r, 30, -180, -270);
-    return finish(ctx, p, node, &.{ rb.items, lb.items }, rp.items, r - r / 4, -w / 2 + pad(node) / 2, -h / 2 + pad(node) / 2);
+    return finish(ctx, p, node, &.{ lb.items, rb.items }, rp.items, r - r / 4, -w / 2 + pad(node) / 2, -h / 2 + pad(node) / 2);
 }
