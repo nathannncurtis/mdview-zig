@@ -21,6 +21,7 @@ fn parse(comptime id: []const u8) fn (*core.Ctx, []const u8) core.Error!*anyopaq
             const db = try a.create(db_mod.Db);
             db.* = db_mod.Db.init(a, cfg);
             db.setDiagramId(ctx.svg_id);
+            if (ctx.title) |t| try db.setDiagramTitle(t);
             var diag: rt.Diag = .{};
             parse_mod.parse(a, db, source, &diag) catch |e| switch (e) {
                 error.OutOfMemory => return error.OutOfMemory,
