@@ -742,6 +742,10 @@ fn renderElk(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
     };
     var cfg = ctx.cfg.elk;
     cfg.direction = elkDir(data.direction) orelse .tb;
+    cfg.line_hops = .off;
+    if (ctx.elk_algorithm) |name| {
+        if (std.mem.startsWith(u8, name, "elk.")) cfg.algorithm = std.meta.stringToEnum(elk.Algorithm, name["elk.".len..]) orelse .layered;
+    }
     const res = elk.layout(al, gn, ge, cfg) catch return error.ElkLayout;
 
     for (nodes, res.nodes) |n, out| {

@@ -45,7 +45,7 @@ fn parsed(m: *anyopaque) *Parsed {
 
 fn layoutStage(ctx: *core.Ctx, m: *anyopaque) core.Error!*anyopaque {
     const p = parsed(m);
-    const mctx: model.Ctx = .{ .a = ctx.a, .measurer = ctx.measurer, .cfg = p.cfg, .diagram_id = ctx.svg_id, .layout = ctx.layout.engine, .image_probe = ctx.image_probe };
+    const mctx: model.Ctx = .{ .a = ctx.a, .measurer = ctx.measurer, .cfg = p.cfg, .diagram_id = ctx.svg_id, .layout = ctx.layout.engine, .elk_algorithm = ctx.layout.algorithm, .image_probe = ctx.image_probe };
     const out = try ctx.a.create(render.Rendered);
     out.* = render.render(&mctx, &p.data) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,

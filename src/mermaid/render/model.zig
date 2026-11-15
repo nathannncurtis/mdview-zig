@@ -287,4 +287,6 @@ pub const Ctx = struct {
     image_probe: ?*const fn (href: []const u8) ImageProbe = null,
     /// The engine the diagram's `layout` setting names; anything but dagre takes the flat path.
     layout: layout_mod.Engine = .dagre,
+    /// The `elk.<name>` algorithm the layout names, for the ELK engine.
+    elk_algorithm: ?[]const u8 = null,
 };
