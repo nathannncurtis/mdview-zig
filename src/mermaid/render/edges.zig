@@ -135,7 +135,7 @@ pub fn insertEdgeLabel(ctx: *const Ctx, elem: *El, edge: *EdgeData) !void {
     if (!ctx.cfg.html_labels) for (text_el.kids.items) |k| if (std.mem.eql(u8, k.tag, "text")) {
         tb = k.box orelse box;
     };
-    try label.setAttr("transform", try translate(a, if (ctx.cfg.html_labels) -box.w / 2 else -(tb.x + tb.w / 2), -tb.h / 2));
+    try label.setAttr("transform", try translate(a, if (ctx.cfg.html_labels) -box.w / 2 else -(tb.x + tb.w / 2), -tb.h / 2 - (if (ctx.cfg.html_labels) 0 else text_el.y_off)));
     try edge_labels.put(a, edge.id, edge_label);
     edge.width = box.w;
     edge.height = box.h;
