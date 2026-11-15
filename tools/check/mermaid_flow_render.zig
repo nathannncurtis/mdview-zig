@@ -8,11 +8,11 @@ const Replay = struct {
     sizes: cmp.ReplayMeasurer,
     wrapped_height: f64 = 28.5,
 
-    fn measure(ctx: ?*anyopaque, text: []const u8, _: mermaid.text.Font) mermaid.text.Size {
+    fn measure(ctx: ?*anyopaque, text: []const u8, font: mermaid.text.Font) mermaid.text.Size {
         const self: *const Replay = @ptrCast(@alignCast(ctx.?));
-        const s = self.sizes.measure(text, "", 0, 0) catch return .{ .w = 8 * @as(f32, @floatFromInt(text.len)), .h = 18.4 };
-        if (s.h > self.wrapped_height) return .{ .w = 4000, .h = 18.4 };
-        return .{ .w = @floatCast(s.w), .h = 18.4 };
+        const s = self.sizes.measure(text, "", 0, 0) catch return .{ .w = 8 * @as(f32, @floatFromInt(text.len)), .h = font.size * 1.15 };
+        if (s.h > self.wrapped_height) return .{ .w = 4000, .h = font.size * 1.15 };
+        return .{ .w = @floatCast(s.w), .h = font.size * 1.15 };
     }
 };
 
