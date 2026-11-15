@@ -67,8 +67,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const font_mod = b.createModule(.{ .root_source_file = b.path("src/font/font.zig"), .target = target, .optimize = optimize });
-    exe_mod.addImport("font", font_mod);
     const parser_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/markdown_test.zig"),
@@ -77,7 +75,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
     parser_tests.root_module.addImport("testdata", testdata);
-    parser_tests.root_module.addImport("font", font_mod);
     const test_step = b.step("test", "Run parser tests");
     const run_parser = b.addRunArtifact(parser_tests);
     run_parser.setCwd(b.path("."));
