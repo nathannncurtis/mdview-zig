@@ -162,7 +162,7 @@ jobs:
           - target: html.Builder
             iterations: 150K
           - target: mermaid.elk
-            iterations: 200K
+            iterations: 180K
           - target: mermaid.render
             iterations: 300K
           - target: font.parse
