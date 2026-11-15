@@ -12,6 +12,7 @@ Dark-themed, borderless floating window that renders Markdown with GitHub-dark s
 - **Syntax highlighting** in code blocks
 - **Bold/italic** inline formatting
 - **Tables** with column alignment
+- **Images** — inline, reference-style and linked images from local files or https URLs, scaled to fit, with animated GIF, WebP and PNG playing in place
 - **File watching** — auto-reloads when the file changes on disk
 - **Drag & drop** — drop any `.md` file onto the window to open it
 - **Scroll position memory** — remembers where you left off across sessions

@@ -9,9 +9,6 @@ const List = std.ArrayList(u8);
 
 const show_failures = 0;
 
-// inline.zig still uses the pre-0.31 comment rule (no "--" inside), so these two stay raw text.
-const inline_comment_rule = [_]u32{ 644, 645 };
-
 const Case = struct { n: u32, section: []const u8, md: []const u8, html: []const u8, github: []const u8 };
 
 fn escape(out: *List, a: Allocator, s: []const u8) !void {
@@ -149,5 +146,5 @@ test "spec examples for HTML blocks, raw HTML and the tagfilter" {
         }
     }
     std.debug.print("\nspec html boundaries: {d}/{d}\nfailing: {any}\n", .{ cases.len - failed.items.len, cases.len, failed.items });
-    try testing.expectEqualSlices(u32, &inline_comment_rule, failed.items);
+    try testing.expectEqualSlices(u32, &.{}, failed.items);
 }
