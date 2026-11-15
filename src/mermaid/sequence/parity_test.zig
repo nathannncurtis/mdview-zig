@@ -277,8 +277,8 @@ fn runSet(a: Allocator, replay: *Replay, theme: []const u8, manifest_path: []con
         const name = std.mem.trim(u8, name_raw, " \r");
         if (name.len == 0) continue;
         cases += 1;
-        const src = try readFile(a, try std.fmt.allocPrint(a, "testdata/mermaid/sequence/cases/{s}.mmd", .{name}));
-        const ref_svg = try readFile(a, try std.fmt.allocPrint(a, "testdata/mermaid/sequence/{s}/{s}.svg", .{ refs_dir, name }));
+        const src = try readFile(a, try std.fmt.allocPrint(a, "testdata/mermaid/cases/{s}.mmd", .{name}));
+        const ref_svg = try readFile(a, try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ refs_dir, name }));
         var xr: Xml = .{ .a = a, .s = ref_svg };
         const ref = try xr.element();
         stripA11y(a, ref);
@@ -339,9 +339,9 @@ test "sequence parity with mermaid 11.16.1 on the replayed measurements" {
     defer arena.deinit();
     const a = arena.allocator();
     var replay = try Replay.load(a);
-    try runSet(a, &replay, "dark", "testdata/mermaid/sequence/manifest.txt", "refs");
+    try runSet(a, &replay, "dark", "testdata/mermaid/sequence/manifest.txt", "testdata/mermaid/refs");
     for ([_][]const u8{ "default", "forest", "neutral" }) |t| {
-        try runSet(a, &replay, t, "testdata/mermaid/sequence/themes_manifest.txt", try std.fmt.allocPrint(a, "refs_{s}", .{t}));
+        try runSet(a, &replay, t, "testdata/mermaid/sequence/themes_manifest.txt", try std.fmt.allocPrint(a, "testdata/mermaid/sequence/refs_{s}", .{t}));
     }
 }
 
