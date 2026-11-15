@@ -86,6 +86,7 @@ pub fn build(b: *std.Build) void {
     });
     svg_mod.addImport("font", font_mod);
     exe_mod.addImport("font", font_mod);
+    parser_tests.root_module.addImport("font", font_mod);
     test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = svg_mod })).step);
     const svg_render_tests = b.addTest(.{
         .root_module = b.createModule(.{

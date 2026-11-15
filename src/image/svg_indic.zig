@@ -36,10 +36,10 @@ const splits = [_]Split{
     .{ .cp = 0x0D4A, .parts = .{ 0x0D46, 0x0D3E, 0 } },
     .{ .cp = 0x0D4B, .parts = .{ 0x0D47, 0x0D3E, 0 } },
     .{ .cp = 0x0D4C, .parts = .{ 0x0D46, 0x0D57, 0 } },
-    .{ .cp = 0x0DDA, .parts = .{ 0x0DD9, 0x0DCA, 0 } },
-    .{ .cp = 0x0DDC, .parts = .{ 0x0DD9, 0x0DCF, 0 } },
-    .{ .cp = 0x0DDD, .parts = .{ 0x0DD9, 0x0DCF, 0x0DCA } },
-    .{ .cp = 0x0DDE, .parts = .{ 0x0DD9, 0x0DDF, 0 } },
+    .{ .cp = 0x0DDA, .parts = .{ 0x0DD9, 0x0DCA, 0 }, .always = true },
+    .{ .cp = 0x0DDC, .parts = .{ 0x0DD9, 0x0DCF, 0 }, .always = true },
+    .{ .cp = 0x0DDD, .parts = .{ 0x0DD9, 0x0DCF, 0x0DCA }, .always = true },
+    .{ .cp = 0x0DDE, .parts = .{ 0x0DD9, 0x0DDF, 0 }, .always = true },
     .{ .cp = 0x17BE, .parts = .{ 0x17C1, 0x17BE, 0 }, .always = true },
     .{ .cp = 0x17BF, .parts = .{ 0x17C1, 0x17BF, 0 }, .always = true },
     .{ .cp = 0x17C0, .parts = .{ 0x17C1, 0x17C0, 0 }, .always = true },
@@ -71,8 +71,8 @@ const blocks = [_]Script{
     brahmic(.{ "mlm2", "mlym" }, 0x0D00, &.{ 0x0D46, 0x0D47, 0x0D48 }),
     .{ .tags = .{ "sinh", "sinh" }, .kind = .sinhala, .lo = 0x0D80, .hi = 0x0DFF, .pre = &.{ 0x0DD9, 0x0DDA, 0x0DDB }, .ra = 0x0DBB, .reph_len = 3 },
     .{ .tags = .{ "khmr", "khmr" }, .kind = .khmer, .lo = 0x1780, .hi = 0x17FF, .pre = &.{ 0x17C1, 0x17C2, 0x17C3 }, .base_first = true },
-    .{ .tags = .{ "mym2", "mymr" }, .kind = .myanmar, .lo = 0x1000, .hi = 0x109F, .pre = &.{0x1031}, .base_first = true },
-    .{ .tags = .{ "mym2", "mymr" }, .kind = .myanmar, .lo = 0xA9E0, .hi = 0xA9FF, .pre = &.{0x1031}, .base_first = true },
+    .{ .tags = .{ "mym2", "mymr" }, .kind = .myanmar, .lo = 0x1000, .hi = 0x109F, .pre = &.{ 0x103C, 0x1031 }, .base_first = true },
+    .{ .tags = .{ "mym2", "mymr" }, .kind = .myanmar, .lo = 0xA9E0, .hi = 0xA9FF, .pre = &.{ 0x103C, 0x1031 }, .base_first = true },
     .{ .tags = .{ "tibt", "tibt" }, .kind = .tibetan, .lo = 0x0F00, .hi = 0x0FFF, .pre = &.{}, .base_first = true },
     .{ .tags = .{ "bali", "bali" }, .kind = .balinese, .lo = 0x1B00, .hi = 0x1B7F, .pre = &.{ 0x1B3E, 0x1B3F }, .base_first = true },
     .{ .tags = .{ "sund", "sund" }, .kind = .sundanese, .lo = 0x1B80, .hi = 0x1BBF, .pre = &.{}, .base_first = true },
@@ -170,16 +170,21 @@ fn syllables(alloc: std.mem.Allocator, cps: []const u32, sc: Script, out: *std.A
         const start = i;
         var base: ?usize = null;
         var reph = false;
+        var joined = false;
         const c0 = catOf(cps[i], sc);
         if (c0 == .cons) {
             if (sc.reph_len > 0 and cps[i] == sc.ra and i + sc.reph_len < cps.len and catOf(cps[i + 1], sc) == .halant and (sc.reph_len == 2 or cps[i + 2] == 0x200D) and catOf(cps[i + sc.reph_len], sc) == .cons) reph = true;
             while (i < cps.len and catOf(cps[i], sc) == .cons) {
-                if (base == null or !sc.base_first) base = i;
+                if (base == null or !(sc.base_first or joined)) base = i;
+                joined = false;
                 i += 1;
                 while (i < cps.len and catOf(cps[i], sc) == .nukta) i += 1;
                 if (i < cps.len and catOf(cps[i], sc) == .halant) {
                     i += 1;
-                    if (i < cps.len and (catOf(cps[i], sc) == .zwj or catOf(cps[i], sc) == .zwnj)) i += 1;
+                    if (i < cps.len and (catOf(cps[i], sc) == .zwj or catOf(cps[i], sc) == .zwnj)) {
+                        joined = sc.kind == .sinhala and cps[i] == 0x200D;
+                        i += 1;
+                    }
                     if (i < cps.len and catOf(cps[i], sc) == .cons) continue;
                 }
                 break;
@@ -287,9 +292,9 @@ pub fn run(alloc: std.mem.Allocator, face: ?*const font.Font, gsub: ?shape.Gsub,
             if (sy.reph and k < sy.start + sc.reph_len) {
                 g.form |= 16;
                 g.tag |= tag_reph;
-            } else if (k < base and (cat == .cons or cat == .halant or cat == .nukta)) {
+            } else if (k < base and (cat == .cons or cat == .halant or cat == .nukta or cat == .zwj or cat == .zwnj)) {
                 g.form |= 32;
-            } else if (k > base and (cat == .cons or cat == .halant or cat == .nukta)) {
+            } else if (k > base and (cat == .cons or cat == .halant or cat == .nukta or cat == .zwj or cat == .zwnj)) {
                 g.form |= 64;
             }
             if (k == base) g.tag |= tag_base;
