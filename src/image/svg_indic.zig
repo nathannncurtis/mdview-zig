@@ -36,10 +36,10 @@ const splits = [_]Split{
     .{ .cp = 0x0D4A, .parts = .{ 0x0D46, 0x0D3E, 0 } },
     .{ .cp = 0x0D4B, .parts = .{ 0x0D47, 0x0D3E, 0 } },
     .{ .cp = 0x0D4C, .parts = .{ 0x0D46, 0x0D57, 0 } },
-    .{ .cp = 0x0DDA, .parts = .{ 0x0DD9, 0x0DCA, 0 }, .always = true },
-    .{ .cp = 0x0DDC, .parts = .{ 0x0DD9, 0x0DCF, 0 }, .always = true },
-    .{ .cp = 0x0DDD, .parts = .{ 0x0DD9, 0x0DCF, 0x0DCA }, .always = true },
-    .{ .cp = 0x0DDE, .parts = .{ 0x0DD9, 0x0DDF, 0 }, .always = true },
+    .{ .cp = 0x0DDA, .parts = .{ 0x0DD9, 0x0DDA, 0 }, .always = true },
+    .{ .cp = 0x0DDC, .parts = .{ 0x0DD9, 0x0DDC, 0 }, .always = true },
+    .{ .cp = 0x0DDD, .parts = .{ 0x0DD9, 0x0DDD, 0 }, .always = true },
+    .{ .cp = 0x0DDE, .parts = .{ 0x0DD9, 0x0DDE, 0 }, .always = true },
     .{ .cp = 0x17BE, .parts = .{ 0x17C1, 0x17BE, 0 }, .always = true },
     .{ .cp = 0x17BF, .parts = .{ 0x17C1, 0x17BF, 0 }, .always = true },
     .{ .cp = 0x17C0, .parts = .{ 0x17C1, 0x17C0, 0 }, .always = true },
@@ -294,7 +294,7 @@ pub fn run(alloc: std.mem.Allocator, face: ?*const font.Font, gsub: ?shape.Gsub,
                 g.tag |= tag_reph;
             } else if (k < base and (cat == .cons or cat == .halant or cat == .nukta or cat == .zwj or cat == .zwnj)) {
                 g.form |= 32;
-            } else if (k > base and (cat == .cons or cat == .halant or cat == .nukta or cat == .zwj or cat == .zwnj)) {
+            } else if (k > base or sc.base_first) {
                 g.form |= 64;
             }
             if (k == base) g.tag |= tag_base;
