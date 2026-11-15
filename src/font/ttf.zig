@@ -559,7 +559,7 @@ pub const Font = struct {
         const end_pts = first;
         const npts: usize = @as(usize, try u16At(d, end_pts + (n - 1) * 2)) + 1;
         var p = end_pts + n * 2;
-        p += 2 + try u16At(d, p);
+        p += 2 + @as(usize, try u16At(d, p));
         const flags = try alloc.alloc(u8, npts);
         defer alloc.free(flags);
         const pts = try alloc.alloc(Point, npts);
@@ -706,4 +706,12 @@ test "bbox of out-of-range or non-finite outlines is empty" {
     for (bad) |s| try std.testing.expectEqual(Font.BBox{}, s.box());
     const good: Font.BoxSink = .{ .x0 = -1.5, .y0 = 0.2, .x1 = 32766.5, .y1 = 7 };
     try std.testing.expectEqual(Font.BBox{ .x0 = -2, .y0 = 0, .x1 = 32767, .y1 = 7 }, good.box());
+}
+
+test "a glyph with the largest instruction length is rejected, not overflowed" {
+    const glyph = [_]u8{ 0, 0, 0xFF, 0xFF, 0, 0 };
+    var f: Font = undefined;
+    f.data = &glyph;
+    var sink: Font.BoxSink = .{};
+    try std.testing.expectError(error.Corrupt, f.simple(std.testing.allocator, 0, 1, .{}, &sink));
 }

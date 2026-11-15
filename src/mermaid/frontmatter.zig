@@ -320,7 +320,7 @@ fn snippetLine(a: Allocator, buffer: []const u8, line_start: usize, line_end: us
         tail = " ...";
         end = position + half - @as(isize, @intCast(tail.len));
     }
-    const s: usize = @intCast(@max(start, 0));
+    const s: usize = @intCast(@min(@max(start, 0), @as(isize, @intCast(buffer.len))));
     const e: usize = @intCast(@max(@min(end, @as(isize, @intCast(buffer.len))), @as(isize, @intCast(s))));
     var out: std.ArrayList(u8) = .empty;
     try out.appendSlice(a, head);
@@ -339,8 +339,7 @@ fn padStart(a: Allocator, n: isize, width: usize) Allocator.Error![]const u8 {
 }
 
 /// js-yaml's `makeSnippet` with its default options (indent 1, 3 lines before, 2 after, 79 columns).
-fn makeSnippet(a: Allocator, buffer: []const u8, position_in: usize, mark_line: usize) Allocator.Error![]const u8 {
-    const position = @min(position_in, buffer.len);
+fn makeSnippet(a: Allocator, buffer: []const u8, position: usize, mark_line: usize) Allocator.Error![]const u8 {
     const line: isize = @intCast(mark_line);
     var starts: std.ArrayList(usize) = .empty;
     var ends: std.ArrayList(usize) = .empty;
@@ -537,9 +536,13 @@ test "snippet line numbers survive NUL bytes that lineCol does not count" {
     try std.testing.expect(std.mem.indexOf(u8, s, " 1 | ") != null);
 }
 
-test "snippet position past the end of the buffer is clamped" {
+test "a deep error before short trailing lines slices like js-yaml" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const s = try makeSnippet(arena.allocator(), "a: b\nc: d", 514, 1);
-    try std.testing.expect(std.mem.indexOf(u8, s, " 2 | c: d") != null);
+    const a = arena.allocator();
+    const xs: [100]u8 = @splat('x');
+    const dashes: [41]u8 = @splat('-');
+    const src = try std.fmt.allocPrint(a, "a: {s}: b\nc: 1\n", .{&xs});
+    const want = try std.fmt.allocPrint(a, "bad indentation of a mapping entry (1:104)\n\n 1 |  ... {s}: b\n{s}^\n 2 |  ... ", .{ xs[0..31], &dashes });
+    _ = try expectLoad(src, want);
 }
