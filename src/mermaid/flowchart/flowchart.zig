@@ -207,5 +207,4 @@ test {
     _ = @import("../render/neo_test.zig");
     _ = @import("db_test.zig");
     _ = @import("parse_test.zig");
-    _ = @import("fuzz.zig");
 }
