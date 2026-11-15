@@ -6,10 +6,19 @@ const Dir = std.Io.Dir;
 
 const Replay = struct {
     sizes: cmp.ReplayMeasurer,
+    words: ?std.json.ArrayHashMap(f64) = null,
     wrapped_height: f64 = 28.5,
 
     fn measure(ctx: ?*anyopaque, text: []const u8, font: mermaid.text.Font) mermaid.text.Size {
         const self: *const Replay = @ptrCast(@alignCast(ctx.?));
+        if (std.mem.eql(u8, text, " ")) return .{ .w = 4.828125, .h = font.size * 1.15 };
+        if (self.words) |w| {
+            if (w.map.get(text)) |x| return .{ .w = @floatCast(@round(x * 64) / 64), .h = font.size * 1.15 };
+            var key_buf: [512]u8 = undefined;
+            if (std.fmt.bufPrint(&key_buf, "svg:{s}", .{text})) |key| {
+                if (w.map.get(key)) |x| return .{ .w = @floatCast(x), .h = font.size * 1.15 };
+            } else |_| {}
+        }
         const s = self.sizes.measure(text, "", 0, 0) catch return .{ .w = 8 * @as(f32, @floatFromInt(text.len)), .h = font.size * 1.15 };
         if (s.h > self.wrapped_height) return .{ .w = 4000, .h = font.size * 1.15 };
         return .{ .w = @floatCast(@round(s.w * 64) / 64), .h = font.size * 1.15 };
@@ -54,7 +63,7 @@ fn withoutText(a: Allocator, m: cmp.Model) Allocator.Error!cmp.Model {
 }
 
 // Cases the replay measurer cannot reproduce (it has widths of whole labels only, not of lines or words), plus the look and layout engines that are not ported.
-const known_gaps = [_][]const u8{ "flow-128-", "flow-137-", "flow-140-", "flow-153-", "flow-199-", "flow-190-", "flow-191-", "flow-192-", "flow-208-", "flow-246-" };
+const known_gaps = [_][]const u8{ "flow-128-", "flow-140-", "flow-190-", "flow-191-", "flow-192-", "flow-208-" };
 
 fn isKnownGap(name: []const u8) bool {
     for (known_gaps) |g| if (std.mem.startsWith(u8, name, g)) return true;
@@ -113,6 +122,9 @@ pub fn main(init: std.process.Init) !u8 {
         const ref_full = try cmp.extract(a, ref);
         const ref_model = try withoutText(a, ref_full);
         var replay: Replay = .{ .sizes = try cmp.ReplayMeasurer.init(a, ref_full, side) };
+        if (cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.words.json", .{ refs_dir, name }), a, .limited(1 << 24))) |bytes| {
+            replay.words = try std.json.parseFromSliceLeaky(std.json.ArrayHashMap(f64), a, bytes, .{});
+        } else |_| {}
         const dagre = isDagre(src);
         if (dagre) dagre_total += 1 else other_total += 1;
         const tag: []const u8 = if (dagre) "dagre" else "default";
