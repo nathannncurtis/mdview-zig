@@ -13,7 +13,8 @@ const def_aspect_ratio = 1.3;
 // BoxLayoutProvider.layout
 pub fn layout(a: Allocator, node: *ElkNode) lg.Error!void {
     // the spacing option is read as a float
-    const spacing: f64 = @as(f32, @floatCast(node.opts.spacing_node_node orelse 15));
+    const spacing_f32: f32 = @floatCast(node.opts.spacing_node_node orelse 15);
+    const spacing: f64 = spacing_f32;
     const padding = node.opts.padding orelse Margin{ .top = 15, .left = 15, .bottom = 15, .right = 15 };
     const expand = node.opts.expand_nodes orelse false;
     const interactive = node.opts.interactive orelse false;

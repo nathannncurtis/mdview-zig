@@ -380,6 +380,7 @@ fn postProcess(p: *Placer) void {
         for (segment.nodes.items) |node| {
             const layer_nodes = node.layer.?.nodes.items;
             const index = node.index();
+            // SAFETY: assigned before use
             var room_above: f64 = undefined;
             if (index > 0) {
                 const neighbor = layer_nodes[index - 1];
@@ -389,6 +390,7 @@ fn postProcess(p: *Placer) void {
                 room_above = node.pos.y - node.margin.top;
             }
             min_room_above = util.javaMin(room_above, min_room_above);
+            // SAFETY: assigned before use
             var room_below: f64 = undefined;
             if (index < layer_nodes.len - 1) {
                 const neighbor = layer_nodes[index + 1];

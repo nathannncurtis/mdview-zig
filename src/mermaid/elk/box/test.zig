@@ -1,5 +1,5 @@
 const std = @import("std");
-const fixtures = @import("fixtures.zig");
+const fixtures = @import("fixtures_test.zig");
 
 test {
     _ = @import("box.zig");

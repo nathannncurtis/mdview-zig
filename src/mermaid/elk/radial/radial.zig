@@ -17,6 +17,7 @@ fn countNodes(n: *const eg.ElkNode) usize {
 
 // RadialLayoutProvider.layout, ELK 0.9.1: no SPOrE overlap removal and no root selection strategies
 pub fn layout(a: std.mem.Allocator, graph: *eg.ElkNode) lg.Error!void {
+    // SAFETY: assigned before use
     var c: Ctx = .{ .a = a, .graph = graph, .root = undefined, .max_depth = countNodes(graph) + 2 };
     if (!(graph.opts.omit_node_micro_layout orelse false)) try micro.run(&c);
     c.root = util.findRoot(graph) orelse {
@@ -60,7 +61,9 @@ const Eades = struct {
         util.centerNodesOnRadi(node, x_pos, y_pos);
         const number_of_leafs = try e.wedge(node);
         const tau = 2 * std.math.acos(current_radius / current_radius + e.radius);
+        // SAFETY: assigned before use
         var s: f64 = undefined;
+        // SAFETY: assigned before use
         var alpha: f64 = undefined;
         if (tau < max_alpha - min_alpha) {
             s = tau / number_of_leafs;

@@ -1,6 +1,4 @@
-const std = @import("std");
 const lg = @import("../lgraph.zig");
-const eg = @import("../elk_graph.zig");
 const calc = @import("../nodespacing/node_label_and_size_calculator.zig");
 const margins = @import("../nodespacing/node_margin_calculator.zig");
 const util = @import("util.zig");

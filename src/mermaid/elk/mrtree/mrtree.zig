@@ -11,7 +11,6 @@ const Allocator = std.mem.Allocator;
 const TNode = t.TNode;
 const TEdge = t.TEdge;
 const TGraph = t.TGraph;
-const Vec = lg.Vec;
 
 // TreeLayoutProvider. The random seed option is never read by MrTree. Not carried over: node label placement of
 // NodeMicroLayout (only the node size it computes) and the interactive and compaction options.

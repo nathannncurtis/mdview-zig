@@ -132,6 +132,7 @@ pub fn process(g: *lg.LGraph) lg.Error!void {
         .norm_size = try a.alloc(f64, n),
         .in_degree = try a.alloc(i32, n),
         .out_degree = try a.alloc(i32, n),
+        // SAFETY: assigned before use
         .successors = undefined,
     };
     var avg_size: f64 = 0;

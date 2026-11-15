@@ -95,8 +95,11 @@ const Gap = struct {
         for (gap.bends.items, 0..) |p, idx| {
             const i: f64 = @floatFromInt(idx);
             const interpolation = (i + 1) / (count + 1);
+            // SAFETY: assigned before use
             var bend1: Vec = undefined;
+            // SAFETY: assigned before use
             var bend2: Vec = undefined;
+            // SAFETY: assigned before use
             var bend_tmp: f64 = undefined;
             if (gap.neighbor_one == null and gap.neighbor_two == null) {
                 return;
@@ -252,6 +255,7 @@ fn specialEdges(a: Allocator, g: *TGraph, d: Dir, pad: f64, texture: f64) lg.Err
                 try e.bends.append(a, bend2);
                 const triple: BendTriple = .{ .first = bend1, .second = bend2, .edge = e };
                 const key: i64 = (@as(i64, cur_level) << 32) | @as(i64, @intCast(i));
+                // SAFETY: assigned before use
                 var gap: *Gap = undefined;
                 if (gaps.get(key)) |existing| {
                     gap = existing;

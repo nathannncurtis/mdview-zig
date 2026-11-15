@@ -1,5 +1,4 @@
 // LongestPathSourceLayerer. Writes LNode.id, layers.
-const std = @import("std");
 const lg = @import("../lgraph.zig");
 
 const State = struct {

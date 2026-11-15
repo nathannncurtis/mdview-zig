@@ -268,7 +268,9 @@ fn insertInLayerEdge(p: *Placer, in_layer_edge: *lg.LEdge) Allocator.Error!void 
     const dummy_node = in_layer_edge.otherPort(the_port).owner.?;
     const port_rep = p.port_map.get(the_port).?;
     const dummy_rep = p.node_reps[ix(dummy_node)].head;
+    // SAFETY: assigned before use
     var src: *NNode = undefined;
+    // SAFETY: assigned before use
     var tgt: *NNode = undefined;
     if (the_port.owner.?.index() < dummy_node.index()) {
         src = port_rep;
@@ -430,6 +432,7 @@ fn preferStraightEdges(p: *Placer) Allocator.Error!void {
         var last: ?*lg.LEdge = null;
         for (path.items, 0..) |cur, i| {
             const cur_rep = p.edge_reps[@intCast(cur.id)].?;
+            // SAFETY: assigned before use
             var weight: f64 = undefined;
             if (last == null or i + 1 == path.items.len) {
                 weight = edgeTypeWeight(.normal, .long_edge);
