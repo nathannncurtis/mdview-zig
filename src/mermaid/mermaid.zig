@@ -436,6 +436,20 @@ test "parse errors, unknown types and unsupported types" {
     try std.testing.expectEqualStrings(errors.dashes_message, dashes.err);
 }
 
+var ticking_now: i64 = 0;
+
+fn tickingClock() i64 {
+    ticking_now += std.time.ns_per_s;
+    return ticking_now;
+}
+
+test "a flowchart past its time limit gives the timeout error" {
+    ticking_now = 0;
+    const r = try render(std.testing.allocator, "flowchart TD\nA-->B\nB-->C\n", .{ .clock = tickingClock, .timeout_ms = 1 });
+    defer free(std.testing.allocator, r);
+    try std.testing.expectEqualStrings(errors.timeout_message, r.err);
+}
+
 test "memory limit and deadline" {
     const small = try render(std.testing.allocator, "info", .{ .memory_limit = 1024 });
     defer free(std.testing.allocator, small);

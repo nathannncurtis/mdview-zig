@@ -246,7 +246,7 @@ pub const Renderer = struct {
                 .labelpos = lp,
             }));
         }
-        try dagre.layout(al, &dg, .{});
+        try dagre.layout(al, &dg, .{ .deadline = if (self.ctx.deadline) |d| .{ .ctx = d.ctx, .expired = d.f } else null });
         for (g.nodes()) |v| {
             const nd = g.node(v).?;
             const out = dg.node(v).?;

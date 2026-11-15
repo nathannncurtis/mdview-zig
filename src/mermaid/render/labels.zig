@@ -29,6 +29,7 @@ pub const Atom = struct {
     sup: bool = false,
     sp: bool = false,
     brk: bool = false,
+    inner_em: bool = false,
 };
 
 pub const Line = std.ArrayList(Atom);
@@ -56,6 +57,7 @@ const Builder = struct {
     italic: u32 = 0,
     sub: u32 = 0,
     sup: u32 = 0,
+    inner_em: bool = false,
 
     fn flush(self: *Builder, brk: bool) Allocator.Error!void {
         if (self.buf.items.len == 0) {
@@ -66,6 +68,7 @@ const Builder = struct {
             .text = try self.a.dupe(u8, self.buf.items),
             .bold = self.bold > 0,
             .italic = self.italic > 0,
+            .inner_em = self.inner_em,
             .sub = self.sub > 0,
             .sup = self.sup > 0,
             .brk = brk,
@@ -132,6 +135,8 @@ pub fn parseHtml(a: Allocator, s: []const u8) Allocator.Error![]Line {
                     } else if (eqi(name, "b") or eqi(name, "strong")) {
                         try b.flush(false);
                         if (closing) b.bold -|= 1 else b.bold += 1;
+                        b.inner_em = if (b.italic > 0 and b.bold > 0) b.inner_em else b.italic > 0;
+                        if (!closing) b.inner_em = false;
                     } else if (eqi(name, "sub") or eqi(name, "sup")) {
                         try b.flush(false);
                         const counter = if (eqi(name, "sub")) &b.sub else &b.sup;
@@ -139,6 +144,8 @@ pub fn parseHtml(a: Allocator, s: []const u8) Allocator.Error![]Line {
                     } else if (eqi(name, "i") or eqi(name, "em")) {
                         try b.flush(false);
                         if (closing) b.italic -|= 1 else b.italic += 1;
+                        b.inner_em = if (b.italic > 0 and b.bold > 0) b.inner_em else b.italic > 0;
+                        if (!closing) b.inner_em = true;
                     } else if ((eqi(name, "script") or eqi(name, "style")) and !closing) {
                         var j = end + 1;
                         while (j < s.len) : (j += 1) {
@@ -421,9 +428,10 @@ fn fitCheck(p: *anyopaque, line: text_mod.MarkdownLine) bool {
     return lineWidth(self.ctx, atoms) <= self.width;
 }
 
-// shortcut: a word carries one style, as in Mermaid's markdown lines, so bold and italic together draw as italic
+// Mermaid's markdown words carry one style, the innermost of nested strong and em
 fn wordOf(at: Atom) text_mod.Word {
-    return .{ .content = at.text, .kind = if (at.italic) .em else if (at.bold) .strong else .normal };
+    const em = at.italic and (!at.bold or at.inner_em);
+    return .{ .content = at.text, .kind = if (em) .em else if (at.bold) .strong else .normal };
 }
 
 fn atomOf(w: text_mod.Word, sp: bool) Atom {
@@ -675,4 +683,14 @@ test "createLabel never wraps" {
     const ctx = testCtx(&arena, &cfg);
     const l = try createLabel(&ctx, "aaaa bbbb cccc dddd eeee ffff gggg", "", false, true);
     try std.testing.expectEqual(@as(f64, 24), l.box.?.h);
+}
+
+test "nested strong and em take the innermost style, as Mermaid's markdown words do" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const em_inside = try parseHtml(a, "<b><i>x</i></b>");
+    try std.testing.expectEqual(text_mod.WordKind.em, wordOf(em_inside[0].items[0]).kind);
+    const strong_inside = try parseHtml(a, "<i><b>x</b></i>");
+    try std.testing.expectEqual(text_mod.WordKind.strong, wordOf(strong_inside[0].items[0]).kind);
 }

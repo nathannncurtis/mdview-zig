@@ -43,12 +43,20 @@ fn parsed(m: *anyopaque) *Parsed {
     return @ptrCast(@alignCast(m));
 }
 
+fn expired(p: *anyopaque) bool {
+    const d: *core.Deadline = @ptrCast(@alignCast(p));
+    d.check() catch return true;
+    return false;
+}
+
 fn layoutStage(ctx: *core.Ctx, m: *anyopaque) core.Error!*anyopaque {
     const p = parsed(m);
-    const mctx: model.Ctx = .{ .a = ctx.a, .measurer = ctx.measurer, .cfg = p.cfg, .diagram_id = ctx.svg_id, .layout = ctx.layout.engine, .image_probe = ctx.image_probe };
+    const mctx: model.Ctx = .{ .a = ctx.a, .measurer = ctx.measurer, .cfg = p.cfg, .diagram_id = ctx.svg_id, .layout = ctx.layout.engine, .image_probe = ctx.image_probe, .deadline = .{ .ctx = ctx.deadline, .f = expired } };
+    try ctx.tick();
     const out = try ctx.a.create(render.Rendered);
     out.* = render.render(&mctx, &p.data) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
+        error.Deadline, error.Timeout => return error.Timeout,
         error.NoSuchShape => {
             ctx.err_msg = "No such shape. Please check your syntax.";
             return error.Layout;

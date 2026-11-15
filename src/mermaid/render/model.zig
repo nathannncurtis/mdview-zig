@@ -249,7 +249,11 @@ test {
 /// What the host knows about an image a diagram names; `pending` is a load still under way (size unknown for now).
 pub const ImageProbe = union(enum) { size: struct { w: f32, h: f32 }, pending, failed };
 
+/// Asks whether the diagram's time limit has run out.
+pub const Expired = struct { ctx: *anyopaque, f: *const fn (ctx: *anyopaque) bool };
+
 pub const Ctx = struct {
+    deadline: ?Expired = null,
     a: Allocator,
     measurer: Measurer,
     cfg: *const Config,
