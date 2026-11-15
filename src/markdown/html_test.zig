@@ -1,6 +1,6 @@
 const std = @import("std");
 const testdata = @import("testdata");
-const html = @import("html.zig");
+const html = @import("html");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const List = std.ArrayList(u8);

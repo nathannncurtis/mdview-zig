@@ -5,14 +5,14 @@ const highlight = @import("highlight.zig");
 const blocks = @import("blocks.zig");
 const yaml = @import("yaml.zig");
 const links = @import("links.zig");
-const html = @import("html.zig");
+const html = @import("html");
 
 pub const Link = links.Link;
 pub const Image = links.Image;
 
 pub const Definition = blocks.Definition;
 
-pub const BlockKind = enum { h1, h2, h3, h4, h5, h6, paragraph, code_block, hr, table, alert_title, error_box };
+pub const BlockKind = enum { h1, h2, h3, h4, h5, h6, paragraph, code_block, hr, table, alert_title, error_box, diagram };
 
 pub const code_scale: f32 = 0.85;
 pub const code_radius: f32 = 6;
@@ -579,7 +579,8 @@ const Parser = struct {
                 const word = info[0 .. std.mem.indexOfAny(u8, info, " \t") orelse info.len];
                 const lang_start = p.textLen();
                 try p.text.appendSlice(p.a, word);
-                try p.emit(.{ .kind = .code_block, .content = content, .lang = .{ .lo = lang_start, .hi = p.textLen() } });
+                const kind: BlockKind = if (node.fenced and std.mem.eql(u8, word, "mermaid")) .diagram else .code_block;
+                try p.emit(.{ .kind = kind, .content = content, .lang = .{ .lo = lang_start, .hi = p.textLen() } });
                 try p.leafClose(.pre, opened);
             },
             .html => try p.htmlBlock(node.content.items),
@@ -2144,6 +2145,19 @@ test "fence info string keeps its first word as the block language" {
     defer doc.deinit();
     try testing.expectEqualStrings("Rust", doc.blocks[0].lang);
     try testing.expectEqualStrings("", doc.blocks[1].lang);
+}
+
+test "only a lowercase mermaid fence becomes a diagram" {
+    var doc = try parse(testing.allocator, "```mermaid\ninfo\n```\n~~~mermaid theme\ninfo\n~~~\n```Mermaid\ninfo\n```\n```mermaidx\ninfo\n```\n    mermaid\n\n> ```mermaid\n> info\n> ```\n");
+    defer doc.deinit();
+    try testing.expectEqual(BlockKind.diagram, doc.blocks[0].kind);
+    try testing.expectEqualStrings("info\n", doc.blocks[0].content.text);
+    try testing.expectEqual(BlockKind.diagram, doc.blocks[1].kind);
+    try testing.expectEqual(BlockKind.code_block, doc.blocks[2].kind);
+    try testing.expectEqual(BlockKind.code_block, doc.blocks[3].kind);
+    try testing.expectEqual(BlockKind.code_block, doc.blocks[4].kind);
+    try testing.expectEqual(BlockKind.diagram, doc.blocks[5].kind);
+    try testing.expectEqual(@as(usize, 1), doc.blocks[5].frames.len);
 }
 
 test "code block tokens are computed once at parse time" {

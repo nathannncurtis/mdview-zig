@@ -16,6 +16,7 @@ pub const info = @import("info.zig");
 pub const layout = @import("layout.zig");
 pub const fuzz = @import("fuzz.zig");
 pub const sequence = @import("sequence/sequence.zig");
+pub const view = @import("view.zig");
 
 /// The Mermaid release everything here is ported from.
 pub const version = diagram.version;
@@ -34,6 +35,7 @@ pub const Def = diagram.Def;
 /// Diagram types that can be drawn. Each diagram lane adds its `def` here.
 pub const registry = [_]Def{
     info.def,
+    sequence.def,
     error_def,
 };
 
@@ -280,6 +282,12 @@ fn renderInner(a: Allocator, source: []const u8, opts: Opts) (Allocator.Error ||
         if (@as(f64, @floatFromInt(errors.utf16Len(wc))) <= limit) parse_text = wc;
     };
     const encoded = try parserInput(a, parse_text);
+    if (def.whole) |f| {
+        const sel = try std.fmt.allocPrint(a, "#{s}", .{opts.svg_id});
+        const base = try css.compile(a, sel, try css.commonStyles(a, sel, &cfg.vars, "", try userStyles(&ctx, &.{})));
+        const r = f(&ctx, encoded, base) catch |e| return stageError(&ctx, e);
+        return .{ .svg = .{ .bytes = try preprocess.decodeEntities(a, r.bytes), .w = r.w, .h = r.h } };
+    }
     const model = def.parse(&ctx, encoded) catch |e| return stageError(&ctx, e);
     const geometry = def.layout(&ctx, model) catch |e| return stageError(&ctx, e);
 
@@ -359,6 +367,7 @@ test {
     _ = diagram;
     _ = fuzz;
     _ = sequence;
+    _ = view;
 }
 
 test "info renders with the version and theme styles" {
@@ -469,4 +478,17 @@ test "the parser input ends with a newline" {
     defer arena.deinit();
     try std.testing.expectEqualStrings("graph TD\nA-->B\n", try parserInput(arena.allocator(), "graph TD\nA-->B"));
     try std.testing.expectEqualStrings("a\n\n", try parserInput(arena.allocator(), "a\n"));
+}
+
+test "a sequence diagram renders through mermaid.render" {
+    const r = try render(std.testing.allocator, "sequenceDiagram\n    Alice->>Bob: Hello\n    Bob-->>Alice: Hi #35; bye", .{});
+    defer free(std.testing.allocator, r);
+    try std.testing.expect(r == .svg);
+    try std.testing.expect(std.mem.indexOf(u8, r.svg.bytes, "aria-roledescription=\"sequence\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, r.svg.bytes, ">Alice<") != null);
+    try std.testing.expect(r.svg.w > 0 and r.svg.h > 0);
+
+    const bad = try render(std.testing.allocator, "sequenceDiagram\n    Alice->>", .{});
+    defer free(std.testing.allocator, bad);
+    try std.testing.expect(bad == .err);
 }

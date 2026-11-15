@@ -1,6 +1,6 @@
 const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
-const html = @import("markdown/html.zig");
+const html = @import("html");
 const font = @import("font");
 const svg = @import("image/svg.zig");
 const image = @import("image/image.zig");
