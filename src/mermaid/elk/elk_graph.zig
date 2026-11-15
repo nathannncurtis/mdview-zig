@@ -3,6 +3,8 @@ const lg = @import("lgraph.zig");
 const Allocator = std.mem.Allocator;
 const Vec = lg.Vec;
 
+pub const StressDimension = enum { xy, x, y };
+
 // Layout options as set on an ELK graph element. null = not set (Java hasProperty false), so copying onto an
 // LGraph element (copyProperties) only overrides what was given.
 pub const Options = struct {
@@ -76,6 +78,14 @@ pub const Options = struct {
     spacing_comment_node: ?f64 = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
+    interactive: ?bool = null,
+    omit_node_micro_layout: ?bool = null,
+    priority: ?i32 = null,
+    stress_fixed: ?bool = null,
+    stress_desired_edge_length: ?f64 = null,
+    stress_dimension: ?StressDimension = null,
+    stress_epsilon: ?f64 = null,
+    stress_iteration_limit: ?i32 = null,
 
     // MapPropertyHolder.copyProperties onto the layered property bag
     pub fn applyTo(o: *const Options, p: *lg.Props) void {
@@ -161,6 +171,14 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.spacing.portsSurrounding", "spacing_ports_surrounding" },
     .{ "org.eclipse.elk.spacing.commentComment", "spacing_comment_comment" },
     .{ "org.eclipse.elk.spacing.commentNode", "spacing_comment_node" },
+    .{ "org.eclipse.elk.interactive", "interactive" },
+    .{ "org.eclipse.elk.omitNodeMicroLayout", "omit_node_micro_layout" },
+    .{ "org.eclipse.elk.priority", "priority" },
+    .{ "org.eclipse.elk.stress.fixed", "stress_fixed" },
+    .{ "org.eclipse.elk.stress.desiredEdgeLength", "stress_desired_edge_length" },
+    .{ "org.eclipse.elk.stress.dimension", "stress_dimension" },
+    .{ "org.eclipse.elk.stress.epsilon", "stress_epsilon" },
+    .{ "org.eclipse.elk.stress.iterationLimit", "stress_iteration_limit" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.
