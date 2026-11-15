@@ -42,5 +42,5 @@ pub fn css(a: Allocator, id: []const u8, t: env.Theme, neo: bool) Allocator.Erro
     try o.print(a, "#{s} .actorPopupMenuPanel{{position:absolute;fill:{s};box-shadow:0px 8px 16px 0px rgba(0,0,0,0.2);filter:drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));}}", .{ p, abk });
     try o.print(a, "#{s} .actor-man circle,#{s} line{{fill:{s};stroke-width:2px;}}", .{ p, p, abk });
     try o.print(a, "#{s} g rect.rect{{filter:{s};stroke:{s};}}", .{ p, drop, t.str("nodeBorder") });
-    return o.items;
+    return std.mem.replaceOwned(u8, a, o.items, ";;", ";");
 }

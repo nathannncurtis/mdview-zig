@@ -17,9 +17,17 @@ pub const Size = struct { w: f32, h: f32 };
 pub const Measurer = struct {
     ctx: ?*anyopaque = null,
     measure_fn: *const fn (ctx: ?*anyopaque, text: []const u8, font: Font) Size,
+    /// Size of the KaTeX output for a label that holds `$$..$$`, in pixels; `in_diagram` is the size inside the SVG
+    /// (Trebuchet), otherwise the size on a bare page (the browser default serif).
+    math_fn: ?*const fn (ctx: ?*anyopaque, text: []const u8, in_diagram: bool) Size = null,
 
     pub fn measure(m: Measurer, text: []const u8, font: Font) Size {
         return m.measure_fn(m.ctx, text, font);
+    }
+
+    pub fn measureMath(m: Measurer, text: []const u8, in_diagram: bool) Size {
+        if (m.math_fn) |f| return f(m.ctx, text, in_diagram);
+        return m.measure_fn(m.ctx, text, .{});
     }
 };
 

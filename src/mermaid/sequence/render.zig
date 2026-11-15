@@ -17,6 +17,12 @@ const ZWSP = "\u{200b}";
 const MAX_SAFE: f64 = 9007199254740991;
 const nan = std.math.nan(f64);
 
+/// Microtask ticks, in the units of one drawActor await: what a byKatex needs before its shell exists and before it is done.
+const katex_shell_ticks: i64 = 4;
+const katex_done_ticks: i64 = 10;
+const actor_ticks: i64 = 3;
+const mirror_ticks: i64 = 2;
+
 const Font = struct { family: []const u8, size: f64, weight: []const u8 };
 
 const NoteModel = struct { width: f64 = 0, height: f64 = 0, startx: f64 = 0, stopx: f64 = 0, starty: f64 = 0, stopy: f64 = 0, message: []const u8 = "" };
@@ -120,6 +126,34 @@ fn findBreak(text: []const u8, from: usize) ?usize {
     return null;
 }
 
+const KatexActor = struct { g: *Node, content: []const u8, x: f64, y: f64, w: f64, h: f64, class: []const u8, start: i64 };
+
+const KModel = struct { startx: f64 = 0, stopx: f64 = 0, starty: f64 = 0, note: ?struct { rect: *Node, x: f64, y: f64, w: f64 } = null };
+
+const Span = struct { s: usize, e: usize };
+
+fn isLineTerminator(text: []const u8, i: usize) bool {
+    return text[i] == '\n' or text[i] == '\r' or (text[i] == 0xe2 and i + 2 < text.len and text[i + 1] == 0x80 and (text[i + 2] == 0xa8 or text[i + 2] == 0xa9));
+}
+
+/// The next `$$..$$` match at or after `from`.
+fn nextMath(text: []const u8, from: usize) ?Span {
+    var i = from;
+    while (std.mem.indexOfPos(u8, text, i, "$$")) |s| {
+        var j = s + 2;
+        while (j < text.len) : (j += 1) {
+            if (isLineTerminator(text, j)) break;
+            if (text[j] == '$' and j + 1 < text.len and text[j + 1] == '$') return .{ .s = s, .e = j + 2 };
+        }
+        i = s + 1;
+    }
+    return null;
+}
+
+fn hasKatex(text: []const u8) bool {
+    return nextMath(text, 0) != null;
+}
+
 pub const Renderer = struct {
     a: Allocator,
     d: dom.Dom,
@@ -145,6 +179,9 @@ pub const Renderer = struct {
     br_last_index: usize = 0,
     life_lines: std.AutoHashMapUnmanaged(usize, *Node) = .empty,
     cur_line_y: f64 = 0,
+    clock: i64 = 0,
+    actor_keys: []const []const u8 = &.{},
+    katex_actors: std.ArrayList(KatexActor) = .empty,
     deadline: ?*env.Deadline = null,
     out_w: f64 = 0,
     out_h: f64 = 0,
@@ -188,6 +225,142 @@ pub const Renderer = struct {
         }
         const pick: usize = if (dims[0].h > dims[1].h and dims[0].w > dims[1].w and dims[0].lh > dims[1].lh) 0 else 1;
         return dims[pick];
+    }
+
+    fn colorTheme(r: *const Renderer) bool {
+        return std.mem.eql(u8, r.conf.theme, "redux-color") or std.mem.eql(u8, r.conf.theme, "redux-dark-color");
+    }
+
+    fn paletteColor(r: *const Renderer, comptime name: []const u8, idx: usize) ?[]const u8 {
+        var n: usize = 0;
+        var buf: [40]u8 = undefined;
+        while (n < 64) : (n += 1) {
+            const key = std.fmt.bufPrint(&buf, name ++ ".{d}", .{n}) catch return null;
+            if (r.theme.get(key) == null) break;
+        }
+        if (n == 0) return null;
+        const key = std.fmt.bufPrint(&buf, name ++ ".{d}", .{idx % n}) catch return null;
+        return r.theme.get(key);
+    }
+
+    fn actorIndex(r: *const Renderer, name: []const u8) usize {
+        for (r.actor_keys, 0..) |k, i| {
+            const n = if (r.db.actors.get(k)) |ac| ac.name else k;
+            if (std.mem.eql(u8, n, name)) return i;
+        }
+        return 0;
+    }
+
+    /// The colour themes paint each actor from the palette.
+    fn paletteStyle(r: *Renderer, n: *Node, name: []const u8) !void {
+        if (!r.colorTheme()) return;
+        const idx = r.actorIndex(name);
+        if (r.paletteColor("borderColorArray", idx)) |c| try r.d.style(n, "stroke", c);
+        if (r.paletteColor("bkgColorArray", idx)) |c| try r.d.style(n, "fill", c);
+    }
+
+    /// Shapes that always set a stroke: the palette in the colour themes, otherwise the actor border (and background).
+    fn actorStyle(r: *Renderer, n: *Node, name: []const u8, with_fill: bool) !void {
+        if (r.colorTheme()) return r.paletteStyle(n, name);
+        try r.d.style(n, "stroke", r.theme.str("actorBorder"));
+        if (with_fill) try r.d.style(n, "fill", r.theme.str("actorBkg"));
+    }
+
+    /// calculateMathMLDimensions: the KaTeX output measured on a bare page, whole pixels.
+    fn mathCalc(r: *const Renderer, text: []const u8) Dims {
+        const sz = r.m.measureMath(text, false);
+        const w = @round(@as(f64, sz.w));
+        const h = @round(@as(f64, sz.h));
+        return .{ .w = w, .h = h, .lh = h };
+    }
+
+    /// The same output laid out inside the SVG, as drawKatex measures it.
+    fn mathRect(r: *const Renderer, text: []const u8) env.Dim {
+        const sz = r.m.measureMath(text, true);
+        return .{ .w = sz.w, .h = sz.h };
+    }
+
+    /// renderKatexSanitized after the frame's sanitizer: the MathML is dropped and leaves an empty `span.katex`.
+    fn katexContent(r: *Renderer, parent: *Node, text: []const u8) !void {
+        for (try splitBreaks(r.a, text)) |line| {
+            const div = try r.d.append(parent, "div");
+            if (!hasKatex(line)) {
+                r.d.text(div, line);
+                continue;
+            }
+            try r.d.style(div, "display", "flex");
+            try r.d.style(div, "align-items", "center");
+            try r.d.style(div, "justify-content", "center");
+            try r.d.style(div, "white-space", "nowrap");
+            var i: usize = 0;
+            while (nextMath(line, i)) |m| {
+                if (m.s > i) try r.d.textNode(div, line[i..m.s]);
+                const sp = try r.d.append(div, "span");
+                try r.d.attr(sp, "class", "katex");
+                i = m.e;
+            }
+            if (i < line.len) try r.d.textNode(div, line[i..]);
+        }
+    }
+
+    /// drawKatex; returns the foreignObject's height, which is what getBBox reports for it.
+    fn drawKatex(r: *Renderer, elem: *Node, t: *const TextObj, model: KModel) !f64 {
+        const fo = try r.d.append(elem, "foreignObject");
+        const dim = r.mathRect(t.text);
+        const div = try r.d.append(fo, "div");
+        try r.d.attr(div, "style", "width: fit-content;");
+        try r.d.attr(div, "xmlns", "http://www.w3.org/1999/xhtml");
+        try r.katexContent(div, t.text);
+        try r.d.attrNum(fo, "height", jr(dim.h));
+        try r.d.attrNum(fo, "width", jr(dim.w));
+        if (model.note) |n| {
+            const rh = dim.h + 2 * t.text_margin;
+            try r.d.attrNum(n.rect, "height", rh);
+            try r.d.attrNum(fo, "x", jr(n.x + n.w / 2 - dim.w / 2));
+            try r.d.attrNum(fo, "y", jr(n.y + rh / 2 - dim.h / 2));
+        } else {
+            const lo = @min(model.startx, model.stopx);
+            const hi = @max(model.startx, model.stopx);
+            try r.d.attrNum(fo, "x", jr(lo + @abs(lo - hi) / 2 - dim.w / 2));
+            const loop_text = if (t.class) |c| std.mem.eql(u8, c, "loopText") else false;
+            try r.d.attrNum(fo, "y", if (loop_text) jr(model.starty) else jr(model.starty - dim.h));
+        }
+        return jr(dim.h);
+    }
+
+    /// The text of an actor box. A description with math is finished later: byKatex awaits, and drawActor does not wait for it.
+    fn actorText(r: *Renderer, g: *Node, content: []const u8, x: f64, y: f64, w: f64, h: f64, class: []const u8) !void {
+        if (!hasKatex(content)) return r.byTspan(g, content, x, y, w, h, class);
+        try r.katex_actors.append(r.a, .{ .g = g, .content = content, .x = x, .y = y, .w = w, .h = h, .class = class, .start = r.clock });
+    }
+
+    /// How far each byKatex got by the time the diagram was serialised: nothing, the foreignObject shell, or everything.
+    /// The thresholds and tick costs are the ones that reproduce Chromium's microtask order for mermaid 12.2.0.
+    fn finishKatexActors(r: *Renderer) !void {
+        for (r.katex_actors.items) |k| {
+            const t = r.clock - k.start;
+            if (t < katex_shell_ticks) continue;
+            const dim = r.mathCalc(k.content);
+            const complete = t >= katex_done_ticks;
+            const s = try r.d.append(k.g, "switch");
+            const fo = try r.d.append(s, "foreignObject");
+            try r.d.attrNum(fo, "x", k.x + k.w / 2 - dim.w / 2);
+            try r.d.attrNum(fo, "y", k.y + k.h / 2 - dim.h / 2);
+            try r.d.attrNum(fo, "width", dim.w);
+            try r.d.attrNum(fo, "height", dim.h);
+            const div = try r.d.append(fo, "div");
+            if (complete) try r.d.attr(div, "class", k.class);
+            try r.d.attr(div, "xmlns", "http://www.w3.org/1999/xhtml");
+            try r.d.style(div, "height", "100%");
+            try r.d.style(div, "width", "100%");
+            const inner = try r.d.append(div, "div");
+            try r.d.style(inner, "text-align", "center");
+            try r.d.style(inner, "vertical-align", "middle");
+            if (complete) {
+                try r.katexContent(inner, k.content);
+                try r.byTspan(s, k.content, k.x, k.y, k.w, k.h, k.class);
+            }
+        }
     }
 
     fn textWidth(r: *Renderer, text: []const u8, f: Font) !f64 {
@@ -513,8 +686,10 @@ pub const Renderer = struct {
             .text_margin = r.conf.note_margin,
             .valign = "center",
         };
-        const elems = try r.drawText(g, &t);
-        const th = jr(r.sumBBox(elems, t));
+        const th = if (hasKatex(nm.message))
+            try r.drawKatex(g, &t, .{ .note = .{ .rect = re, .x = nm.startx, .y = nm.starty, .w = rect.width } })
+        else
+            jr(r.sumBBox(try r.drawText(g, &t), t));
         try r.d.attrNum(re, "height", th + 2 * r.conf.note_margin);
         nm.height += th + 2 * r.conf.note_margin;
         r.bumpVerticalPos(th + 2 * r.conf.note_margin);
@@ -526,10 +701,13 @@ pub const Renderer = struct {
     fn boundMessage(r: *Renderer, mm: *MsgModel) !f64 {
         r.bumpVerticalPos(10);
         const lines: f64 = @floatFromInt((try splitBreaks(r.a, mm.message)).len);
-        const td = try r.textDims(mm.message, r.messageFont());
-        const line_height = td.h / lines;
-        mm.height += line_height;
-        r.bumpVerticalPos(line_height);
+        const katex = hasKatex(mm.message);
+        const td = if (katex) r.mathCalc(mm.message) else try r.textDims(mm.message, r.messageFont());
+        if (!katex) {
+            const line_height = td.h / lines;
+            mm.height += line_height;
+            r.bumpVerticalPos(line_height);
+        }
         var line_start_y: f64 = 0;
         var total_offset = td.h - 10;
         const text_width = td.w;
@@ -659,7 +837,9 @@ pub const Renderer = struct {
             .text_margin = r.conf.wrap_padding,
             .tspan = false,
         };
-        _ = try r.drawText(r.root, &t);
+        if (hasKatex(mm.message)) {
+            _ = try r.drawKatex(r.root, &t, .{ .startx = startx, .stopx = stopx, .starty = line_start_y });
+        } else _ = try r.drawText(r.root, &t);
         const text_width = td.w;
         r.cur_line_y = line_start_y;
         // SAFETY: assigned in both branches of the if below
@@ -792,7 +972,7 @@ pub const Renderer = struct {
         while (it.next()) |kv| {
             const actor = kv.value_ptr.*;
             if (actor.wrap) actor.description = try r.wrapLabel(actor.description, r.conf.width - 2 * r.conf.wrap_padding, r.actorFont());
-            const dims = try r.textDims(actor.description, r.actorFont());
+            const dims = if (hasKatex(actor.description)) r.mathCalc(actor.description) else try r.textDims(actor.description, r.actorFont());
             actor.width = if (actor.wrap) r.conf.width else @max(r.conf.width, dims.w + 2 * r.conf.wrap_padding);
             if (r.neo()) {
                 actor.actor_text_height = dims.h;
@@ -848,7 +1028,7 @@ pub const Renderer = struct {
             const is_message = !is_note;
             const font = if (is_note) r.noteFont() else r.messageFont();
             const wrapped = if (msg.wrap) try r.wrapLabel(msg.message, r.conf.width - 2 * r.conf.wrap_padding, font) else msg.message;
-            const dims = try r.textDims(wrapped, font);
+            const dims = if (hasKatex(wrapped)) r.mathCalc(msg.message) else try r.textDims(wrapped, font);
             const mw = dims.w + 2 * r.conf.wrap_padding;
             const next = actor.next_actor;
             const prev = actor.prev_actor;
@@ -1032,12 +1212,14 @@ pub const Renderer = struct {
             rect.height = actor.height - 6;
         }
         const re = try r.drawRectLook(g, rect, actor.name);
+        try r.paletteStyle(re, actor.name);
         if (stacked) {
             var sh = rect;
             sh.x = rect.x - 6;
             sh.y = rect.y + 6;
             sh.class = "actor";
-            _ = try r.drawRectLook(g, sh, actor.name);
+            const sre = try r.drawRectLook(g, sh, actor.name);
+            try r.paletteStyle(sre, actor.name);
             if (r.neo()) try r.d.attr(g, "filter", try r.shadowUrl());
         } else if (r.neo()) try r.d.attr(re, "filter", try r.shadowUrl());
         actor.rect_data = rect;
@@ -1048,9 +1230,9 @@ pub const Renderer = struct {
             try r.d.attr(g, "data-id", actor.name);
         }
         if (stacked) {
-            try r.byTspan(g, actor.description, rect.x - 6, rect.y + 6, rect.width, rect.height, "actor actor-box");
+            try r.actorText(g, actor.description, rect.x - 6, rect.y + 6, rect.width, rect.height, "actor actor-box");
         } else {
-            try r.byTspan(g, actor.description, rect.x, rect.y, rect.width, rect.height, "actor actor-box");
+            try r.actorText(g, actor.description, rect.x, rect.y, rect.width, rect.height, "actor actor-box");
         }
         if (!r.neo()) actor.height = rect.height;
         return actor.height;
@@ -1078,8 +1260,10 @@ pub const Renderer = struct {
         rect.class = null;
         actor.rect_data = rect;
         if (r.neo()) try r.d.attr(cyl, "filter", try r.shadowUrl());
+        try r.paletteStyle(cyl, actor.name);
+        try r.paletteStyle(arc, actor.name);
         try r.drawIcon(g, actor, rect.x + rect.width - 20, rect.y + 10);
-        try r.byTspan(g, actor.description, rect.x, rect.y, rect.width, rect.height, "actor actor-box");
+        try r.actorText(g, actor.description, rect.x, rect.y, rect.width, rect.height, "actor actor-box");
         if (!r.neo()) actor.height = h;
         if (!is_footer) {
             try r.d.attr(g, "data-et", "participant");
@@ -1113,11 +1297,11 @@ pub const Renderer = struct {
         const p = try r.d.append(cyl, "path");
         try r.d.attr(p, "d", try std.fmt.allocPrint(r.a, "\n  M {s},{s}\n  a {s},{s} 0 0 0 {s},0\n  a {s},{s} 0 0 0 -{s},0\n  l 0,{s}\n  a {s},{s} 0 0 0 {s},0\n  l 0,-{s}\n", .{ try js(r, rect.x), try js(r, cylinder_y + ry), try js(r, rx), try js(r, ry), try js(r, w), try js(r, rx), try js(r, ry), try js(r, w), try js(r, h - 2 * ry), try js(r, rx), try js(r, ry), try js(r, w), try js(r, h - 2 * ry) }));
         if (r.neo()) try r.d.attr(cyl, "filter", try r.shadowUrl());
-        try r.d.style(cyl, "stroke", r.theme.str("actorBorder"));
+        try r.actorStyle(cyl, actor.name, false);
         try r.d.attr(cyl, "transform", try std.fmt.allocPrint(r.a, "translate({s}, {s})", .{ try js(r, w), try js(r, ry) }));
         actor.rect_data = rect;
         const text_y = if (bd) |b| b.label_center_y - rect.height / 2 else rect.y + 35;
-        try r.byTspan(g, actor.description, rect.x, text_y, rect.width, rect.height, "actor actor-box");
+        try r.actorText(g, actor.description, rect.x, text_y, rect.width, rect.height, "actor actor-box");
         if (bd == null) actor.height = h + r.conf.label_box_height;
         if (!is_footer) {
             try r.d.attr(g, "data-et", "participant");
@@ -1174,12 +1358,11 @@ pub const Renderer = struct {
         const ln = try r.d.append(e, "line");
         try r.d.attr(ln, "marker-end", try std.fmt.allocPrint(r.a, "url(#{s}-filled-head-control)", .{r.id}));
         try r.d.attr(ln, "transform", try std.fmt.allocPrint(r.a, "translate({s}, {s})", .{ try numfmt.js(r.a, cx), try numfmt.js(r.a, cy - rad) }));
-        try r.d.style(e, "stroke", r.theme.str("actorBorder"));
-        try r.d.style(e, "fill", r.theme.str("actorBkg"));
+        try r.actorStyle(e, actor.name, true);
         const rect_h = actor.height;
         if (bd == null) actor.height = 44 + 2 * r.conf.label_box_height;
         const text_y = if (bd) |b| b.label_center_y - rect_h / 2 else actor_y + rad + (if (!is_footer) @as(f64, 12) else 5);
-        try r.byTspan(e, actor.description, actor.x, text_y, actor.width, rect_h, "actor actor-man");
+        try r.actorText(e, actor.description, actor.x, text_y, actor.width, rect_h, "actor actor-man");
         if (!is_footer) {
             try r.d.attr(e, "data-et", "participant");
             try r.d.attr(e, "data-type", "control");
@@ -1212,6 +1395,7 @@ pub const Renderer = struct {
         try r.d.attrNum(ln, "y2", cy + rad);
         try r.d.attr(ln, "stroke-width", "2");
         if (r.neo()) try r.d.attr(e, "filter", try r.shadowUrl());
+        try r.paletteStyle(e, actor.name);
         const rect_h = actor.height;
         if (bd == null) actor.height = 44 + r.conf.label_box_height;
         if (!is_footer) {
@@ -1220,7 +1404,7 @@ pub const Renderer = struct {
             actor.actor_cnt = @intCast(r.actor_cnt);
         }
         const text_y = if (bd) |b| b.label_center_y - rect_h / 2 else actor_y + (if (!is_footer) @as(f64, 30) else 15);
-        try r.byTspan(e, actor.description, actor.x, text_y, actor.width, rect_h, "actor actor-man");
+        try r.actorText(e, actor.description, actor.x, text_y, actor.width, rect_h, "actor actor-man");
         if (bd == null) try r.d.attr(e, "transform", try std.fmt.allocPrint(r.a, "translate(0, {s})", .{try numfmt.js(r.a, if (is_footer) rad else rad / 2 - 5)}));
         if (!is_footer) {
             try r.d.attr(e, "data-et", "participant");
@@ -1257,11 +1441,11 @@ pub const Renderer = struct {
         try r.d.attrNum(c, "cy", icy);
         try r.d.attrNum(c, "r", rad);
         if (r.neo()) try r.d.attr(e, "filter", try r.shadowUrl());
-        try r.d.style(e, "stroke", r.theme.str("actorBorder"));
+        try r.actorStyle(e, actor.name, false);
         const rect_h = actor.height;
         if (bd == null) actor.height = 44 + r.conf.label_box_height;
         const text_y = if (bd) |b| b.label_center_y - rect_h / 2 else actor_y + 15;
-        try r.byTspan(e, actor.description, actor.x, text_y, actor.width, rect_h, "actor actor-man");
+        try r.actorText(e, actor.description, actor.x, text_y, actor.width, rect_h, "actor actor-man");
         if (bd == null) try r.d.attr(e, "transform", try std.fmt.allocPrint(r.a, "translate(0,{s})", .{try numfmt.js(r.a, rad / 2 + 10)}));
         if (!is_footer) {
             try r.d.attr(e, "data-et", "participant");
@@ -1320,22 +1504,27 @@ pub const Renderer = struct {
         try r.d.attrNum(c, "width", actor.width);
         try r.d.attrNum(c, "height", actor.height);
         if (bd == null) actor.height = 65;
-        try r.d.style(e, "stroke", r.theme.str("actorBorder"));
+        try r.actorStyle(e, actor.name, false);
         const text_y = if (bd) |b| b.label_center_y - actor.height / 2 else actor_y + 35;
-        try r.byTspan(e, actor.description, actor.x, text_y, actor.width, actor.height, "actor actor-man");
+        try r.actorText(e, actor.description, actor.x, text_y, actor.width, actor.height, "actor actor-man");
         return actor.height;
     }
 
     fn drawActors(r: *Renderer, keys: []const []const u8, is_footer: bool) !void {
         if (!is_footer) {
-            for (keys) |k| _ = try r.drawActor(r.db.actors.get(k).?, false);
+            for (keys) |k| {
+                _ = try r.drawActor(r.db.actors.get(k).?, false);
+                r.clock += actor_ticks;
+            }
         } else {
             var max_h: f64 = 0;
             r.bumpVerticalPos(r.conf.box_margin * 2);
+            r.clock += mirror_ticks;
             for (keys) |k| {
                 const actor = r.db.actors.get(k).?;
                 if (actor.stopy == null or actor.stopy.? == 0) actor.stopy = r.vpos;
                 if (try r.drawActor(actor, true)) |h| max_h = @max(max_h, h);
+                r.clock += actor_ticks;
             }
             r.bumpVerticalPos(max_h + r.conf.box_margin);
         }
@@ -1405,7 +1594,9 @@ pub const Renderer = struct {
             .font_size = c.message_font_size,
             .font_weight = c.message_font_weight,
         };
-        _ = try r.drawText(g, &t2);
+        if (hasKatex(t2.text)) {
+            _ = try r.drawKatex(g, &t2, .{ .startx = sx, .stopx = ex, .starty = lm.starty });
+        } else _ = try r.drawText(g, &t2);
         for (lm.sections.items) |s| {
             if (s.title.len > 0) {
                 t2.text = s.title;
@@ -1415,10 +1606,13 @@ pub const Renderer = struct {
                 t2.anchor = "middle";
                 t2.valign = "middle";
                 t2.tspan = false;
-                _ = try r.drawText(g, &t2);
+                if (hasKatex(t2.text)) {
+                    lm.starty = s.y;
+                    _ = try r.drawKatex(g, &t2, .{ .startx = sx, .stopx = ex, .starty = lm.starty });
+                } else _ = try r.drawText(g, &t2);
             }
         }
-        lm.height = jr(ey - sy);
+        lm.height = jr(ey - lm.starty);
     }
 
     fn loopLine(r: *Renderer, g: *Node, x1: ?f64, y1: ?f64, x2: ?f64, y2: ?f64) !*Node {
@@ -1526,7 +1720,7 @@ pub const Renderer = struct {
         const stopx = to.x;
         const should_wrap = msg.wrap and msg.message.len > 0;
         const nf = r.noteFont();
-        var td = try r.textDims(if (should_wrap) try r.wrapLabel(msg.message, c.width, nf) else msg.message, nf);
+        var td = if (hasKatex(msg.message)) r.mathCalc(msg.message) else try r.textDims(if (should_wrap) try r.wrapLabel(msg.message, c.width, nf) else msg.message, nf);
         var nm: NoteModel = .{
             .width = if (should_wrap) c.width else @max(c.width, td.w + 2 * c.note_margin),
             .startx = from.x,
@@ -1787,7 +1981,12 @@ pub const Renderer = struct {
         rect.class = try std.fmt.allocPrint(r.a, "activation{d}", .{n % 3});
         rect.width = act.stopx - act.startx;
         rect.height = vp - act.starty;
-        _ = try r.drawRectLook(act.anchored orelse return error.BadModel, rect, null);
+        const ar = try r.drawRectLook(act.anchored orelse return error.BadModel, rect, null);
+        if (r.colorTheme()) {
+            const idx = r.actorIndex(act.actor);
+            if (r.paletteColor("borderColorArray", idx)) |c| try r.d.style(ar, "stroke", c);
+            if (r.paletteColor("bkgColorArray", idx) orelse r.theme.get("mainBkg")) |c| try r.d.style(ar, "fill", c);
+        }
         r.insert(act.startx, vp - 10, act.stopx, vp);
     }
 
@@ -1818,6 +2017,7 @@ pub const Renderer = struct {
             }
             try keys.append(a, k);
         }
+        r.actor_keys = keys.items;
         try r.addActorRenderingData(keys.items, 0);
         var loop_widths = try r.calculateLoopBounds();
         try r.defsMarkers();
@@ -1886,6 +2086,7 @@ pub const Renderer = struct {
         for (to_draw.items) |e| {
             try r.tick();
             try r.drawMessage(&r.msg_models.items[e.mi], e.line_y, &msgs[e.idx]);
+            r.clock += if (hasKatex(r.msg_models.items[e.mi].message)) 2 else 1;
         }
         if (c.mirror_actors) try r.drawActors(keys.items, true);
         for (backgrounds.items) |lm| {
@@ -1944,6 +2145,7 @@ pub const Renderer = struct {
             try r.d.attrNum(te, "x", (ex - sx) / 2 - 2 * c.diagram_margin_x);
             try r.d.attr(te, "y", "-25");
         };
+        try r.finishKatexActors();
         r.out_w = width;
         r.out_h = height;
         const extra: f64 = if (title != null and title.?.len > 0) 40 else 0;
@@ -1977,7 +2179,7 @@ pub const Renderer = struct {
         try r.d.attr(sh, "dy", "4");
         try r.d.attr(sh, "stdDeviation", "0");
         try r.d.attr(sh, "flood-opacity", "0.06");
-        try r.d.attr(sh, "flood-color", "#FFFFFF");
+        try r.d.attr(sh, "flood-color", if (std.mem.eql(u8, r.conf.theme, "redux") or std.mem.eql(u8, r.conf.theme, "redux-color")) "#000000" else "#FFFFFF");
     }
 
     fn defsMarkers(r: *Renderer) !void {

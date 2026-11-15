@@ -18,7 +18,8 @@ pub const Options = struct {
     /// Page elements by id, read by `details`.
     elements: ?*const std.StringHashMapUnmanaged([]const u8) = null,
     /// The common stylesheet that precedes this diagram's rules (supplied by core).
-    base_css: []const u8 = "",
+    css_before: []const u8 = "",
+    css_after: []const u8 = "",
 };
 
 pub const Output = render_mod.Output;
@@ -61,7 +62,7 @@ pub fn render(a: Allocator, source: []const u8, o: Options) Allocator.Error!Resu
     const d: dom.Dom = .{ .a = a };
     const root = try d.create(null, "svg");
     const style = try d.append(root, "style");
-    d.text(style, try std.mem.concat(a, u8, &.{ o.base_css, try styles.css(a, o.id, o.theme, conf.look == .neo) }));
+    d.text(style, try std.mem.concat(a, u8, &.{ o.css_before, try styles.css(a, o.id, o.theme, conf.look == .neo), o.css_after }));
     _ = try d.append(root, "g");
     var r: render_mod.Renderer = .{ .a = a, .d = d, .conf = conf, .db = db, .m = o.measurer, .theme = o.theme, .id = o.id, .root = root, .deadline = o.deadline };
     r.draw() catch |e| switch (e) {
@@ -72,6 +73,7 @@ pub fn render(a: Allocator, source: []const u8, o: Options) Allocator.Error!Resu
     try d.attr(root, "id", o.id);
     try d.attr(root, "width", "100%");
     try d.attr(root, "xmlns", "http://www.w3.org/2000/svg");
+    try d.attr(root, "xmlns:xlink", "http://www.w3.org/1999/xlink");
     if (conf.use_max_width) {
         try d.attr(root, "style", try std.fmt.allocPrint(a, "max-width: {s}px;", .{try numfmt.js(a, r.out_w)}));
     } else {
@@ -81,6 +83,22 @@ pub fn render(a: Allocator, source: []const u8, o: Options) Allocator.Error!Resu
     try d.attr(root, "viewBox", try std.fmt.allocPrint(a, "{s} {s} {s} {s}", .{ try numfmt.js(a, r.vb[0]), try numfmt.js(a, r.vb[1]), try numfmt.js(a, r.vb[2]), try numfmt.js(a, r.vb[3]) }));
     try d.attr(root, "role", "graphics-document document");
     try d.attr(root, "aria-roledescription", "sequence");
+    if (db.acc_descr) |t| if (t.len > 0) {
+        const id = try std.fmt.allocPrint(a, "chart-desc-{s}", .{o.id});
+        try d.attr(root, "aria-describedby", id);
+        const el = try d.append(root, "desc");
+        try d.attr(el, "id", id);
+        d.text(el, t);
+        dom.Dom.lower(el);
+    };
+    if (db.acc_title) |t| if (t.len > 0) {
+        const id = try std.fmt.allocPrint(a, "chart-title-{s}", .{o.id});
+        try d.attr(root, "aria-labelledby", id);
+        const el = try d.append(root, "title");
+        try d.attr(el, "id", id);
+        d.text(el, t);
+        dom.Dom.lower(el);
+    };
     var out: std.ArrayList(u8) = .empty;
     try d.serialize(&out, root);
     return .{ .ok = .{ .svg = out.items, .width = r.out_w, .height = r.out_h, .view_box = r.vb } };

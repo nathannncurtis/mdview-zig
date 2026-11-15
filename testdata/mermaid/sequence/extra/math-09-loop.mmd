@@ -1,0 +1,10 @@
+sequenceDiagram
+  A->>B: start
+  loop $$n$$ times
+    B->>A: ping
+  end
+  alt $$a$$ ok
+    A->>B: yes
+  else $$b$$ no
+    A->>B: no
+  end

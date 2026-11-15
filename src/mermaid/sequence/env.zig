@@ -25,6 +25,7 @@ pub const Look = enum { neo, classic };
 
 pub const Conf = struct {
     look: Look = .neo,
+    theme: []const u8 = "",
     hide_unused_participants: bool = false,
     activation_width: f64 = 10,
     diagram_margin_x: f64 = 50,
@@ -73,8 +74,10 @@ pub const Conf = struct {
             const val = kv.value_ptr.*;
             if (std.mem.eql(u8, k, "sequence")) {
                 if (val == .object) try c.applySequence(a, val.object);
+            } else if (std.mem.eql(u8, k, "theme")) {
+                if (val == .string) c.theme = try a.dupe(u8, val.string);
             } else if (std.mem.eql(u8, k, "look")) {
-                if (val == .string) c.look = if (std.mem.eql(u8, val.string, "neo")) .neo else .classic;
+                if (val == .string) c.look = if (std.mem.eql(u8, val.string, "classic") or std.mem.eql(u8, val.string, "handDrawn")) .classic else .neo;
             } else if (std.mem.eql(u8, k, "fontFamily")) {
                 if (val == .string) c.font_family = try a.dupe(u8, val.string);
             } else if (std.mem.eql(u8, k, "fontSize")) {

@@ -69,7 +69,17 @@ pub const Dom = struct {
         p.children.insertAssumeCapacity(0, n);
     }
 
+    /// A text node between element children.
+    pub fn textNode(d: Dom, parent: *Node, s: []const u8) Allocator.Error!void {
+        const n = try d.create(parent, "");
+        n.text = s;
+    }
+
     pub fn serialize(d: Dom, out: *std.ArrayList(u8), n: *const Node) Allocator.Error!void {
+        if (n.tag.len == 0) {
+            try escape(d.a, out, n.text orelse "", false);
+            return;
+        }
         try out.append(d.a, '<');
         try out.appendSlice(d.a, n.tag);
         for (n.attrs.items) |x| {
@@ -124,7 +134,7 @@ fn parseNums(s: []const u8, out: *[4]f64) usize {
     return n;
 }
 
-fn hue(p: f64, q: f64, t_in: f64) f64 {
+fn hue(p: f32, q: f32, t_in: f32) f32 {
     var t = t_in;
     if (t < 0) t += 1;
     if (t > 1) t -= 1;
@@ -144,11 +154,12 @@ pub fn cssColor(a: Allocator, v: []const u8) Allocator.Error![]const u8 {
     var nums: [4]f64 = .{ 0, 0, 0, 0 };
     if (std.mem.startsWith(u8, v, "hsl(")) {
         if (parseNums(v[4..], &nums) < 3) return v;
-        const h = @mod(nums[0], 360) / 360;
-        const s = nums[1] / 100;
-        const l = nums[2] / 100;
-        const q = if (l < 0.5) l * (1 + s) else l + s - l * s;
-        const p = 2 * l - q;
+        // Chrome converts in single precision, which decides the halves.
+        const h: f32 = @floatCast(@mod(nums[0], 360) / 360);
+        const s: f32 = @floatCast(nums[1] / 100);
+        const l: f32 = @floatCast(nums[2] / 100);
+        const q: f32 = if (l < 0.5) l * (1 + s) else l + s - l * s;
+        const p: f32 = 2 * l - q;
         return std.fmt.allocPrint(a, "rgb({d}, {d}, {d})", .{ chan(hue(p, q, h + 1.0 / 3.0)), chan(hue(p, q, h)), chan(hue(p, q, h - 1.0 / 3.0)) });
     }
     if (std.mem.startsWith(u8, v, "rgb(")) {
@@ -158,6 +169,6 @@ pub fn cssColor(a: Allocator, v: []const u8) Allocator.Error![]const u8 {
     return v;
 }
 
-fn chan(x: f64) u8 {
+fn chan(x: f32) u8 {
     return @intFromFloat(@min(255, @max(0, @round(x * 255))));
 }

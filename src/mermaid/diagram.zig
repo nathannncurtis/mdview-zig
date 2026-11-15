@@ -68,6 +68,7 @@ pub const Def = struct {
     preserve_comments: bool = false,
     class_defs: ?*const fn (ctx: *Ctx, model: *anyopaque) Error![]const ClassDef = null,
     acc: ?*const fn (ctx: *Ctx, model: *anyopaque) Acc = null,
-    /// Renders the finished document itself, given the common stylesheet; `parse`, `layout` and `emit` are then unused.
-    whole: ?*const fn (ctx: *Ctx, source: []const u8, base_css: []const u8) Error!Whole = null,
+    /// Renders the finished document itself, given the common stylesheet split where the diagram's own rules go; `parse`,
+    /// `layout` and `emit` are then unused.
+    whole: ?*const fn (ctx: *Ctx, source: []const u8, css_before: []const u8, css_after: []const u8) Error!Whole = null,
 };

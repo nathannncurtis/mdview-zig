@@ -380,15 +380,15 @@ pub const Actions = struct {
                 out.* = .{ .item = .skip };
             },
             32 => {
-                self.db.acc_title = dbm.jsTrim(try self.utf8(rhs[1].text));
+                self.db.acc_title = dbm.jsTrimStart(try self.sanitize(dbm.jsTrim(try self.utf8(rhs[1].text))));
                 out.* = .{ .item = .skip };
             },
             33 => {
-                self.db.acc_descr = dbm.jsTrim(try self.utf8(rhs[1].text));
+                self.db.acc_descr = try dbm.collapseNewlines(self.a, try self.sanitize(dbm.jsTrim(try self.utf8(rhs[1].text))));
                 out.* = .{ .item = .skip };
             },
             34 => {
-                self.db.acc_descr = dbm.jsTrim(try self.utf8(rhs[0].text));
+                self.db.acc_descr = try dbm.collapseNewlines(self.a, try self.sanitize(dbm.jsTrim(try self.utf8(rhs[0].text))));
                 out.* = .{ .item = .skip };
             },
             35 => out.* = try self.wrapList(rhs[2], .{ .kind = .loop_start, .msg = try self.parseMessage(rhs[1]), .signal_type = LT.LOOP_START }, .{ .kind = .loop_end, .signal_type = LT.LOOP_END }),

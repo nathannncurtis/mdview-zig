@@ -489,8 +489,8 @@ fn isJsSpace(cp: u21) bool {
     };
 }
 
-/// JS String.prototype.trim on UTF-8 text.
-pub fn jsTrim(s: []const u8) []const u8 {
+/// JS String.prototype.trimStart on UTF-8 text.
+pub fn jsTrimStart(s: []const u8) []const u8 {
     var start: usize = 0;
     while (start < s.len) {
         const n = std.unicode.utf8ByteSequenceLength(s[start]) catch break;
@@ -499,6 +499,31 @@ pub fn jsTrim(s: []const u8) []const u8 {
         if (!isJsSpace(cp)) break;
         start += n;
     }
+    return s[start..];
+}
+
+/// `s.replace(/\n\s+/g, "\n")`.
+pub fn collapseNewlines(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < s.len) {
+        if (s[i] != '\n') {
+            try out.append(a, s[i]);
+            i += 1;
+            continue;
+        }
+        try out.append(a, '\n');
+        i += 1;
+        const rest = jsTrimStart(s[i..]);
+        i = s.len - rest.len;
+    }
+    return out.items;
+}
+
+/// JS String.prototype.trim on UTF-8 text.
+pub fn jsTrim(s: []const u8) []const u8 {
+    const lead = jsTrimStart(s);
+    const start: usize = s.len - lead.len;
     var end: usize = s.len;
     while (end > start) {
         var b = end - 1;

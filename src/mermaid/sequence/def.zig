@@ -31,7 +31,7 @@ fn emitStub(_: *diagram.Ctx, _: *anyopaque, _: *anyopaque, _: *@import("../svg.z
 }
 
 /// Renders the whole document; the sequence port builds its own root element.
-fn whole(ctx: *diagram.Ctx, source: []const u8, base_css: []const u8) diagram.Error!diagram.Whole {
+fn whole(ctx: *diagram.Ctx, source: []const u8, css_before: []const u8, css_after: []const u8) diagram.Error!diagram.Whole {
     const a = ctx.a;
     var conf: env.Conf = .{};
     try conf.applyJson(a, ctx.cfg.root);
@@ -44,7 +44,8 @@ fn whole(ctx: *diagram.Ctx, source: []const u8, base_css: []const u8) diagram.Er
         .measurer = ctx.measurer,
         .title = ctx.title,
         .deadline = ctx.deadline,
-        .base_css = base_css,
+        .css_before = css_before,
+        .css_after = css_after,
     });
     return switch (res) {
         .ok => |o| .{ .bytes = o.svg, .w = @floatCast(o.width), .h = @floatCast(o.height) },

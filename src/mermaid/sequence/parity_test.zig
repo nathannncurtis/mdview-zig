@@ -5,10 +5,15 @@ const preprocess = @import("../preprocess.zig");
 const env = sequence.env;
 const testdata = @import("testdata");
 
+const mermaid = @import("../mermaid.zig");
+
 const measures_json = testdata.file("mermaid/sequence/measures.json");
+const math_measures_json = testdata.file("mermaid/sequence/extra/measures.json");
 
 const Replay = struct {
     map: std.StringHashMapUnmanaged(env.text.Size) = .empty,
+    calc: std.StringHashMapUnmanaged(env.text.Size) = .empty,
+    rect: std.StringHashMapUnmanaged(env.text.Size) = .empty,
     a: Allocator,
     misses: usize = 0,
     last_miss: []const u8 = "",
@@ -20,7 +25,36 @@ const Replay = struct {
             const key = try std.fmt.allocPrint(a, "{s}|{s}|{s}|{s}", .{ row.k[0], row.k[1], row.k[2], row.k[3] });
             try r.map.put(a, key, .{ .w = @floatCast(row.w), .h = @floatCast(row.h) });
         }
+        const math = try std.json.parseFromSliceLeaky(std.json.Value, a, math_measures_json, .{});
+        for (math.object.get("text").?.array.items) |row| {
+            const k = row.array.items;
+            const key = try std.fmt.allocPrint(a, "{s}|{s}|{s}|{s}", .{ k[0].string, k[1].string, k[2].string, k[3].string });
+            try r.map.put(a, key, .{ .w = @floatCast(num(k[4])), .h = @floatCast(num(k[5])) });
+        }
+        inline for (.{ .{ "calc", &r.calc }, .{ "rect", &r.rect } }) |pair| {
+            var it = math.object.get(pair[0]).?.object.iterator();
+            while (it.next()) |kv| {
+                const v = kv.value_ptr.array.items;
+                try pair[1].put(a, kv.key_ptr.*, .{ .w = @floatCast(num(v[0])), .h = @floatCast(num(v[1])) });
+            }
+        }
         return r;
+    }
+
+    fn num(v: std.json.Value) f64 {
+        return switch (v) {
+            .integer => |i| @floatFromInt(i),
+            .float => |f| f,
+            else => 0,
+        };
+    }
+
+    fn measureMath(ctx: ?*anyopaque, text: []const u8, in_diagram: bool) env.text.Size {
+        const r: *Replay = @ptrCast(@alignCast(ctx.?));
+        if ((if (in_diagram) r.rect else r.calc).get(text)) |d| return d;
+        r.misses += 1;
+        r.last_miss = text;
+        return .{ .w = 0, .h = 0 };
     }
 
     const Row = struct { k: [4][]const u8, w: f64, h: f64 };
@@ -37,7 +71,7 @@ const Replay = struct {
     }
 
     fn measurer(r: *Replay) env.Measurer {
-        return .{ .ctx = r, .measure_fn = measure };
+        return .{ .ctx = r, .measure_fn = measure, .math_fn = measureMath };
     }
 };
 
@@ -305,6 +339,7 @@ fn runSet(a: Allocator, replay: *Replay, theme: []const u8, manifest_path: []con
                 var xm: Xml = .{ .a = a, .s = try preprocess.decodeEntities(a, o.svg) };
                 const mine = try xm.element();
                 keepRootAttrs(a, mine);
+                stripA11y(a, mine);
                 try compare(a, mine, ref, "", &st, &local);
                 var ref_css: []const u8 = "";
                 for (ref.children) |c| if (std.mem.eql(u8, c.tag, "style")) {
@@ -342,6 +377,94 @@ test "sequence parity with mermaid 11.16.1 on the replayed measurements" {
     try runSet(a, &replay, "dark", "testdata/mermaid/sequence/manifest.txt", "testdata/mermaid/refs");
     for ([_][]const u8{ "default", "forest", "neutral" }) |t| {
         try runSet(a, &replay, t, "testdata/mermaid/sequence/themes_manifest.txt", try std.fmt.allocPrint(a, "testdata/mermaid/sequence/refs_{s}", .{t}));
+    }
+}
+
+const PipelineKind = struct { theme: mermaid.theme.Name, manifest: []const u8, dir: []const u8, cases: []const u8 };
+
+// The whole path the viewer takes: core's front matter, config and styles, the registry entry and the sequence renderer.
+fn runPipeline(a: Allocator, replay: *Replay, kind: PipelineKind) !void {
+    const manifest = try readFile(a, kind.manifest);
+    var lines = std.mem.splitScalar(u8, manifest, '\n');
+    var report: std.ArrayList(u8) = .empty;
+    var total: Stats = .{};
+    var cases: usize = 0;
+    var failed: usize = 0;
+    while (lines.next()) |name_raw| {
+        const name = std.mem.trim(u8, name_raw, " \r");
+        if (name.len == 0) continue;
+        cases += 1;
+        const src = try readFile(a, try std.fmt.allocPrint(a, "{s}/{s}.mmd", .{ kind.cases, name }));
+        const ref_svg = try readFile(a, try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ kind.dir, name }));
+        var xr: Xml = .{ .a = a, .s = ref_svg };
+        const ref = try xr.element();
+        dropFrameAttrs(a, ref);
+        replay.misses = 0;
+        const res = try mermaid.render(std.heap.page_allocator, src, .{ .theme = kind.theme, .measurer = replay.measurer() });
+        defer mermaid.free(std.heap.page_allocator, res);
+        var st: Stats = .{};
+        var local: std.ArrayList(u8) = .empty;
+        switch (res) {
+            .svg => |img| {
+                var xm: Xml = .{ .a = a, .s = img.bytes };
+                const mine = try xm.element();
+                try compare(a, mine, ref, "", &st, &local);
+                var ref_css: []const u8 = "";
+                var my_css: []const u8 = "";
+                for (ref.children) |c| if (std.mem.eql(u8, c.tag, "style")) {
+                    ref_css = c.text;
+                };
+                for (mine.children) |c| if (std.mem.eql(u8, c.tag, "style")) {
+                    my_css = c.text;
+                };
+                if (!std.mem.eql(u8, ref_css, my_css)) {
+                    st.bad += 1;
+                    var at: usize = 0;
+                    while (at < ref_css.len and at < my_css.len and ref_css[at] == my_css[at]) at += 1;
+                    try local.print(a, "  stylesheet differs at {d} (mine {d} bytes, ref {d}):\n    mine ...{s}\n    ref  ...{s}\n", .{ at, my_css.len, ref_css.len, my_css[@max(at, 60) - 60 .. @min(my_css.len, at + 100)], ref_css[@max(at, 60) - 60 .. @min(ref_css.len, at + 100)] });
+                }
+            },
+            .err => |m| {
+                st.bad += 1;
+                try local.print(a, "  render error: {s}\n", .{m});
+            },
+            .unsupported => |u| {
+                st.bad += 1;
+                try local.print(a, "  unsupported: {s}\n", .{u});
+            },
+        }
+        if (replay.misses > 0) try local.print(a, "  {d} measurements missing, last: {s}\n", .{ replay.misses, replay.last_miss });
+        total.elements += st.elements;
+        total.bad += st.bad;
+        if (st.bad > 0) {
+            failed += 1;
+            try report.print(a, "{s}: {d} of {d} elements differ\n{s}", .{ name, st.bad, st.elements, local.items });
+        }
+    }
+    std.debug.print("\nsequence pipeline {s}: {d} of {d} cases match, {d} of {d} elements differ\n", .{ kind.dir, cases - failed, cases, total.bad, total.elements });
+    if (failed > 0) {
+        const limit = @min(report.items.len, 20000);
+        std.debug.print("{s}\n", .{report.items[0..limit]});
+        return error.ParityMismatch;
+    }
+}
+
+// The frame adds these after Mermaid's own output.
+fn dropFrameAttrs(a: Allocator, root: *Elem) void {
+    var attrs: std.ArrayList([2][]const u8) = .empty;
+    for (root.attrs) |x| if (!std.mem.eql(u8, x[0], "height") and !std.mem.eql(u8, x[0], "preserveAspectRatio")) attrs.append(a, x) catch return;
+    root.attrs = attrs.items;
+}
+
+test "sequence diagrams through mermaid.render match the GitHub references" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var replay = try Replay.load(a);
+    try runPipeline(a, &replay, .{ .theme = .dark, .manifest = "testdata/mermaid/sequence/manifest.txt", .dir = "testdata/mermaid/refs", .cases = "testdata/mermaid/cases" });
+    try runPipeline(a, &replay, .{ .theme = .dark, .manifest = "testdata/mermaid/sequence/extra/manifest.txt", .dir = "testdata/mermaid/sequence/extra", .cases = "testdata/mermaid/sequence/extra" });
+    for ([_]struct { mermaid.theme.Name, []const u8 }{ .{ .default, "default" }, .{ .forest, "forest" }, .{ .neutral, "neutral" } }) |t| {
+        try runPipeline(a, &replay, .{ .theme = t[0], .manifest = "testdata/mermaid/sequence/themes_manifest.txt", .dir = try std.fmt.allocPrint(a, "testdata/mermaid/sequence/refs_{s}", .{t[1]}), .cases = "testdata/mermaid/cases" });
     }
 }
 

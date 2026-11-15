@@ -284,8 +284,12 @@ fn renderInner(a: Allocator, source: []const u8, opts: Opts) (Allocator.Error ||
     const encoded = try parserInput(a, parse_text);
     if (def.whole) |f| {
         const sel = try std.fmt.allocPrint(a, "#{s}", .{opts.svg_id});
-        const base = try css.compile(a, sel, try css.commonStyles(a, sel, &cfg.vars, "", try userStyles(&ctx, &.{})));
-        const r = f(&ctx, encoded, base) catch |e| return stageError(&ctx, e);
+        const marker = ".mmd-diagram-css{fill:none;}";
+        const full = try css.compile(a, sel, try css.commonStyles(a, sel, &cfg.vars, marker, try userStyles(&ctx, &.{})));
+        const at = std.mem.indexOf(u8, full, marker[1..]);
+        const cut = if (at) |i| std.mem.lastIndexOfScalar(u8, full[0..i], '#') orelse i else full.len;
+        const end = if (at) |i| i + marker.len - 1 else full.len;
+        const r = f(&ctx, encoded, full[0..cut], full[end..]) catch |e| return stageError(&ctx, e);
         return .{ .svg = .{ .bytes = try preprocess.decodeEntities(a, r.bytes), .w = r.w, .h = r.h } };
     }
     const model = def.parse(&ctx, encoded) catch |e| return stageError(&ctx, e);
