@@ -381,14 +381,17 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
                         natural = win.g_last_text_w;
                     },
                     .err => |box| {
-                        y += win.renderErrorBox(vt_rt, g.vt_dw, rt, g.dwf, box, x, y, w, draw);
+                        y += win.renderDiagramError(g, box.title, box.body, x, y, w, draw);
                         y += win.renderCodeBlock(vt_rt, g.vt_dw, rt, g.dwf, block.content.text, block.tokens, x, y, w, draw);
                         natural = win.g_last_text_w;
                     },
-                    .pending => y += view.min_frame_h,
+                    .pending => {
+                        if (draw) win.drawSpinner(g, .{ .x = x, .y = y, .w = w, .h = view.pending_h });
+                        y += view.pending_h;
+                    },
                     .picture => |size| {
                         const frame: view.Rect = .{ .x = x, .y = y, .w = w, .h = view.frameHeight(size.h) };
-                        if (draw) win.drawDiagram(g, block.content.text, frame, size);
+                        if (draw) win.drawDiagram(g, block.content.text, frame, size, false);
                         natural = size.w;
                         y += frame.h;
                     },
@@ -1049,8 +1052,11 @@ test "a mermaid block is a frame with the zoom and pan buttons, and a bad one is
     try testing.expectEqual(@as(f32, 400), size.w);
     const bad = app.images.diagram("info foo\n", 820);
     try testing.expect(bad == .err);
-    try testing.expectEqualStrings(view.error_title, bad.err.text[0..view.error_title.len]);
-    try testing.expectEqual(view.docs_url.len, bad.err.links[0].len);
+    try testing.expectEqualStrings(view.error_title, bad.err.title.text);
+    try testing.expectEqual(view.docs_url.len, bad.err.body.links[0].len);
+    const gfx = gfxOf();
+    const box_h = win.renderDiagramError(gfx, bad.err.title, bad.err.body, 40, 0, 820, false);
+    try testing.expect(box_h > 2 * view.error_top + view.error_title_gap + 48);
 
     win.render();
     try testing.expectApproxEqAbs(view.frameHeight(size.h) + 16, app.block_y.items[1] - app.block_y.items[0], 0.01);
@@ -1069,7 +1075,36 @@ test "a mermaid block is a frame with the zoom and pan buttons, and a bad one is
     try testing.expectEqual(@as(f32, 1), app.images.viewState(key).zoom);
     try testing.expect(!app.mouseDown(frame.x + 4, frame.y + 4));
 
+    const expand = view.buttonRect(frame, .expand);
+    try testing.expect(app.dialog == null);
+    try testing.expect(app.mouseDown(expand.x + 4, expand.y + 4));
+    try testing.expectEqualStrings("info\n", app.dialog.?.source);
+    win.render();
+    const box = view.modalRect(app.window_width, app.window_height, frame.h);
+    const inner = view.modalFrame(box, frame.h);
+    const dz = view.buttonRect(inner, .zoom_in);
+    try testing.expect(app.mouseDown(dz.x + 4, dz.y + 4));
+    try testing.expectApproxEqAbs(@as(f32, 1.1), app.images.viewState(key ^ app.dialog_salt).zoom, 0.001);
+    try testing.expectEqual(@as(f32, 1), app.images.viewState(key).zoom);
+    const close = view.closeRect(box);
+    try testing.expect(app.mouseDown(close.x + 4, close.y + 4));
+    try testing.expect(app.dialog == null);
+
     var found_link = false;
     for (app.hits.items) |h| found_link = found_link or (h.content.links.len == 1 and std.mem.eql(u8, h.content.links[0].target, view.docs_url));
     try testing.expect(found_link);
+}
+
+extern "user32" fn GetClipboardData(format: u32) callconv(.c) ?*anyopaque;
+
+test "the copy button puts the source on the clipboard" {
+    win.setClipboard("graph TD\nA-->B\n");
+    try testing.expect(win.OpenClipboard(null) != 0);
+    defer _ = win.CloseClipboard();
+    const mem = GetClipboardData(13) orelse return error.TestUnexpectedResult;
+    const text: [*:0]const u16 = @ptrCast(@alignCast(win.GlobalLock(mem) orelse return error.TestUnexpectedResult));
+    defer _ = win.GlobalUnlock(mem);
+    var buf: [64]u8 = undefined;
+    const n = try std.unicode.utf16LeToUtf8(&buf, std.mem.span(text));
+    try testing.expectEqualStrings("graph TD\r\nA-->B\r\n", buf[0..n]);
 }

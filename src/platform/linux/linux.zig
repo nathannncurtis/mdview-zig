@@ -69,7 +69,7 @@ pub const Color = struct { r: f64, g: f64, b: f64 };
 
 const col_bg = Color{ .r = 13.0 / 255.0, .g = 17.0 / 255.0, .b = 23.0 / 255.0 };
 pub const col_text = Color{ .r = 201.0 / 255.0, .g = 209.0 / 255.0, .b = 217.0 / 255.0 };
-const col_code_bg = Color{ .r = 22.0 / 255.0, .g = 27.0 / 255.0, .b = 34.0 / 255.0 };
+const col_code_bg = Color{ .r = 21.0 / 255.0, .g = 27.0 / 255.0, .b = 35.0 / 255.0 };
 pub const col_quote = Color{ .r = 139.0 / 255.0, .g = 148.0 / 255.0, .b = 158.0 / 255.0 };
 const col_hr = Color{ .r = 33.0 / 255.0, .g = 38.0 / 255.0, .b = 45.0 / 255.0 };
 pub const col_table_border = hexColor(0x3d444d);
@@ -169,6 +169,7 @@ pub fn run() void {
                 c.Expose => {
                     needs_redraw = true;
                 },
+                c.SelectionRequest => answerSelection(dpy, ev.xselectionrequest),
                 c.ConfigureNotify => {
                     const ce = ev.xconfigure;
                     app.window_width = @as(f32, @floatFromInt(ce.width)) / g_scale;
@@ -183,6 +184,7 @@ pub fn run() void {
                         if (keysym == 0xFF51) app.goBack();
                         if (keysym == 0xFF53) app.goForward();
                     }
+                    if (keysym == 0xFF1B) app.closeDialog();
                     // Ctrl+Q to quit
                     if (keysym == 'q' and (ke.state & c.ControlMask) != 0) {
                         running = false;
@@ -431,6 +433,7 @@ fn render(dpy: *c.Display, win: c.Window) void {
     app.content_height = y + app.scroll_y + padding;
 
     // Close button (X) — drawn in screen coordinates (not scrolled)
+    drawDialog(cr);
     drawCloseButton(cr);
     if (app.tooltip) |t| drawTooltip(cr, t);
 
@@ -528,11 +531,14 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
                 switch (app.images.diagram(block.content.text, cw)) {
                     .code => y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, x, y, cw),
                     .err => |box| {
-                        y += renderErrorBox(cr, pango_layout, box, x, y, cw);
+                        y += renderDiagramError(cr, pango_layout, box.title, box.body, x, y, cw);
                         y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, x, y, cw);
                     },
-                    .pending => y += view.min_frame_h,
-                    .picture => |size| y += drawDiagram(cr, block.content.text, x, y, cw, size),
+                    .pending => {
+                        drawSpinner(cr, .{ .x = x, .y = y, .w = cw, .h = view.pending_h });
+                        y += view.pending_h;
+                    },
+                    .picture => |size| y += drawDiagram(cr, block.content.text, x, y, cw, size, false),
                 }
                 gap = 16;
             },
@@ -1257,40 +1263,169 @@ fn drawAlertIcon(cr: *c.cairo_t, alert: md.Alert, x: f32, y: f32) void {
     c.cairo_fill(cr);
 }
 
-/// A rendered diagram in its frame with GitHub's zoom and pan buttons; the frame clips what zoom and pan push out of it.
-fn drawDiagram(cr: *c.cairo_t, source: []const u8, x: f32, y: f32, w: f32, size: app.images.Size) f32 {
+fn fillIcon(cr: *c.cairo_t, o: alerts.Octicon, x: f32, y: f32, col: Color) void {
+    setColor(cr, col);
+    c.cairo_new_path(cr);
+    for (alerts.octicon(o)) |op| switch (op) {
+        .move => |p| c.cairo_move_to(cr, x + p[0], y + p[1]),
+        .line => |p| c.cairo_line_to(cr, x + p[0], y + p[1]),
+        .cubic => |q| c.cairo_curve_to(cr, x + q[0], y + q[1], x + q[2], y + q[3], x + q[4], y + q[5]),
+        .close => c.cairo_close_path(cr),
+    };
+    c.cairo_set_fill_rule(cr, c.CAIRO_FILL_RULE_WINDING);
+    c.cairo_fill(cr);
+}
+
+fn drawButton(cr: *c.cairo_t, frame: view.Rect, b: view.Button, copied: bool) void {
+    const r = view.buttonRect(frame, b);
+    drawRoundedRect(cr, r.x, r.y, r.w, r.h, view.button_radius);
+    setColor(cr, hexColor(view.button_border));
+    c.cairo_fill(cr);
+    drawRoundedRect(cr, r.x + 1, r.y + 1, r.w - 2, r.h - 2, view.button_radius - 1);
+    setColor(cr, hexColor(view.button_bg));
+    c.cairo_fill(cr);
+    const name = if (b == .copy and copied) "check" else view.iconName(b);
+    const icon = std.meta.stringToEnum(alerts.Octicon, name) orelse return;
+    fillIcon(cr, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, hexColor(view.iconColor(b)));
+}
+
+/// A rendered diagram in its frame with GitHub's controls; the frame clips what zoom and pan push out of it. A frame in the
+/// dialog has no expand and copy buttons.
+fn drawDiagram(cr: *c.cairo_t, source: []const u8, x: f32, y: f32, w: f32, size: app.images.Size, in_dialog: bool) f32 {
     const fh = view.frameHeight(size.h);
-    const key = app.images.diagramKey(source);
-    if (!html.measuring) app.noteDiagram(.{ .x = x, .y = y + app.scroll_y, .w = w, .h = fh }, key);
+    const key = app.images.diagramKey(source) ^ (if (in_dialog) app.dialog_salt else 0);
+    const doc_y = if (in_dialog) y else y + app.scroll_y;
+    if (!html.measuring) app.noteDiagram(.{ .x = x, .y = doc_y, .w = w, .h = fh }, key, source, in_dialog);
     if (y + fh < 0 or y > app.window_height) return fh;
     const frame: view.Rect = .{ .x = x, .y = y, .w = w, .h = fh };
     const dest = view.placed(frame, size.w, size.h, app.images.viewState(key).*);
     c.cairo_save(cr);
     c.cairo_rectangle(cr, x, y, w, fh);
     c.cairo_clip(cr);
-    if (app.images.diagramBitmap(source, .{ .w = dest.w, .h = dest.h })) |bm| blit(cr, bm.native, bm.w, bm.h, dest.x, dest.y, dest.w, dest.h);
+    if (app.images.diagramBitmap(source, dest, frame)) |bm| blit(cr, bm.native, bm.w, bm.h, bm.rect.x, bm.rect.y, bm.rect.w, bm.rect.h);
     c.cairo_restore(cr);
-    c.cairo_set_line_cap(cr, c.CAIRO_LINE_CAP_ROUND);
-    c.cairo_set_line_join(cr, c.CAIRO_LINE_JOIN_ROUND);
+    const copied = app.isCopied(key);
     for (std.enums.values(view.Button)) |b| {
-        const r = view.buttonRect(frame, b);
-        drawRoundedRect(cr, r.x, r.y, r.w, r.h, view.button_radius);
-        setColor(cr, hexColor(view.button_border));
-        c.cairo_fill(cr);
-        drawRoundedRect(cr, r.x + 1, r.y + 1, r.w - 2, r.h - 2, view.button_radius - 1);
-        setColor(cr, hexColor(view.button_bg));
-        c.cairo_fill(cr);
-        setColor(cr, hexColor(view.button_icon));
-        c.cairo_set_line_width(cr, view.icon_stroke);
-        const ox = r.x + (r.w - view.icon_size) / 2;
-        const oy = r.y + (r.h - view.icon_size) / 2;
-        for (view.glyph(b)) |stroke| {
-            c.cairo_move_to(cr, ox + stroke[0][0], oy + stroke[0][1]);
-            for (stroke[1..]) |p| c.cairo_line_to(cr, ox + p[0], oy + p[1]);
-            c.cairo_stroke(cr);
-        }
+        if (view.isAction(b) and in_dialog) continue;
+        drawButton(cr, frame, b, copied);
     }
     return fh;
+}
+
+/// The block of a diagram that has not rendered: GitHub's spinner, 40 down from the top and centred.
+fn drawSpinner(cr: *c.cairo_t, block: view.Rect) void {
+    app.images.animate(16);
+    if (offScreen(block)) return;
+    const at = view.spinnerAt(block);
+    const col = hexColor(view.frame_icon);
+    c.cairo_set_line_width(cr, view.spinner_stroke);
+    c.cairo_set_line_cap(cr, c.CAIRO_LINE_CAP_ROUND);
+    c.cairo_set_source_rgba(cr, col.r, col.g, col.b, 0.25);
+    const ring = view.spinnerRing();
+    c.cairo_move_to(cr, at[0] + ring[0][0], at[1] + ring[0][1]);
+    for (ring[1..]) |p| c.cairo_line_to(cr, at[0] + p[0], at[1] + p[1]);
+    c.cairo_stroke(cr);
+    setColor(cr, col);
+    const turn = @as(f32, @floatFromInt(@mod(app.images.now(), 1000))) / 1000;
+    const arc = view.spinnerArc(turn);
+    c.cairo_move_to(cr, at[0] + arc[0][0], at[1] + arc[0][1]);
+    for (arc[1..]) |p| c.cairo_line_to(cr, at[0] + p[0], at[1] + p[1]);
+    c.cairo_stroke(cr);
+}
+
+fn offScreen(r: view.Rect) bool {
+    return r.y + r.h < 0 or r.y > app.window_height;
+}
+
+/// The dialog of the expand button over a dimmed page.
+pub fn drawDialog(cr: *c.cairo_t) void {
+    const d = app.dialog orelse return;
+    const dim = hexColor(view.modal_backdrop);
+    c.cairo_set_source_rgba(cr, dim.r, dim.g, dim.b, view.modal_backdrop_alpha);
+    c.cairo_rectangle(cr, 0, 0, app.window_width, app.window_height);
+    c.cairo_fill(cr);
+    const box = view.modalRect(app.window_width, app.window_height, d.frame_h);
+    drawRoundedRect(cr, box.x, box.y, box.w, box.h, 6);
+    setColor(cr, hexColor(view.modal_border));
+    c.cairo_fill(cr);
+    drawRoundedRect(cr, box.x + 1, box.y + 1, box.w - 2, box.h - 2, 5);
+    setColor(cr, hexColor(view.modal_bg));
+    c.cairo_fill(cr);
+    const close = view.closeRect(box);
+    fillIcon(cr, .close, close.x + (close.w - 24) / 2, close.y + (close.h - 24) / 2, hexColor(view.close_icon));
+    const frame = view.modalFrame(box, d.frame_h);
+    switch (app.images.diagram(d.source, frame.w)) {
+        .picture => |size| _ = drawDiagram(cr, d.source, frame.x, frame.y, frame.w, size, true),
+        .pending => drawSpinner(cr, frame),
+        else => {},
+    }
+}
+
+/// GitHub's error box for a diagram: a bold title, a 16px gap and the message, in a 1px red border with 20px padding.
+fn renderDiagramError(cr: *c.cairo_t, pango_layout: *c.PangoLayout, title: md.Inline, body: md.Inline, x: f32, y: f32, w: f32) f32 {
+    const inner = @max(w - 2 * view.error_left, 20);
+    setInline(pango_layout, title, inner, "Sans 12");
+    const ht = layoutPixelSize(pango_layout)[1];
+    setInline(pango_layout, body, inner, "Sans 12");
+    const hb = layoutPixelSize(pango_layout)[1];
+    const h = 2 * view.error_top + ht + view.error_title_gap + hb;
+    const body_y = y + view.error_top + ht + view.error_title_gap;
+    html.noteHit(.{ .content = body, .x = x + view.error_left, .y = body_y + app.scroll_y, .w = inner, .h = hb });
+    drawRoundedRect(cr, x, y, w, h, 6);
+    setColor(cr, col_err_border);
+    c.cairo_fill(cr);
+    drawRoundedRect(cr, x + 1, y + 1, w - 2, h - 2, 5);
+    setColor(cr, hexColor(view.error_bg));
+    c.cairo_fill(cr);
+    setColor(cr, col_text);
+    c.cairo_move_to(cr, x + view.error_left, body_y);
+    c.pango_cairo_show_layout(cr, pango_layout);
+    c.pango_layout_set_attributes(pango_layout, null);
+    setInline(pango_layout, title, inner, "Sans 12");
+    c.cairo_move_to(cr, x + view.error_left, y + view.error_top);
+    c.pango_cairo_show_layout(cr, pango_layout);
+    c.pango_layout_set_attributes(pango_layout, null);
+    return h;
+}
+
+var clip_text: ?[]u8 = null;
+
+/// Puts `text` on the CLIPBOARD selection; the window answers requests for it from the event loop.
+pub fn setClipboard(text: []const u8) void {
+    const dpy = display orelse return;
+    const copy = app.gpa.dupe(u8, text) catch return;
+    if (clip_text) |old| app.gpa.free(old);
+    clip_text = copy;
+    _ = c.XSetSelectionOwner(dpy, c.XInternAtom(dpy, "CLIPBOARD", 0), window, c.CurrentTime);
+    _ = c.XFlush(dpy);
+}
+
+const atom_atom: c.Atom = 4;
+const atom_string: c.Atom = 31;
+
+fn answerSelection(dpy: *c.Display, req: c.XSelectionRequestEvent) void {
+    const utf8 = c.XInternAtom(dpy, "UTF8_STRING", 0);
+    const targets = c.XInternAtom(dpy, "TARGETS", 0);
+    const prop = if (req.property != 0) req.property else req.target;
+    var granted: c.Atom = 0;
+    if (req.target == targets) {
+        const list = [_]c.Atom{ targets, utf8, atom_string };
+        _ = c.XChangeProperty(dpy, req.requestor, prop, atom_atom, 32, 0, @ptrCast(&list), list.len);
+        granted = prop;
+    } else if (clip_text) |t| if (req.target == utf8 or req.target == atom_string) {
+        _ = c.XChangeProperty(dpy, req.requestor, prop, req.target, 8, 0, t.ptr, @intCast(t.len));
+        granted = prop;
+    };
+    var out: c.XEvent = std.mem.zeroes(c.XEvent);
+    out.xselection.type = c.SelectionNotify;
+    out.xselection.display = req.display;
+    out.xselection.requestor = req.requestor;
+    out.xselection.selection = req.selection;
+    out.xselection.target = req.target;
+    out.xselection.property = granted;
+    out.xselection.time = req.time;
+    _ = c.XSendEvent(dpy, req.requestor, 0, 0, &out);
+    _ = c.XFlush(dpy);
 }
 
 fn renderErrorBox(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32, w: f32) f32 {

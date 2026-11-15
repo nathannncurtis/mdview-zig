@@ -1084,6 +1084,19 @@ test "a mermaid block is a frame with the zoom and pan buttons, and a bad one is
     try std.testing.expectEqual(@as(f32, 1), app.images.viewState(key).zoom);
     try std.testing.expect(!app.mouseDown(frame.x + 4, frame.y + 4));
 
+    const expand = view.buttonRect(frame, .expand);
+    try std.testing.expect(app.mouseDown(expand.x + 4, expand.y + 4));
+    try std.testing.expect(app.dialog != null);
+    lx.drawDialog(p.cr);
+    const box = view.modalRect(app.window_width, app.window_height, frame.h);
+    const inner = view.modalFrame(box, frame.h);
+    const dz = view.buttonRect(inner, .zoom_in);
+    try std.testing.expect(app.mouseDown(dz.x + 4, dz.y + 4));
+    try std.testing.expectApproxEqAbs(@as(f32, 1.1), app.images.viewState(key ^ app.dialog_salt).zoom, 0.001);
+    const close = view.closeRect(box);
+    try std.testing.expect(app.mouseDown(close.x + 4, close.y + 4));
+    try std.testing.expect(app.dialog == null);
+
     var found_link = false;
     for (app.hits.items) |h| found_link = found_link or (h.content.links.len == 1 and std.mem.eql(u8, h.content.links[0].target, view.docs_url));
     try std.testing.expect(found_link);

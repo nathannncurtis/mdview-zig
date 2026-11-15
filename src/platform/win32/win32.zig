@@ -550,33 +550,148 @@ fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f
     }
 }
 
-/// A rendered diagram in its frame with GitHub's zoom and pan buttons; the frame clips what zoom and pan push out of it.
-pub fn drawDiagram(g: Gfx, source: []const u8, frame: view.Rect, size: app.images.Size) void {
-    const key = app.images.diagramKey(source);
-    app.noteDiagram(.{ .x = frame.x, .y = frame.y, .w = frame.w, .h = frame.h }, key);
-    const top = frame.y - app.scroll_y;
-    if (top + frame.h < 0 or top > app.window_height) return;
-    const dest = view.placed(frame, size.w, size.h, app.images.viewState(key).*);
-    g.vt_rt.PushAxisAlignedClip(g.rt, &.{ .left = frame.x, .top = frame.y, .right = frame.x + frame.w, .bottom = frame.y + frame.h }, 1);
-    if (app.images.diagramBitmap(source, .{ .w = dest.w, .h = dest.h })) |bm| {
-        g.vt_rt.DrawBitmap(g.rt, bm.native, &.{ .left = dest.x, .top = dest.y, .right = dest.x + dest.w, .bottom = dest.y + dest.h }, 1, 1, null);
-    }
-    g.vt_rt.PopAxisAlignedClip(g.rt);
+var g_octicon_geom: [std.enums.values(alerts.Octicon).len]?*anyopaque = @splat(null);
+
+fn fillIcon(g: Gfx, o: alerts.Octicon, x: f32, y: f32, brush: *anyopaque, sy: f32) void {
+    const slot = &g_octicon_geom[@intFromEnum(o)];
+    if (slot.* == null) slot.* = geometryFromOps(g_d2d_factory orelse return, alerts.octicon(o));
+    g.vt_rt.SetTransform(g.rt, &matrix(x, y - sy));
+    g.vt_rt.FillGeometry(g.rt, slot.* orelse return, brush, null);
+    g.vt_rt.SetTransform(g.rt, &matrix(0, -sy));
+}
+
+fn drawButton(g: Gfx, frame: view.Rect, b: view.Button, sy: f32, copied: bool) void {
     const border = g_brush_table_border orelse return;
     const fill = g_brush_button orelse return;
-    const icon = g_brush_bright orelse return;
-    for (std.enums.values(view.Button)) |b| {
-        const r = view.buttonRect(frame, b);
-        g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x, .top = r.y, .right = r.x + r.w, .bottom = r.y + r.h }, .radiusX = view.button_radius, .radiusY = view.button_radius }, border);
-        g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x + 1, .top = r.y + 1, .right = r.x + r.w - 1, .bottom = r.y + r.h - 1 }, .radiusX = view.button_radius - 1, .radiusY = view.button_radius - 1 }, fill);
-        const ox = r.x + (r.w - view.icon_size) / 2;
-        const oy = r.y + (r.h - view.icon_size) / 2;
-        for (view.glyph(b)) |stroke| {
-            for (stroke[0 .. stroke.len - 1], stroke[1..]) |p, q| {
-                g.vt_rt.DrawLine(g.rt, .{ .x = ox + p[0], .y = oy + p[1] }, .{ .x = ox + q[0], .y = oy + q[1] }, icon, view.icon_stroke, null);
-            }
-        }
+    const r = view.buttonRect(frame, b);
+    g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x, .top = r.y, .right = r.x + r.w, .bottom = r.y + r.h }, .radiusX = view.button_radius, .radiusY = view.button_radius }, border);
+    g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x + 1, .top = r.y + 1, .right = r.x + r.w - 1, .bottom = r.y + r.h - 1 }, .radiusX = view.button_radius - 1, .radiusY = view.button_radius - 1 }, fill);
+    const brush = (if (view.isAction(b)) g_brush_action_icon else g_brush_bright) orelse return;
+    const name = if (b == .copy and copied) "check" else view.iconName(b);
+    const icon = std.meta.stringToEnum(alerts.Octicon, name) orelse return;
+    fillIcon(g, icon, r.x + (r.w - view.icon_size) / 2, r.y + (r.h - view.icon_size) / 2, brush, sy);
+}
+
+/// A rendered diagram in its frame with GitHub's controls; the frame clips what zoom and pan push out of it. A frame in the
+/// dialog is in window coordinates and has no expand and copy buttons.
+pub fn drawDiagram(g: Gfx, source: []const u8, frame: view.Rect, size: app.images.Size, in_dialog: bool) void {
+    const key = app.images.diagramKey(source) ^ (if (in_dialog) app.dialog_salt else 0);
+    const sy = if (in_dialog) 0 else app.scroll_y;
+    app.noteDiagram(.{ .x = frame.x, .y = frame.y, .w = frame.w, .h = frame.h }, key, source, in_dialog);
+    if (frame.y - sy + frame.h < 0 or frame.y - sy > app.window_height) return;
+    const dest = view.placed(frame, size.w, size.h, app.images.viewState(key).*);
+    g.vt_rt.PushAxisAlignedClip(g.rt, &.{ .left = frame.x, .top = frame.y, .right = frame.x + frame.w, .bottom = frame.y + frame.h }, 1);
+    if (app.images.diagramBitmap(source, dest, frame)) |bm| {
+        g.vt_rt.DrawBitmap(g.rt, bm.native, &.{ .left = bm.rect.x, .top = bm.rect.y, .right = bm.rect.x + bm.rect.w, .bottom = bm.rect.y + bm.rect.h }, 1, 1, null);
     }
+    g.vt_rt.PopAxisAlignedClip(g.rt);
+    const copied = app.isCopied(key);
+    for (std.enums.values(view.Button)) |b| {
+        if (view.isAction(b) and in_dialog) continue;
+        drawButton(g, frame, b, sy, copied);
+    }
+}
+
+/// The block of a diagram that has not rendered: GitHub's spinner, 40 down from the top and centred.
+pub fn drawSpinner(g: Gfx, block: view.Rect) void {
+    app.images.animate(16);
+    const dim = g_brush_spin_dim orelse return;
+    const bright = g_brush_bright orelse return;
+    const at = view.spinnerAt(block);
+    const ring = view.spinnerRing();
+    for (ring[0 .. ring.len - 1], ring[1..]) |p, q| {
+        g.vt_rt.DrawLine(g.rt, .{ .x = at[0] + p[0], .y = at[1] + p[1] }, .{ .x = at[0] + q[0], .y = at[1] + q[1] }, dim, view.spinner_stroke, null);
+    }
+    const turn = @as(f32, @floatFromInt(@mod(app.images.now(), 1000))) / 1000;
+    const arc = view.spinnerArc(turn);
+    for (arc[0 .. arc.len - 1], arc[1..]) |p, q| {
+        g.vt_rt.DrawLine(g.rt, .{ .x = at[0] + p[0], .y = at[1] + p[1] }, .{ .x = at[0] + q[0], .y = at[1] + q[1] }, bright, view.spinner_stroke, null);
+    }
+}
+
+fn fillRect(g: Gfx, r: view.Rect, radius: f32, brush: *anyopaque) void {
+    g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x, .top = r.y, .right = r.x + r.w, .bottom = r.y + r.h }, .radiusX = radius, .radiusY = radius }, brush);
+}
+
+/// The dialog of the expand button over a dimmed page, in window coordinates.
+pub fn drawDialog(g: Gfx) void {
+    const d = app.dialog orelse return;
+    const backdrop = g_brush_backdrop orelse return;
+    const border = g_brush_table_border orelse return;
+    const bg = g_brush_bg orelse return;
+    const icon = g_brush_action_icon orelse return;
+    g.vt_rt.FillRectangle(g.rt, &.{ .left = 0, .top = 0, .right = app.window_width, .bottom = app.window_height }, backdrop);
+    const box = view.modalRect(app.window_width, app.window_height, d.frame_h);
+    fillRect(g, box, 6, border);
+    fillRect(g, .{ .x = box.x + 1, .y = box.y + 1, .w = box.w - 2, .h = box.h - 2 }, 5, bg);
+    const close = view.closeRect(box);
+    fillIcon(g, .close, close.x + (close.w - 24) / 2, close.y + (close.h - 24) / 2, icon, 0);
+    const frame = view.modalFrame(box, d.frame_h);
+    switch (app.images.diagram(d.source, frame.w)) {
+        .picture => |size| drawDiagram(g, d.source, frame, size, true),
+        .pending => drawSpinner(g, frame),
+        else => {},
+    }
+}
+
+/// GitHub's error box for a diagram: a bold title, a 16px gap and the message, in a 1px red border with 20px padding.
+pub fn renderDiagramError(g: Gfx, title: md.Inline, body: md.Inline, x: f32, y: f32, w: f32, draw: bool) f32 {
+    const inner = @max(w - 2 * view.error_left, 20);
+    const lt = createLayout(g.vt_dw, g.dwf, title, g_text_format.?, inner) orelse return 0;
+    defer _ = vtable(IDWriteTextLayout_VTable, lt).Release(lt);
+    const lb = createLayout(g.vt_dw, g.dwf, body, g_text_format.?, inner) orelse return 0;
+    defer _ = vtable(IDWriteTextLayout_VTable, lb).Release(lb);
+    // SAFETY: written by GetMetrics
+    var mt: DWRITE_TEXT_METRICS = undefined;
+    // SAFETY: written by GetMetrics
+    var mb: DWRITE_TEXT_METRICS = undefined;
+    _ = vtable(IDWriteTextLayout_VTable, lt).GetMetrics(lt, &mt);
+    _ = vtable(IDWriteTextLayout_VTable, lb).GetMetrics(lb, &mb);
+    const h = 2 * view.error_top + mt.height + view.error_title_gap + mb.height;
+    if (!draw) return h;
+    const body_y = y + view.error_top + mt.height + view.error_title_gap;
+    app.noteHit(.{ .content = body, .x = x + view.error_left, .y = body_y, .w = inner, .h = mb.height });
+    fillRect(g, .{ .x = x, .y = y, .w = w, .h = h }, 6, g_brush_err_border.?);
+    fillRect(g, .{ .x = x + 1, .y = y + 1, .w = w - 2, .h = h - 2 }, 5, g_brush_bg.?);
+    g.vt_rt.DrawTextLayout(g.rt, .{ .x = x + view.error_left, .y = y + view.error_top }, lt, g_brush_text.?, 0);
+    g.vt_rt.DrawTextLayout(g.rt, .{ .x = x + view.error_left, .y = body_y }, lb, g_brush_text.?, 0);
+    return h;
+}
+
+pub extern "user32" fn OpenClipboard(hwnd: ?HWND) callconv(.c) BOOL;
+pub extern "user32" fn CloseClipboard() callconv(.c) BOOL;
+extern "user32" fn EmptyClipboard() callconv(.c) BOOL;
+extern "user32" fn SetClipboardData(format: u32, mem: ?*anyopaque) callconv(.c) ?*anyopaque;
+extern "kernel32" fn GlobalAlloc(flags: u32, bytes: usize) callconv(.c) ?*anyopaque;
+pub extern "kernel32" fn GlobalLock(mem: *anyopaque) callconv(.c) ?[*]u16;
+pub extern "kernel32" fn GlobalUnlock(mem: *anyopaque) callconv(.c) BOOL;
+extern "kernel32" fn GlobalFree(mem: *anyopaque) callconv(.c) ?*anyopaque;
+
+/// Puts `text` on the clipboard as Unicode text, with line ends as Windows writes them.
+pub fn setClipboard(text: []const u8) void {
+    var crlf: std.ArrayList(u8) = .empty;
+    defer crlf.deinit(app.gpa);
+    for (text, 0..) |ch, i| {
+        if (ch == '\n' and (i == 0 or text[i - 1] != '\r')) crlf.append(app.gpa, '\r') catch return;
+        crlf.append(app.gpa, ch) catch return;
+    }
+    const wide = std.unicode.utf8ToUtf16LeAlloc(app.gpa, crlf.items) catch return;
+    defer app.gpa.free(wide);
+    const mem = GlobalAlloc(0x0002, (wide.len + 1) * 2) orelse return;
+    const dst = GlobalLock(mem) orelse {
+        _ = GlobalFree(mem);
+        return;
+    };
+    @memcpy(dst[0..wide.len], wide);
+    dst[wide.len] = 0;
+    _ = GlobalUnlock(mem);
+    if (OpenClipboard(g_hwnd) == 0) {
+        _ = GlobalFree(mem);
+        return;
+    }
+    _ = EmptyClipboard();
+    if (SetClipboardData(13, mem) == null) _ = GlobalFree(mem);
+    _ = CloseClipboard();
 }
 
 fn createBitmapNative(rgba: []const u8, w: u32, h: u32) ?*anyopaque {
@@ -715,6 +830,9 @@ var g_brush_hl_bg: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
 pub var g_brush_bar: ?*anyopaque = null;
 var g_brush_bg: ?*anyopaque = null;
 var g_brush_button: ?*anyopaque = null;
+var g_brush_action_icon: ?*anyopaque = null;
+var g_brush_backdrop: ?*anyopaque = null;
+var g_brush_spin_dim: ?*anyopaque = null;
 var g_brush_check: ?*anyopaque = null;
 var g_brush_white: ?*anyopaque = null;
 var g_brush_err_bg: ?*anyopaque = null;
@@ -858,7 +976,7 @@ fn createBrushes(rt: *anyopaque) void {
     const vt = vtable(ID2D1RT_VTable, rt);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_text);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_heading);
-    _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.086, .g = 0.106, .b = 0.133, .a = 1 }, null, &g_brush_code_bg);
+    g_brush_code_bg = solidBrush(rt, 0x151b23);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.788, .g = 0.820, .b = 0.851, .a = 1 }, null, &g_brush_code_text);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_quote);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.129, .g = 0.149, .b = 0.176, .a = 1 }, null, &g_brush_hr);
@@ -876,6 +994,13 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_bar = solidBrush(rt, 0x3d444d);
     g_brush_bg = solidBrush(rt, 0x0d1117);
     g_brush_button = solidBrush(rt, view.button_bg);
+    g_brush_action_icon = solidBrush(rt, view.action_icon);
+    var backdrop = rgbColor(view.modal_backdrop);
+    backdrop.a = view.modal_backdrop_alpha;
+    _ = vt.CreateSolidColorBrush(rt, &backdrop, null, &g_brush_backdrop);
+    var dim = rgbColor(view.frame_icon);
+    dim.a = 0.25;
+    _ = vt.CreateSolidColorBrush(rt, &dim, null, &g_brush_spin_dim);
     g_brush_check = solidBrush(rt, 0x1f6feb);
     g_brush_white = solidBrush(rt, 0xffffff);
     g_brush_err_bg = solidBrush(rt, 0x25171c);
@@ -927,6 +1052,7 @@ pub fn render() void {
 
     // Close button
     vt_rt.SetTransform(rt, &matrix(0, 0));
+    drawDialog(g);
     if (app.tooltip) |t| drawTooltip(vt_rt, vt_dw, rt, dwf, t);
     if (g_brush_close) |brush| {
         const bx = app.window_width - 36;
@@ -1423,6 +1549,7 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             return DefWindowProcW(hwnd, msg, wParam, lParam);
         },
         WM_KEYDOWN => {
+            if (wParam == 0x1B) app.closeDialog();
             if (wParam == VK_Q and (@as(u16, @bitCast(GetKeyState(VK_CONTROL))) & 0x8000) != 0) {
                 PostQuitMessage(0);
                 return 0;
