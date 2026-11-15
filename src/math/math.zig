@@ -8,5 +8,6 @@ test {
     _ = style;
     _ = layout;
     _ = scene;
+    _ = @import("detect.zig");
     _ = @import("testfont.zig");
 }

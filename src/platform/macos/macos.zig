@@ -384,14 +384,28 @@ fn drawStrikes(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame
     }
 }
 
-const ImageKind = enum { pending, picture, broken };
+const ImageKind = enum { pending, picture, broken, math };
 
 /// Width of the broken image glyph with its gap to the alt text that follows, and its height.
 const broken_w: CGFloat = 18;
 const broken_h: CGFloat = 16;
 
 /// One image in a layout; CoreText reads its size through the run delegate and the drawing pass finds it again by the same pointer.
-pub const ImageBox = struct { w: CGFloat, h: CGFloat, kind: ImageKind, image: *const md.Image, link: bool, floated: bool = false };
+pub const ImageBox = struct {
+    w: CGFloat,
+    h: CGFloat,
+    kind: ImageKind,
+    image: ?*const md.Image,
+    link: bool,
+    floated: bool = false,
+    /// Math sits on the baseline with its depth below it; an image is wholly above.
+    descent: CGFloat = 0,
+    math: ?*const md.MathSpan = null,
+    size: CGFloat = 0,
+    rgb: u24 = 0,
+    /// Full width of a formula wider than the line, which scrolls inside `w`.
+    math_w: CGFloat = 0,
+};
 
 
 var g_boxes: ?std.heap.ArenaAllocator = null;
@@ -406,13 +420,13 @@ fn boxOf(ref: ?*anyopaque) *const ImageBox {
     return @ptrCast(@alignCast(ref.?));
 }
 
-fn delegateAscent(ref: ?*anyopaque) callconv(.c) CGFloat {
+pub fn delegateAscent(ref: ?*anyopaque) callconv(.c) CGFloat {
     const box = boxOf(ref);
-    return if (box.floated) 0 else box.h;
+    return if (box.floated) 0 else box.h - box.descent;
 }
 
-fn delegateDescent(_: ?*anyopaque) callconv(.c) CGFloat {
-    return 0;
+pub fn delegateDescent(ref: ?*anyopaque) callconv(.c) CGFloat {
+    return boxOf(ref).descent;
 }
 
 fn delegateWidth(ref: ?*anyopaque) callconv(.c) CGFloat {
@@ -463,6 +477,21 @@ pub fn imageBox(im: *const md.Image, avail: CGFloat, link: bool) ?*ImageBox {
     return box;
 }
 
+fn packRgb(col: Color) u24 {
+    const r: u24 = @intFromFloat(@round(col.r * 255));
+    const g: u24 = @intFromFloat(@round(col.g * 255));
+    const b: u24 = @intFromFloat(@round(col.b * 255));
+    return r << 16 | g << 8 | b;
+}
+
+pub fn mathBox(m: *const md.MathSpan, size: CGFloat, color: Color, max_width: CGFloat) ?*ImageBox {
+    if (g_boxes == null) g_boxes = .init(app.gpa);
+    const look = app.math.look(m.src, m.display, @floatCast(size)) orelse return null;
+    const box = g_boxes.?.allocator().create(ImageBox) catch return null;
+    box.* = .{ .w = @min(look.w, max_width), .h = look.ascent + look.descent, .kind = .math, .image = null, .link = false, .descent = look.descent, .math = m, .size = size, .rgb = packRgb(color), .math_w = look.w };
+    return box;
+}
+
 pub fn drawImages(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, frame_y: CGFloat) void {
     const lines = c.CTFrameGetLines(frame);
     const line_count: usize = @intCast(c.CFArrayGetCount(lines));
@@ -483,9 +512,10 @@ pub fn drawImages(ctx: c.CGContextRef, frame: c.CTFrameRef, frame_x: CGFloat, fr
             const range = c.CTRunGetStringRange(glyph_run);
             const x = frame_x + origin.x + c.CTLineGetOffsetForStringIndex(line, range.location, null);
             const base = frame_y + origin.y;
-            const top = g_height - (base + box.h);
+            const low = base - box.descent;
+            const top = g_height - (low + box.h);
             if (box.floated or box.w <= 0 or top + box.h < 0 or top > g_height) continue;
-            drawImageBox(ctx, box, x, base);
+            drawImageBox(ctx, box, x, low);
         }
     }
 }
@@ -495,9 +525,16 @@ pub fn drawImageBox(ctx: c.CGContextRef, box: *const ImageBox, x: CGFloat, base:
     switch (box.kind) {
         .pending => {},
         .picture => {
-            const bm = app.images.bitmap(box.image.target, .{ .w = @floatCast(box.w), .h = @floatCast(box.h) }) orelse return;
+            const bm = app.images.bitmap((box.image orelse return).target, .{ .w = @floatCast(box.w), .h = @floatCast(box.h) }) orelse return;
             c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
             c.CGContextDrawImage(ctx, cgRect(x, base, box.w, box.h), @ptrCast(bm.native));
+        },
+        .math => {
+            const m = box.math orelse return;
+            const key = @intFromPtr(m.src.ptr);
+            const max = box.math_w - box.w;
+            if (max > 0) app.noteMathBlock(.{ .x = @floatCast(x), .y = @floatCast(g_height - (base + box.h) + app.scroll_y), .w = @floatCast(box.w), .h = @floatCast(box.h) }, key, @floatCast(max));
+            drawMathPieces(ctx, m.src, m.display, @floatCast(box.size), box.rgb, x, x + box.w, x - app.mathOffset(key) + app.math.pad_x, base, box.h);
         },
         .broken => {
             if (app.images.brokenIcon()) |icon| {
@@ -781,6 +818,13 @@ pub fn createRichAttrStr(content: md.Inline, base_font: c.CTFontRef, base_color:
         c.CFAttributedStringSetAttribute(attr_str, cfRange(text, .{ im.start, im.len }), c.kCTRunDelegateAttributeName, @ptrCast(delegate));
     }
 
+    for (content.math) |*m| {
+        const box = mathBox(m, c.CTFontGetSize(base_font), base_color, avail) orelse continue;
+        const delegate = c.CTRunDelegateCreate(&delegate_callbacks, box) orelse continue;
+        defer c.CFRelease(delegate);
+        c.CFAttributedStringSetAttribute(attr_str, cfRange(text, .{ m.start, m.len }), c.kCTRunDelegateAttributeName, @ptrCast(delegate));
+    }
+
     for (content.sup) |span| {
         var one: i32 = 1;
         const number = c.CFNumberCreate(null, c.kCFNumberSInt32Type, &one);
@@ -862,6 +906,35 @@ fn cfRange(text: []const u8, span: md.Span) c.CFRange {
     const start = md.utf16Offset(text, span[0]);
     const end = md.utf16Offset(text, span[0] + span[1]);
     return .{ .location = @intCast(start), .length = @intCast(end - start) };
+}
+
+/// A display formula: centred in the column with 6px above and below, or pinned left and scrolled sideways when wider than it.
+fn drawMathBlock(ctx: c.CGContextRef, src: []const u8, color: Color, x: CGFloat, y_cg: CGFloat, w: CGFloat, doc_y: CGFloat, note: bool) CGFloat {
+    const look = app.math.look(src, true, 16) orelse return 0;
+    const h: CGFloat = app.math.displayHeight(look);
+    const key = @intFromPtr(src.ptr);
+    if (note) app.noteMathBlock(.{ .x = @floatCast(x), .y = @floatCast(doc_y), .w = @floatCast(w), .h = @floatCast(h) }, key, app.math.maxScroll(@floatCast(w), look.w));
+    if (y_cg - h > g_height or y_cg < 0) return h;
+    const draw_h: CGFloat = look.ascent + look.descent;
+    const left = x + app.math.displayX(@floatCast(w), look.w, app.mathOffset(key)) + app.math.pad_x;
+    drawMathPieces(ctx, src, true, 16, packRgb(color), x, x + w, left, y_cg - app.math.pad_y - draw_h, draw_h);
+    return h;
+}
+
+/// Draws the tiles of a formula whose bitmap starts at `left` with its bottom edge at CG y `low`, showing only `vl..vr`.
+fn drawMathPieces(ctx: c.CGContextRef, src: []const u8, block: bool, size: f32, rgb: u24, vl: CGFloat, vr: CGFloat, left: CGFloat, low: CGFloat, h: CGFloat) void {
+    var out: [app.math.max_tiles]app.math.Piece = undefined;
+    for (app.math.pieces(src, block, size, rgb, @floatCast(vl - left), @floatCast(vr - left), &out)) |p| {
+        const at = left + p.x;
+        const l = @max(vl, at);
+        const r = @min(vr, at + p.w);
+        if (r <= l) continue;
+        c.CGContextSaveGState(ctx);
+        c.CGContextClipToRect(ctx, cgRect(l, low, r - l, h));
+        c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
+        c.CGContextDrawImage(ctx, cgRect(at, low, p.w, h), @ptrCast(p.native));
+        c.CGContextRestoreGState(ctx);
+    }
 }
 
 fn drawCodeBlock(ctx: c.CGContextRef, text: []const u8, toks: []const hl.Token, x: CGFloat, y_cg: CGFloat, max_width: CGFloat) CGFloat {
@@ -1422,6 +1495,7 @@ fn layoutExtent(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, avai
                 _ = drawRichText(ctx, block.content, x + 24, cg_y - 6, w - 24, f.h4, colorOf(alerts.style(alert).fg), .h4, .none);
                 content_h = 24;
             },
+            .math => content_h = drawMathBlock(ctx, block.content.text, text_col, x, cg_y, w, screen_y + scroll, top),
             .code_block => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
             .diagram => switch (app.images.diagram(block.content.text, @floatCast(w))) {
                 .code => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
@@ -1557,6 +1631,13 @@ fn scrollWheelCallback(self: id, _sel: SEL, event: id) callconv(.c) void {
 
     // deltaY
     const dy = msgSend_cgfloat(event, sel("deltaY"));
+    const dx = msgSend_cgfloat(event, sel("deltaX"));
+    const shift = (msgSend_u64(event, sel("modifierFlags")) & (1 << 17)) != 0;
+    const side = if (dx != 0) dx else if (shift) dy else 0;
+    if (side != 0 and app.scrollMath(@floatCast(-side * 10.0))) {
+        msgSend_void_bool(self, sel("setNeedsDisplay:"), 1);
+        return;
+    }
 
     app.scroll_y -= @as(f32, @floatCast(dy * 10.0));
     if (app.scroll_y < 0) app.scroll_y = 0;
