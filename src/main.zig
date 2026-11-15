@@ -34,6 +34,7 @@ var scroll_path: ?[]const u8 = null;
 
 const links = @import("markdown/links.zig");
 pub const images = @import("image/images.zig");
+const view = @import("mermaid").view;
 
 pub const Font = enum { body, h1, h2, h3, h4, h5, h6 };
 
@@ -82,6 +83,25 @@ fn toggleAt(px: f32, py: f32) ?md.Frame {
     }
     return null;
 }
+
+const DiagramFrame = struct { rect: Rect, key: u64 };
+/// Frames of the diagrams drawn this frame, in document coordinates, for their zoom and pan buttons.
+var diagram_frames: std.ArrayList(DiagramFrame) = .empty;
+
+pub fn noteDiagram(rect: Rect, key: u64) void {
+    diagram_frames.append(gpa, .{ .rect = rect, .key = key }) catch return;
+}
+
+const DiagramButton = struct { key: u64, button: view.Button };
+
+fn diagramButtonAt(px: f32, py: f32) ?DiagramButton {
+    const y = py + scroll_y;
+    for (diagram_frames.items) |d| {
+        const frame: view.Rect = .{ .x = d.rect.x, .y = d.rect.y, .w = d.rect.w, .h = d.rect.h };
+        if (view.buttonAt(frame, px, y)) |b| return .{ .key = d.key, .button = b };
+    }
+    return null;
+}
 pub var full_layout = false;
 var pending_jump: ?[]const u8 = null;
 
@@ -90,6 +110,7 @@ pub fn beginFrame() void {
     hits.clearRetainingCapacity();
     block_y.clearRetainingCapacity();
     toggles.clearRetainingCapacity();
+    diagram_frames.clearRetainingCapacity();
 }
 
 pub fn noteBlock(y: f32) void {
@@ -143,7 +164,7 @@ pub fn pointerMoved(px: f32, py: f32) bool {
     tooltip = if (title) |t| .{ .text = t, .x = px, .y = py } else null;
     if (had_tip or title != null) platform.invalidate();
     const hit = linkAt(px, py);
-    if (hit == null and toggleAt(px, py) != null) return true;
+    if (hit == null and (toggleAt(px, py) != null or diagramButtonAt(px, py) != null)) return true;
     const now: ?Hover = if (hit) |h| .{ .text = h.content.text.ptr, .start = h.link.start } else null;
     const same = if (hover) |a| (if (now) |b| a.text == b.text and a.start == b.start else false) else now == null;
     hover = now;
@@ -156,6 +177,12 @@ var pressed: ?Press = null;
 
 /// Remembers the link under a button press; true when the press is on a link.
 pub fn mouseDown(px: f32, py: f32) bool {
+    if (diagramButtonAt(px, py)) |d| {
+        pressed = null;
+        view.press(images.viewState(d.key), d.button);
+        platform.invalidate();
+        return true;
+    }
     if (toggleAt(px, py)) |f| {
         pressed = null;
         details_open.put(gpa, f.key, !isOpen(f)) catch return true;
@@ -462,6 +489,7 @@ fn reload(mtime: std.Io.Timestamp) bool {
     hover = null;
     tooltip = null;
     images.reset(std.fs.path.dirname(file_path) orelse "", std.mem.eql(u8, file_path, last_doc_path));
+    images.pruneDiagrams(new_doc.blocks);
     if (!std.mem.eql(u8, file_path, last_doc_path)) details_open.clearRetainingCapacity();
     last_doc_path = file_path;
     doc = new_doc;

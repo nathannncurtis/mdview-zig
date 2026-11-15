@@ -6,6 +6,7 @@ const hl = @import("../../markdown/highlight.zig");
 const alerts = @import("../../markdown/alerts.zig");
 const html = @import("html.zig");
 const tables = @import("tables.zig");
+const view = @import("mermaid").view;
 const c = @import("c");
 
 // ============================================================
@@ -1049,7 +1050,9 @@ fn drawErrorBox(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, cg_y: CG
     const content = app.images.flow(content_in);
     const attr_str = createRichAttrStr(content, font, text_color, @max(w - 34, 20)) orelse return 0;
     defer c.CFRelease(attr_str);
-    const h = suggestSize(@ptrCast(attr_str), @max(w - 34, 20)).height + 32;
+    const text_h = suggestSize(@ptrCast(attr_str), @max(w - 34, 20)).height;
+    const h = text_h + 32;
+    noteHit(content, x + 17, cg_y - 16, @max(w - 34, 20), text_h, .body, false, .none);
     c.CGContextSetRGBFillColor(ctx, err_border_color.r, err_border_color.g, err_border_color.b, 1.0);
     drawRoundedRect(ctx, cgRect(x, cg_y - h, w, h), 6.0);
     c.CGContextFillPath(ctx);
@@ -1058,6 +1061,51 @@ fn drawErrorBox(ctx: c.CGContextRef, content_in: md.Inline, x: CGFloat, cg_y: CG
     c.CGContextFillPath(ctx);
     _ = measureAndDrawAttrStr(ctx, @ptrCast(attr_str), x + 17, cg_y - 16, @max(w - 34, 20));
     return h;
+}
+
+fn cgBox(r: view.Rect) CGRect {
+    return cgRect(r.x, g_height - r.y - r.h, r.w, r.h);
+}
+
+/// A rendered diagram in its frame with GitHub's zoom and pan buttons; the frame clips what zoom and pan push out of it.
+fn drawDiagram(ctx: c.CGContextRef, source: []const u8, x: CGFloat, screen_y: CGFloat, w: CGFloat, size: app.images.Size) CGFloat {
+    const fh = view.frameHeight(size.h);
+    const key = app.images.diagramKey(source);
+    const frame: view.Rect = .{ .x = @floatCast(x), .y = @floatCast(screen_y), .w = @floatCast(w), .h = fh };
+    app.noteDiagram(.{ .x = frame.x, .y = frame.y + app.scroll_y, .w = frame.w, .h = frame.h }, key);
+    if (frame.y + fh < 0 or frame.y > g_height) return fh;
+    const dest = view.placed(frame, size.w, size.h, app.images.viewState(key).*);
+    c.CGContextSaveGState(ctx);
+    c.CGContextClipToRect(ctx, cgBox(frame));
+    if (app.images.diagramBitmap(source, .{ .w = dest.w, .h = dest.h })) |bm| {
+        c.CGContextSetInterpolationQuality(ctx, c.kCGInterpolationHigh);
+        c.CGContextDrawImage(ctx, cgBox(dest), @ptrCast(bm.native));
+    }
+    c.CGContextRestoreGState(ctx);
+    c.CGContextSetLineCap(ctx, c.kCGLineCapRound);
+    c.CGContextSetLineJoin(ctx, c.kCGLineJoinRound);
+    c.CGContextSetLineWidth(ctx, view.icon_stroke);
+    const border = colorOf(view.button_border);
+    const fill = colorOf(view.button_bg);
+    const icon = colorOf(view.button_icon);
+    for (std.enums.values(view.Button)) |b| {
+        const r = view.buttonRect(frame, b);
+        c.CGContextSetRGBFillColor(ctx, border.r, border.g, border.b, 1.0);
+        drawRoundedRect(ctx, cgBox(r), view.button_radius);
+        c.CGContextFillPath(ctx);
+        c.CGContextSetRGBFillColor(ctx, fill.r, fill.g, fill.b, 1.0);
+        drawRoundedRect(ctx, cgBox(.{ .x = r.x + 1, .y = r.y + 1, .w = r.w - 2, .h = r.h - 2 }), view.button_radius - 1);
+        c.CGContextFillPath(ctx);
+        c.CGContextSetRGBStrokeColor(ctx, icon.r, icon.g, icon.b, 1.0);
+        const ox = r.x + (r.w - view.icon_size) / 2;
+        const oy = r.y + (r.h - view.icon_size) / 2;
+        for (view.glyph(b)) |stroke| {
+            c.CGContextMoveToPoint(ctx, ox + stroke[0][0], g_height - (oy + stroke[0][1]));
+            for (stroke[1..]) |p| c.CGContextAddLineToPoint(ctx, ox + p[0], g_height - (oy + p[1]));
+            c.CGContextStrokePath(ctx);
+        }
+    }
+    return fh;
 }
 
 fn drawMarker(ctx: c.CGContextRef, m: md.Mark, x: CGFloat, cg_y: CGFloat, font: c.CTFontRef) void {
@@ -1239,6 +1287,15 @@ fn layoutExtent(ctx: c.CGContextRef, list: []const md.Block, left: CGFloat, avai
                 content_h = 24;
             },
             .code_block => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
+            .diagram => switch (app.images.diagram(block.content.text, @floatCast(w))) {
+                .code => content_h = drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y, w),
+                .err => |box| {
+                    const box_h = drawErrorBox(ctx, box, x, cg_y, w, f.body);
+                    content_h = box_h + drawCodeBlock(ctx, block.content.text, block.tokens, x, cg_y - box_h, w);
+                },
+                .pending => content_h = view.min_frame_h,
+                .picture => |size| content_h = drawDiagram(ctx, block.content.text, x, screen_y, w, size),
+            },
             .table => if (block.table.float == .none) {
                 content_h = tables.drawTable(ctx, block.table, x, cg_y, w, f.body, true, null);
             } else {

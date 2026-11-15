@@ -5,6 +5,9 @@ const svg = @import("svg.zig");
 const links = @import("../markdown/links.zig");
 const scale = @import("scale.zig");
 const md = @import("../markdown/markdown.zig");
+const font = @import("../font/font.zig");
+const mermaid = @import("mermaid");
+const view = mermaid.view;
 
 pub const max_download: usize = 20 * 1024 * 1024;
 pub const max_local: usize = 128 * 1024 * 1024;
@@ -72,6 +75,14 @@ const Entry = struct {
     t0: i64 = 0,
     animated: bool = false,
     last_render: i64 = 0,
+    // A diagram is an entry whose key is derived from its source; it is never a file or a URL.
+    mm_src: ?[]u8 = null,
+    mm_hash: u64 = 0,
+    mm_err: ?*ErrBox = null,
+    mm_code: bool = false,
+    mm_used: u64 = 0,
+    // The previous version of an edited diagram, drawn until this one has rendered.
+    prev: ?*Entry = null,
 
     fn retain(e: *Entry) void {
         _ = e.refs.fetchAdd(1, .monotonic);
@@ -84,6 +95,9 @@ const Entry = struct {
         if (e.incoming.load(.acquire)) |p| p.destroy();
         if (e.svg_bytes) |b| gpa.free(b);
         if (e.fallback) |f| gpa.free(f);
+        if (e.mm_src) |m| gpa.free(m);
+        if (e.mm_err) |b| b.destroy();
+        if (e.prev) |p| p.release();
         gpa.free(e.key);
         gpa.destroy(e);
     }
@@ -91,6 +105,22 @@ const Entry = struct {
     fn dropNatives(e: *Entry) void {
         if (e.base) |p| p.dropNatives();
         if (e.pic) |p| p.dropNatives();
+    }
+};
+
+/// What GitHub shows for a diagram that does not parse: a bold title, the message and the docs link.
+const ErrBox = struct {
+    text: []u8,
+    bold: [1]md.Span,
+    link: [1]md.Link,
+
+    fn content(b: *const ErrBox) md.Inline {
+        return .{ .text = b.text, .bold = &b.bold, .links = &b.link };
+    }
+
+    fn destroy(b: *ErrBox) void {
+        gpa.free(b.text);
+        gpa.destroy(b);
     }
 };
 
@@ -292,6 +322,7 @@ fn readFile(path: []const u8) ![]u8 {
 }
 
 fn loadInto(e: *Entry) !void {
+    if (e.mm_src != null) return loadDiagram(e);
     const bytes = if (std.ascii.startsWithIgnoreCase(e.key, "https://"))
         try fetchTimed(e.key, timeout_ms)
     else
@@ -442,6 +473,10 @@ pub const Bitmap = struct { native: *anyopaque, w: u32, h: u32 };
 /// get a copy shrunk to the on-screen size, and SVGs are rendered at it, again whenever `box` changes.
 pub fn bitmap(target: []const u8, box: Size) ?Bitmap {
     const e = get(target) orelse return null;
+    return bitmapFor(e, box);
+}
+
+fn bitmapFor(e: *Entry, box: Size) ?Bitmap {
     if (e.state.load(.acquire) != .ready) return null;
     if (e.t0 == 0) e.t0 = now();
     wantSized(e, box);
@@ -579,7 +614,7 @@ pub fn tick() bool {
             e.pic = np;
             changed = true;
         }
-        if (e.state.load(.acquire) == .loading and t - e.started > timeout_ms) {
+        if (e.mm_src == null and e.state.load(.acquire) == .loading and t - e.started > timeout_ms) {
             if (e.state.cmpxchgStrong(.loading, .failed, .release, .monotonic) == null) changed = true;
         }
     }
@@ -601,6 +636,7 @@ pub fn reset(dir: []const u8, keep_remote: bool) void {
     var it = entries.valueIterator();
     while (it.next()) |slot| {
         const e = slot.*;
+        if (e.mm_src != null) continue;
         const remote = std.ascii.startsWithIgnoreCase(e.key, "https://");
         if (keep_remote and remote and e.state.load(.acquire) != .failed) continue;
         drop.append(gpa, e) catch return;
@@ -740,6 +776,216 @@ fn shiftList(comptime T: type, a: std.mem.Allocator, src: []const T, ends: []con
     return out;
 }
 
+// ---- Mermaid diagrams ----
+
+const max_cached_diagrams = 64;
+/// Raster budget for one diagram, so zooming in cannot ask for a bitmap the GPU cannot hold; the backend stretches the rest.
+const max_diagram_pixels: f32 = 16_000_000;
+
+var last_hashes: std.ArrayList(u64) = .empty;
+var carry: std.AutoHashMapUnmanaged(u64, *Entry) = .empty;
+var view_states: std.AutoHashMapUnmanaged(u64, view.State) = .empty;
+var use_clock: u64 = 0;
+
+fn measureText(_: ?*anyopaque, text: []const u8, f: mermaid.text.Font) mermaid.text.Size {
+    // Chrome drops a family list that ends in a semicolon and measures in its default serif.
+    const family = if (std.mem.endsWith(u8, std.mem.trimEnd(u8, f.family, " \t"), ";")) "serif" else f.family;
+    const m = font.measure(font.resolveFont(io, family, f.weight, f.italic), text, f.size);
+    return .{ .w = @floatCast(m.w), .h = @floatCast(m.h) };
+}
+
+fn clockNs() i64 {
+    return now() * std.time.ns_per_ms;
+}
+
+fn loadDiagram(e: *Entry) !void {
+    const r = try mermaid.render(gpa, e.mm_src.?, .{ .measurer = .{ .measure_fn = measureText }, .clock = clockNs });
+    switch (r) {
+        .svg => |i| {
+            e.svg_bytes = @constCast(i.bytes);
+            e.size = .{ .w = i.w, .h = i.h };
+        },
+        .err => |m| {
+            defer gpa.free(m);
+            const t = try view.errorText(gpa, m);
+            errdefer gpa.free(t.text);
+            const b = try gpa.create(ErrBox);
+            b.* = .{ .text = t.text, .bold = .{.{ 0, t.title_len }}, .link = .{.{ .start = t.link_start, .len = t.link_len, .target = view.docs_url }} };
+            e.mm_err = b;
+        },
+        .unsupported => |u| {
+            gpa.free(u);
+            e.mm_code = true;
+        },
+    }
+}
+
+pub fn diagramKey(source: []const u8) u64 {
+    return std.hash.Wyhash.hash(0, source);
+}
+
+fn diagramName(buf: []u8, hash: u64) []const u8 {
+    return std.fmt.bufPrint(buf, "mermaid:{x}:{s}", .{ hash, mermaid.version }) catch buf[0..0];
+}
+
+fn findDiagram(hash: u64) ?*Entry {
+    var buf: [64]u8 = undefined;
+    return entries.get(diagramName(&buf, hash));
+}
+
+fn diagramEntry(source: []const u8) ?*Entry {
+    const hash = diagramKey(source);
+    use_clock += 1;
+    if (findDiagram(hash)) |e| {
+        e.mm_used = use_clock;
+        return e;
+    }
+    var buf: [64]u8 = undefined;
+    const e = gpa.create(Entry) catch return null;
+    const key = gpa.dupe(u8, diagramName(&buf, hash)) catch {
+        gpa.destroy(e);
+        return null;
+    };
+    const src = gpa.dupe(u8, source) catch {
+        gpa.free(key);
+        gpa.destroy(e);
+        return null;
+    };
+    e.* = .{ .key = key, .mm_src = src, .mm_hash = hash, .mm_used = use_clock };
+    if (carry.fetchRemove(hash)) |kv| e.prev = kv.value;
+    entries.put(gpa, e.key, e) catch {
+        e.release();
+        return null;
+    };
+    pending.append(gpa, e) catch {
+        _ = entries.remove(e.key);
+        e.release();
+        return null;
+    };
+    pump();
+    return e;
+}
+
+fn drawable(e: *const Entry) bool {
+    return e.state.load(.acquire) == .ready and e.svg_bytes != null;
+}
+
+pub const Diagram = union(enum) {
+    /// Not rendered yet and nothing older to show.
+    pending,
+    picture: Size,
+    err: md.Inline,
+    /// A type that is not ported, or a failure: shown as a code block.
+    code,
+};
+
+/// What a mermaid block takes up in a layout `avail` wide.
+pub fn diagram(source: []const u8, avail: f32) Diagram {
+    const e = diagramEntry(source) orelse return .code;
+    switch (e.state.load(.acquire)) {
+        .queued, .loading => {
+            if (e.prev) |p| if (drawable(p)) return .{ .picture = fit(p.size, avail) };
+            return .pending;
+        },
+        .failed => return .code,
+        .ready => {},
+    }
+    if (e.prev) |p| {
+        p.dropNatives();
+        p.release();
+        e.prev = null;
+    }
+    if (e.mm_code) return .code;
+    if (e.mm_err) |b| return .{ .err = b.content() };
+    return .{ .picture = fit(e.size, avail) };
+}
+
+fn rasterBox(box: Size) Size {
+    const w = box.w * dpi_scale;
+    const h = box.h * dpi_scale;
+    var f: f32 = 1;
+    if (w * h > max_diagram_pixels) f = @sqrt(max_diagram_pixels / (w * h));
+    f = @min(f, @as(f32, @floatFromInt(max_texture)) / @max(w, h));
+    return .{ .w = box.w * f, .h = box.h * f };
+}
+
+/// The bitmap of a diagram shown `box` big, or of its previous version while an edited one renders.
+pub fn diagramBitmap(source: []const u8, box: Size) ?Bitmap {
+    const e = diagramEntry(source) orelse return null;
+    if (drawable(e)) return bitmapFor(e, rasterBox(box));
+    const p = e.prev orelse return null;
+    return if (drawable(p)) bitmapFor(p, rasterBox(box)) else null;
+}
+
+var fallback_state: view.State = .{};
+
+/// Zoom and pan of a diagram, kept for as long as its source stays the same.
+pub fn viewState(key: u64) *view.State {
+    const slot = view_states.getOrPut(gpa, key) catch return &fallback_state;
+    if (!slot.found_existing) slot.value_ptr.* = .{};
+    return slot.value_ptr;
+}
+
+fn evict(e: *Entry, keep_natives: bool) void {
+    _ = entries.remove(e.key);
+    if (std.mem.indexOfScalar(*Entry, pending.items, e)) |i| _ = pending.orderedRemove(i);
+    if (!keep_natives and e.state.load(.acquire) == .ready) e.dropNatives();
+    e.release();
+}
+
+fn isCarried(e: *const Entry) bool {
+    var it = carry.valueIterator();
+    while (it.next()) |p| if (p.* == e) return true;
+    return false;
+}
+
+/// Called with every new document. An edited diagram keeps showing its old picture until the new one is ready, and the most
+/// recently used diagrams stay cached so an unchanged one is never laid out again.
+pub fn pruneDiagrams(blocks: []const md.Block) void {
+    prune(blocks, max_cached_diagrams);
+}
+
+fn prune(blocks: []const md.Block, cap: usize) void {
+    var old_carry = carry.valueIterator();
+    while (old_carry.next()) |p| {
+        p.*.dropNatives();
+        p.*.release();
+    }
+    carry.clearRetainingCapacity();
+    var keys: std.ArrayList(u64) = .empty;
+    defer keys.deinit(gpa);
+    for (blocks) |b| if (b.kind == .diagram) keys.append(gpa, diagramKey(b.content.text)) catch return;
+    for (keys.items, 0..) |k, i| {
+        if (i >= last_hashes.items.len or last_hashes.items[i] == k or carry.contains(k) or findDiagram(k) != null) continue;
+        const old = findDiagram(last_hashes.items[i]) orelse continue;
+        if (!drawable(old)) continue;
+        old.retain();
+        carry.put(gpa, k, old) catch old.release();
+    }
+    var stale: std.ArrayList(*Entry) = .empty;
+    defer stale.deinit(gpa);
+    var total: usize = 0;
+    var it = entries.valueIterator();
+    while (it.next()) |slot| {
+        const e = slot.*;
+        if (e.mm_src == null) continue;
+        total += 1;
+        if (std.mem.indexOfScalar(u64, keys.items, e.mm_hash) == null) stale.append(gpa, e) catch return;
+    }
+    std.mem.sort(*Entry, stale.items, {}, struct {
+        fn older(_: void, a: *Entry, b: *Entry) bool {
+            return a.mm_used < b.mm_used;
+        }
+    }.older);
+    for (stale.items) |e| {
+        if (total <= cap) break;
+        evict(e, isCarried(e));
+        total -= 1;
+    }
+    last_hashes.clearRetainingCapacity();
+    last_hashes.appendSlice(gpa, keys.items) catch return;
+}
+
 const testing = std.testing;
 
 /// Layout tests use this to get a loaded image of a known size without a decoder.
@@ -759,6 +1005,7 @@ pub fn injectReady(key: []const u8, w: f32, h: f32) !void {
 
 /// Frees what tests left behind once their loads have ended.
 pub fn clearAll() void {
+    prune(&.{}, 0);
     reset("", false);
     for (&icon_pics, &icon_failed) |*p, *failed| {
         if (p.*) |pic| {
@@ -774,6 +1021,12 @@ pub fn clearAll() void {
     pending.deinit(gpa);
     flows.deinit(gpa);
     retired.deinit(gpa);
+    carry.deinit(gpa);
+    last_hashes.deinit(gpa);
+    view_states.deinit(gpa);
+    carry = .empty;
+    last_hashes = .empty;
+    view_states = .empty;
     entries = .empty;
     pending = .empty;
     flows = .empty;
@@ -943,4 +1196,77 @@ test "content whose images are ready or have no alt text is left as it is" {
     defer doc.deinit();
     const c = doc.blocks[0].content;
     try testing.expectEqual(c.text.ptr, flow(c).text.ptr);
+}
+
+fn waitDiagram(source: []const u8) !Diagram {
+    const deadline = now() + 10_000;
+    while (now() < deadline) {
+        _ = tick();
+        const d = diagram(source, 400);
+        if (d != .pending) return d;
+        std.Io.sleep(io, .fromMilliseconds(5), .awake) catch break;
+    }
+    return error.Timeout;
+}
+
+test "a diagram renders once per source and is fitted to the width, never enlarged" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const d = try waitDiagram("info\n");
+    try testing.expectEqual(@as(f32, 400), d.picture.w);
+    const first = findDiagram(diagramKey("info\n")).?;
+    try testing.expect(diagram("info\n", 1000).picture.w == 400);
+    try testing.expectEqual(@as(f32, 200), diagram("info\n", 200).picture.w);
+    try testing.expect(findDiagram(diagramKey("info\n")).? == first);
+    try testing.expect(findDiagram(diagramKey("info \n")) == null);
+    try testing.expect(drawable(first));
+    try testing.expectEqual(@as(usize, 1), entries.count());
+}
+
+test "a diagram that does not parse gives GitHub's error box text, and a bare type is not a diagram" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const d = try waitDiagram("info foo\n");
+    const box = d.err;
+    try testing.expectEqualStrings(view.error_title, box.text[0..view.error_title.len]);
+    try testing.expectEqual(@as(u32, view.error_title.len), box.bold[0][1]);
+    try testing.expectEqualStrings(view.docs_url, box.text[box.links[0].start..][0..box.links[0].len]);
+    try testing.expectEqualStrings(view.docs_url, box.links[0].target);
+    try testing.expect((try waitDiagram("nonsense\n")) == .err);
+}
+
+test "an edited diagram keeps its previous picture until the new one has rendered" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    var before = try md.parse(testing.allocator, "```mermaid\ninfo\n```\n");
+    defer before.deinit();
+    pruneDiagrams(before.blocks);
+    _ = try waitDiagram("info\n");
+    var after = try md.parse(testing.allocator, "```mermaid\ninfo\n%% edited\n```\n");
+    defer after.deinit();
+    pruneDiagrams(after.blocks);
+    const text = after.blocks[0].content.text;
+    try testing.expectEqual(@as(f32, 400), diagram(text, 400).picture.w);
+    const entry = findDiagram(diagramKey(text)).?;
+    const deadline = now() + 10_000;
+    while (!drawable(entry) and now() < deadline) std.Io.sleep(io, .fromMilliseconds(5), .awake) catch break;
+    _ = diagram(text, 400);
+    try testing.expect(entry.prev == null);
+    try testing.expect(drawable(entry));
+}
+
+test "only the most recently used diagrams stay cached" {
+    init(testing.allocator, testing.io);
+    reset("", false);
+    defer clearAll();
+    const sources = [_][]const u8{ "info\n%% a\n", "info\n%% b\n", "info\n%% c\n", "info\n%% d\n" };
+    for (sources) |s| _ = diagramEntry(s);
+    prune(&.{}, 2);
+    try testing.expect(findDiagram(diagramKey(sources[0])) == null);
+    try testing.expect(findDiagram(diagramKey(sources[1])) == null);
+    try testing.expect(findDiagram(diagramKey(sources[2])) != null);
+    try testing.expect(findDiagram(diagramKey(sources[3])) != null);
 }

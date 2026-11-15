@@ -1,6 +1,7 @@
 const std = @import("std");
 const app = @import("../../main.zig");
 const md = app.md;
+const view = @import("mermaid").view;
 const hl = @import("../../markdown/highlight.zig");
 const alerts = @import("../../markdown/alerts.zig");
 const html = @import("html.zig");
@@ -203,7 +204,9 @@ pub const ID2D1RT_VTable = extern struct {
     DrawTextLayout: *const fn (*anyopaque, D2D1_POINT_2F, *anyopaque, *anyopaque, u32) callconv(.c) void, // 28
     DrawGlyphRun: *const fn (*anyopaque, D2D1_POINT_2F, *const DWRITE_GLYPH_RUN, *anyopaque, u32) callconv(.c) void, // 29
     SetTransform: *const fn (*anyopaque, *const D2D1_MATRIX_3X2_F) callconv(.c) void, // 30
-    _pad31_46: [16]*const anyopaque,
+    _pad31_44: [14]*const anyopaque,
+    PushAxisAlignedClip: *const fn (*anyopaque, *const D2D1_RECT_F, u32) callconv(.c) void, // 45
+    PopAxisAlignedClip: *const fn (*anyopaque) callconv(.c) void, // 46
     Clear: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 47
     BeginDraw: *const fn (*anyopaque) callconv(.c) void, // 48
     EndDraw: *const fn (*anyopaque, ?*u64, ?*u64) callconv(.c) HRESULT, // 49
@@ -547,6 +550,35 @@ fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f
     }
 }
 
+/// A rendered diagram in its frame with GitHub's zoom and pan buttons; the frame clips what zoom and pan push out of it.
+pub fn drawDiagram(g: Gfx, source: []const u8, frame: view.Rect, size: app.images.Size) void {
+    const key = app.images.diagramKey(source);
+    app.noteDiagram(.{ .x = frame.x, .y = frame.y, .w = frame.w, .h = frame.h }, key);
+    const top = frame.y - app.scroll_y;
+    if (top + frame.h < 0 or top > app.window_height) return;
+    const dest = view.placed(frame, size.w, size.h, app.images.viewState(key).*);
+    g.vt_rt.PushAxisAlignedClip(g.rt, &.{ .left = frame.x, .top = frame.y, .right = frame.x + frame.w, .bottom = frame.y + frame.h }, 1);
+    if (app.images.diagramBitmap(source, .{ .w = dest.w, .h = dest.h })) |bm| {
+        g.vt_rt.DrawBitmap(g.rt, bm.native, &.{ .left = dest.x, .top = dest.y, .right = dest.x + dest.w, .bottom = dest.y + dest.h }, 1, 1, null);
+    }
+    g.vt_rt.PopAxisAlignedClip(g.rt);
+    const border = g_brush_table_border orelse return;
+    const fill = g_brush_button orelse return;
+    const icon = g_brush_bright orelse return;
+    for (std.enums.values(view.Button)) |b| {
+        const r = view.buttonRect(frame, b);
+        g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x, .top = r.y, .right = r.x + r.w, .bottom = r.y + r.h }, .radiusX = view.button_radius, .radiusY = view.button_radius }, border);
+        g.vt_rt.FillRoundedRectangle(g.rt, &.{ .rect = .{ .left = r.x + 1, .top = r.y + 1, .right = r.x + r.w - 1, .bottom = r.y + r.h - 1 }, .radiusX = view.button_radius - 1, .radiusY = view.button_radius - 1 }, fill);
+        const ox = r.x + (r.w - view.icon_size) / 2;
+        const oy = r.y + (r.h - view.icon_size) / 2;
+        for (view.glyph(b)) |stroke| {
+            for (stroke[0 .. stroke.len - 1], stroke[1..]) |p, q| {
+                g.vt_rt.DrawLine(g.rt, .{ .x = ox + p[0], .y = oy + p[1] }, .{ .x = ox + q[0], .y = oy + q[1] }, icon, view.icon_stroke, null);
+            }
+        }
+    }
+}
+
 fn createBitmapNative(rgba: []const u8, w: u32, h: u32) ?*anyopaque {
     const rt = g_render_target orelse return null;
     const buf = app.gpa.alloc(u8, rgba.len) catch return null;
@@ -682,6 +714,7 @@ var g_brush_hl: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
 var g_brush_hl_bg: [std.enums.values(hl.Kind).len]?*anyopaque = @splat(null);
 pub var g_brush_bar: ?*anyopaque = null;
 var g_brush_bg: ?*anyopaque = null;
+var g_brush_button: ?*anyopaque = null;
 var g_brush_check: ?*anyopaque = null;
 var g_brush_white: ?*anyopaque = null;
 var g_brush_err_bg: ?*anyopaque = null;
@@ -842,6 +875,7 @@ fn createBrushes(rt: *anyopaque) void {
     }
     g_brush_bar = solidBrush(rt, 0x3d444d);
     g_brush_bg = solidBrush(rt, 0x0d1117);
+    g_brush_button = solidBrush(rt, view.button_bg);
     g_brush_check = solidBrush(rt, 0x1f6feb);
     g_brush_white = solidBrush(rt, 0xffffff);
     g_brush_err_bg = solidBrush(rt, 0x25171c);
@@ -1022,6 +1056,7 @@ pub fn renderErrorBox(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory
     _ = vtable(IDWriteTextLayout_VTable, lay).GetMetrics(lay, &m);
     const h = m.height + 32;
     if (!draw) return h;
+    app.noteHit(.{ .content = content, .x = x + 17, .y = y + 16, .w = @max(w - 34, 20), .h = m.height });
     vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x, .top = y, .right = x + w, .bottom = y + h }, .radiusX = 6, .radiusY = 6 }, g_brush_err_border.?);
     vt_rt.FillRoundedRectangle(rt, &.{ .rect = .{ .left = x + 1, .top = y + 1, .right = x + w - 1, .bottom = y + h - 1 }, .radiusX = 5, .radiusY = 5 }, g_brush_err_bg.?);
     vt_rt.DrawTextLayout(rt, .{ .x = x + 17, .y = y + 16 }, lay, g_brush_text.?, 0);

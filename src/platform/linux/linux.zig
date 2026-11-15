@@ -6,6 +6,7 @@ const hl = @import("../../markdown/highlight.zig");
 const alerts = @import("../../markdown/alerts.zig");
 const tl = @import("../../markdown/table_layout.zig");
 const html = @import("html.zig");
+const view = @import("mermaid").view;
 const setAlign = html.setAlign;
 const padded = html.padded;
 const isKbd = html.isKbd;
@@ -521,6 +522,18 @@ pub fn layoutBlocks(cr: *c.cairo_t, pango_layout: *c.PangoLayout, blocks: []cons
             },
             .code_block => {
                 y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, x, y, cw);
+                gap = 16;
+            },
+            .diagram => {
+                switch (app.images.diagram(block.content.text, cw)) {
+                    .code => y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, x, y, cw),
+                    .err => |box| {
+                        y += renderErrorBox(cr, pango_layout, box, x, y, cw);
+                        y += renderCodeBlock(cr, pango_layout, block.content.text, block.tokens, x, y, cw);
+                    },
+                    .pending => y += view.min_frame_h,
+                    .picture => |size| y += drawDiagram(cr, block.content.text, x, y, cw, size),
+                }
                 gap = 16;
             },
             .table => {
@@ -1244,10 +1257,48 @@ fn drawAlertIcon(cr: *c.cairo_t, alert: md.Alert, x: f32, y: f32) void {
     c.cairo_fill(cr);
 }
 
+/// A rendered diagram in its frame with GitHub's zoom and pan buttons; the frame clips what zoom and pan push out of it.
+fn drawDiagram(cr: *c.cairo_t, source: []const u8, x: f32, y: f32, w: f32, size: app.images.Size) f32 {
+    const fh = view.frameHeight(size.h);
+    const key = app.images.diagramKey(source);
+    if (!html.measuring) app.noteDiagram(.{ .x = x, .y = y + app.scroll_y, .w = w, .h = fh }, key);
+    if (y + fh < 0 or y > app.window_height) return fh;
+    const frame: view.Rect = .{ .x = x, .y = y, .w = w, .h = fh };
+    const dest = view.placed(frame, size.w, size.h, app.images.viewState(key).*);
+    c.cairo_save(cr);
+    c.cairo_rectangle(cr, x, y, w, fh);
+    c.cairo_clip(cr);
+    if (app.images.diagramBitmap(source, .{ .w = dest.w, .h = dest.h })) |bm| blit(cr, bm.native, bm.w, bm.h, dest.x, dest.y, dest.w, dest.h);
+    c.cairo_restore(cr);
+    c.cairo_set_line_cap(cr, c.CAIRO_LINE_CAP_ROUND);
+    c.cairo_set_line_join(cr, c.CAIRO_LINE_JOIN_ROUND);
+    for (std.enums.values(view.Button)) |b| {
+        const r = view.buttonRect(frame, b);
+        drawRoundedRect(cr, r.x, r.y, r.w, r.h, view.button_radius);
+        setColor(cr, hexColor(view.button_border));
+        c.cairo_fill(cr);
+        drawRoundedRect(cr, r.x + 1, r.y + 1, r.w - 2, r.h - 2, view.button_radius - 1);
+        setColor(cr, hexColor(view.button_bg));
+        c.cairo_fill(cr);
+        setColor(cr, hexColor(view.button_icon));
+        c.cairo_set_line_width(cr, view.icon_stroke);
+        const ox = r.x + (r.w - view.icon_size) / 2;
+        const oy = r.y + (r.h - view.icon_size) / 2;
+        for (view.glyph(b)) |stroke| {
+            c.cairo_move_to(cr, ox + stroke[0][0], oy + stroke[0][1]);
+            for (stroke[1..]) |p| c.cairo_line_to(cr, ox + p[0], oy + p[1]);
+            c.cairo_stroke(cr);
+        }
+    }
+    return fh;
+}
+
 fn renderErrorBox(cr: *c.cairo_t, pango_layout: *c.PangoLayout, content_in: md.Inline, x: f32, y: f32, w: f32) f32 {
     const content = app.images.flow(content_in);
     setInline(pango_layout, content, @max(w - 34, 20), "Sans 12");
-    const h = layoutPixelSize(pango_layout)[1] + 32;
+    const text_h = layoutPixelSize(pango_layout)[1];
+    const h = text_h + 32;
+    html.noteHit(.{ .content = content, .x = x + 17, .y = y + 16 + app.scroll_y, .w = @max(w - 34, 20), .h = text_h });
     drawRoundedRect(cr, x, y, w, h, 6);
     setColor(cr, col_err_border);
     c.cairo_fill(cr);

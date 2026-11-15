@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const scan = @import("yaml_scan.zig");
+pub const scan = @import("yaml_scan.zig");
 const Scanner = scan.Scanner;
 const Mark = scan.Mark;
 const Fail = scan.Fail;

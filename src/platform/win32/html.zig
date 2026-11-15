@@ -2,6 +2,7 @@ const std = @import("std");
 const win = @import("win32.zig");
 const app = @import("../../main.zig");
 const md = app.md;
+const view = @import("mermaid").view;
 const alerts = @import("../../markdown/alerts.zig");
 const tables = @import("tables.zig");
 const L = std.unicode.utf8ToUtf16LeStringLiteral;
@@ -371,6 +372,27 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
             .code_block => {
                 y += win.renderCodeBlock(vt_rt, g.vt_dw, rt, g.dwf, content.text, block.tokens, x, y, w, draw);
                 natural = win.g_last_text_w;
+                gap = 16;
+            },
+            .diagram => {
+                switch (app.images.diagram(block.content.text, w)) {
+                    .code => {
+                        y += win.renderCodeBlock(vt_rt, g.vt_dw, rt, g.dwf, block.content.text, block.tokens, x, y, w, draw);
+                        natural = win.g_last_text_w;
+                    },
+                    .err => |box| {
+                        y += win.renderErrorBox(vt_rt, g.vt_dw, rt, g.dwf, box, x, y, w, draw);
+                        y += win.renderCodeBlock(vt_rt, g.vt_dw, rt, g.dwf, block.content.text, block.tokens, x, y, w, draw);
+                        natural = win.g_last_text_w;
+                    },
+                    .pending => y += view.min_frame_h,
+                    .picture => |size| {
+                        const frame: view.Rect = .{ .x = x, .y = y, .w = w, .h = view.frameHeight(size.h) };
+                        if (draw) win.drawDiagram(g, block.content.text, frame, size);
+                        natural = size.w;
+                        y += frame.h;
+                    },
+                }
                 gap = 16;
             },
             .table => {
@@ -1002,4 +1024,52 @@ test "a float starts at the line where its tag appears and list text widens past
     try testing.expect(narrow);
     const last = app.hits.items[app.hits.items.len - 1];
     try testing.expectApproxEqAbs(@as(f32, 820 - md.list_inset), last.w, 1);
+}
+
+fn waitDiagram(src: []const u8) !void {
+    const deadline = app.images.now() + 10_000;
+    while (app.images.now() < deadline) {
+        _ = app.images.tick();
+        if (app.images.diagram(src, 820) != .pending) return;
+        std.Io.sleep(app.images.io, .fromMilliseconds(5), .awake) catch break;
+    }
+    return error.Timeout;
+}
+
+test "a mermaid block is a frame with the zoom and pan buttons, and a bad one is an error box over its source" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const doc = try md.parse(arena.allocator(), "```mermaid\ninfo\n```\n\n```mermaid\ninfo foo\n```\n\n```mermaid\nnonsense\n```\n");
+    try testing.expectEqual(@as(usize, 3), doc.blocks.len);
+    var fx = try Fixture.init(doc.blocks);
+    defer fx.deinit();
+    try waitDiagram("info\n");
+    try waitDiagram("info foo\n");
+    const size = app.images.diagram("info\n", 820).picture;
+    try testing.expectEqual(@as(f32, 400), size.w);
+    const bad = app.images.diagram("info foo\n", 820);
+    try testing.expect(bad == .err);
+    try testing.expectEqualStrings(view.error_title, bad.err.text[0..view.error_title.len]);
+    try testing.expectEqual(view.docs_url.len, bad.err.links[0].len);
+
+    win.render();
+    try testing.expectApproxEqAbs(view.frameHeight(size.h) + 16, app.block_y.items[1] - app.block_y.items[0], 0.01);
+    try testing.expect(app.block_y.items[2] - app.block_y.items[1] > 100);
+
+    const frame: view.Rect = .{ .x = 40, .y = app.block_y.items[0], .w = 820, .h = view.frameHeight(size.h) };
+    const zi = view.buttonRect(frame, .zoom_in);
+    const key = app.images.diagramKey("info\n");
+    try testing.expect(app.mouseDown(zi.x + 4, zi.y + 4 - app.scroll_y));
+    try testing.expectApproxEqAbs(@as(f32, 1.1), app.images.viewState(key).zoom, 0.001);
+    const left = view.buttonRect(frame, .left);
+    try testing.expect(app.mouseDown(left.x + 4, left.y + 4));
+    try testing.expectEqual(@as(f32, 100), app.images.viewState(key).x);
+    const rs = view.buttonRect(frame, .reset);
+    try testing.expect(app.mouseDown(rs.x + 4, rs.y + 4));
+    try testing.expectEqual(@as(f32, 1), app.images.viewState(key).zoom);
+    try testing.expect(!app.mouseDown(frame.x + 4, frame.y + 4));
+
+    var found_link = false;
+    for (app.hits.items) |h| found_link = found_link or (h.content.links.len == 1 and std.mem.eql(u8, h.content.links[0].target, view.docs_url));
+    try testing.expect(found_link);
 }
