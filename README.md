@@ -2,7 +2,7 @@
 
 A fast, native Markdown viewer built with Zig. Cross-platform — Windows, Linux, and macOS.
 
-Dark-themed, borderless floating window that renders Markdown with GitHub-dark styling. Rewrite of the [Rust version](https://github.com/nathannncurtis/mdview) — ~580 KB standalone binary, no webview, no runtime dependencies.
+Dark-themed, borderless floating window that renders Markdown with GitHub-dark styling. Rewrite of the [Rust version](https://github.com/nathannncurtis/mdview) — ~4.8 MB standalone binary, no webview, no runtime dependencies.
 
 ## Features
 
@@ -13,8 +13,10 @@ Dark-themed, borderless floating window that renders Markdown with GitHub-dark s
 - **Bold/italic** inline formatting
 - **Tables** with column alignment
 - **Images** — inline, reference-style and linked images from local files or https URLs, scaled to fit, with animated GIF, WebP and PNG playing in place
+- **SVG** — SVG images drawn by a built-in renderer, no system SVG library
+- **HTML** — the inline and block HTML GitHub allows (`<details>`, `<sup>`, `<kbd>`, tables, `<img>` and the rest of its allowlist), rendered the way GitHub shows it
 - **Math** — `$...$`, `$$...$$` and `math` fences laid out from TeX with the system math font, using GitHub's delimiter rules
-- **Mermaid** — ` ```mermaid ` fences draw as diagrams in GitHub's dark theme with its zoom and pan controls, or as GitHub's error box over the source when they do not parse
+- **Mermaid** — ` ```mermaid ` flowcharts (laid out with ELK, as GitHub does) and sequence diagrams draw in GitHub's dark theme with its zoom, pan, expand and copy controls, or as GitHub's error box over the source when they do not parse
 - **File watching** — auto-reloads when the file changes on disk
 - **Drag & drop** — drop any `.md` file onto the window to open it
 - **Scroll position memory** — remembers where you left off across sessions
