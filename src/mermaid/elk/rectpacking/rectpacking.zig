@@ -3,6 +3,7 @@ const lg = @import("../lgraph.zig");
 const eg = @import("../elk_graph.zig");
 const box = @import("../box/box.zig");
 const util = @import("../box/util.zig");
+const elk_util = @import("../util.zig");
 const c = @import("common.zig");
 const approx = @import("width_approximation.zig");
 const packing = @import("packing.zig");
@@ -19,6 +20,8 @@ pub fn layout(a: Allocator, graph: *ElkNode) lg.Error!void {
     const try_box = graph.opts.rp_trybox orelse false;
     const omit_micro = graph.opts.omit_node_micro_layout orelse false;
     const rects = graph.children.items;
+    const original = try a.dupe(*ElkNode, rects);
+    defer graph.children.replaceRangeAssumeCapacity(0, original.len, original);
 
     if (!omit_micro) micro.run(graph);
 
@@ -109,41 +112,11 @@ fn eliminateWhitespace(ctx: c.Ctx, strategy: eg.WhiteSpaceEliminationStrategy) l
     }
 }
 
-fn cmpDesired(a: *const ElkNode, b: *const ElkNode) i32 {
+fn cmpDesired(_: void, a: *ElkNode, b: *ElkNode) lg.Error!i32 {
     const pa = a.opts.rp_desired_position.?;
     const pb = b.opts.rp_desired_position.?;
     if (pa == pb) return -1;
     return if (pa < pb) -1 else 1;
-}
-
-// java.util.Arrays.sort (TimSort) for fewer than 32 elements: a run is counted, then binary insertion sort. The
-// comparator answers -1 for equal positions, so the exact steps decide the order of ties.
-// shortcut: lists of 32 or more fixed nodes would merge runs in Java; they take this path too.
-fn timSortSmall(items: []*ElkNode) void {
-    const n = items.len;
-    if (n < 2) return;
-    var run_hi: usize = 1;
-    if (cmpDesired(items[run_hi], items[0]) < 0) {
-        run_hi += 1;
-        while (run_hi < n and cmpDesired(items[run_hi], items[run_hi - 1]) < 0) run_hi += 1;
-        std.mem.reverse(*ElkNode, items[0..run_hi]);
-    } else {
-        run_hi += 1;
-        while (run_hi < n and cmpDesired(items[run_hi], items[run_hi - 1]) >= 0) run_hi += 1;
-    }
-    var start = run_hi;
-    while (start < n) : (start += 1) {
-        const pivot = items[start];
-        var left: usize = 0;
-        var right = start;
-        while (left < right) {
-            const mid = (left + right) >> 1;
-            if (cmpDesired(pivot, items[mid]) < 0) right = mid else left = mid + 1;
-        }
-        var i = start;
-        while (i > left) : (i -= 1) items[i] = items[i - 1];
-        items[left] = pivot;
-    }
 }
 
 // intermediate.InteractiveNodeReorderer
@@ -153,7 +126,7 @@ fn reorder(a: Allocator, graph: *ElkNode) lg.Error!void {
     for (graph.children.items) |n| {
         if (n.opts.rp_desired_position != null) try fixed.append(a, n) else try rest.append(a, n);
     }
-    timSortSmall(fixed.items);
+    try elk_util.javaSort(*ElkNode, a, fixed.items, {}, cmpDesired);
     for (fixed.items) |n| {
         const position: usize = @min(@as(usize, @intCast(@max(n.opts.rp_desired_position.?, 0))), rest.items.len);
         try rest.insert(a, position, n);

@@ -133,6 +133,14 @@ pub fn insideNodeLabelPadding(n: *const eg.ElkNode) lg.Margin {
 
 // NodeLabelAndSizeCalculator.process(parentAdapter, nodeAdapter, false, true): the node size it computes
 pub fn minimumNodeSize(n: *const eg.ElkNode) lg.Vec {
+    const size = computedNodeSize(n);
+    const fixed_graph_size = if (n.parent) |p| p.opts.node_size_fixed_graph_size orelse false else false;
+    if (fixed_graph_size) return .{ .x = @max(n.width, size.x), .y = @max(n.height, size.y) };
+    return size;
+}
+
+// the size the cell system lays labels out in, before a fixed graph size keeps the node larger
+pub fn computedNodeSize(n: *const eg.ElkNode) lg.Vec {
     const sc = n.opts.node_size_constraints orelse lg.SizeConstraint{};
     const so = n.opts.node_size_options orelse lg.SizeOptions{ .default_minimum_size = true };
     if (!sc.ports and !sc.port_labels and !sc.node_labels and !sc.minimum_size) return .{ .x = n.width, .y = n.height };
@@ -157,8 +165,6 @@ pub fn minimumNodeSize(n: *const eg.ElkNode) lg.Vec {
         width = @max(width, min.x);
         height = @max(height, min.y);
     }
-    const fixed_graph_size = if (n.parent) |p| p.opts.node_size_fixed_graph_size orelse false else false;
-    if (fixed_graph_size) return .{ .x = @max(n.width, width), .y = @max(n.height, height) };
     return .{ .x = width, .y = height };
 }
 
