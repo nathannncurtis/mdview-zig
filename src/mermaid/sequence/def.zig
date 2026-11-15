@@ -1,6 +1,5 @@
 const std = @import("std");
 const diagram = @import("../diagram.zig");
-const config = @import("../config.zig");
 const vars_mod = @import("../theme/vars.zig");
 const env = @import("env.zig");
 const seq = @import("sequence.zig");
