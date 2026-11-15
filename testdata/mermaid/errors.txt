@@ -1,0 +1,1119 @@
+#### flow-086-at-shape-img
+flowchart TD
+  A@{ img: "https://example.invalid/x.png", label: "Pic", pos: "t", w: 60, h: 60, constraint: "on" }
+#---
+The source image cannot be decoded.
+#### flow-166-class-multi
+flowchart LR
+  A:::a:::b --> B
+  classDef a fill:#faa
+  classDef b stroke:#00f,stroke-width:3px
+#---
+Parse error on line 2:
+flowchart LR  A:::a:::b --> B  classDe
+-------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'SHAPE_DATA', 'AMP', 'COLON', 'START_LINK', 'LINK', 'LINK_ID', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'STYLE_SEPARATOR'
+#### flow-177-style-fill-names
+flowchart LR
+  A --> B
+  style A fill:red,stroke:blue
+  style B fill:rgb(10,200,30),stroke:hsl(200,50%,50%)
+#---
+Parse error on line 4:
+...e  style B fill:rgb(10,200,30),stroke:h
+----------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'COLON', 'STYLE', 'NUM', 'COMMA', 'NODE_STRING', 'UNIT', 'BRKT', 'PCT', got 'PS'
+#### flow-182-comment-lines
+%% leading comment
+flowchart LR
+  %% inline comment
+  A --> B %% trailing
+  B --> C
+#---
+Parse error on line 2:
+...wchart LR  A --> B %% trailing  B --> 
+----------------------^
+Expecting 'SEMI', 'NEWLINE', 'EOF', 'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'NODE_STRING'
+#### flow-217-fm-yaml-error
+---
+title: [unterminated
+---
+flowchart LR
+  A --> B
+#---
+unexpected end of the stream within a flow collection (2:1)
+
+ 1 | title: [unterminated
+ 2 | 
+-----^
+#### flow-256-linkstyle-out-of-range
+flowchart LR
+  A --> B
+  linkStyle 5 stroke:red
+#---
+Cannot set properties of undefined (setting 'style')
+#### seq-025-message-special
+sequenceDiagram
+  A->>B: "quoted" & <escaped> #amp;
+  B-->>A: 100% sure; really
+#---
+Parse error on line 3:
+...A: 100% sure; really
+-----------------------^
+Expecting '()', 'SOLID_OPEN_ARROW', 'DOTTED_OPEN_ARROW', 'SOLID_ARROW', 'SOLID_ARROW_TOP', 'SOLID_ARROW_BOTTOM', 'STICK_ARROW_TOP', 'STICK_ARROW_BOTTOM', 'SOLID_ARROW_TOP_DOTTED', 'SOLID_ARROW_BOTTOM_DOTTED', 'STICK_ARROW_TOP_DOTTED', 'STICK_ARROW_BOTTOM_DOTTED', 'SOLID_ARROW_TOP_REVERSE', 'SOLID_ARROW_BOTTOM_REVERSE', 'STICK_ARROW_TOP_REVERSE', 'STICK_ARROW_BOTTOM_REVERSE', 'SOLID_ARROW_TOP_REVERSE_DOTTED', 'SOLID_ARROW_BOTTOM_REVERSE_DOTTED', 'STICK_ARROW_TOP_REVERSE_DOTTED', 'STICK_ARROW_BOTTOM_REVERSE_DOTTED', 'BIDIRECTIONAL_SOLID_ARROW', 'DOTTED_ARROW', 'BIDIRECTIONAL_DOTTED_ARROW', 'SOLID_CROSS', 'DOTTED_CROSS', 'SOLID_POINT', 'DOTTED_POINT', got 'NEWLINE'
+#### err-001-flow-unclosed-bracket
+flowchart TD
+  A[Start --> B
+#---
+Parse error on line 4:
+...TD  A[Start --> B
+--------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'
+#### err-002-flow-unclosed-paren
+flowchart TD
+  A(Start --> B
+#---
+Parse error on line 4:
+...TD  A(Start --> B
+--------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'
+#### err-003-flow-unclosed-brace
+flowchart TD
+  A{Start --> B
+#---
+Parse error on line 4:
+...TD  A{Start --> B
+--------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'
+#### err-004-flow-unclosed-quote
+flowchart TD
+  A["Start --> B
+#---
+Parse error on line 4:
+...D  A["Start --> B
+--------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'
+#### err-005-flow-mismatched-close
+flowchart TD
+  A[Start) --> B
+#---
+Parse error on line 2:
+...owchart TD  A[Start) --> B
+----------------------^
+Expecting 'SQE', 'TAGEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got 'PE'
+#### err-006-flow-double-arrow-head
+flowchart TD
+  A --> --> B
+#---
+Parse error on line 2:
+...lowchart TD  A --> --> B
+----------------------^
+Expecting 'AMP', 'COLON', 'PIPE', 'TESTSTR', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'LINK'
+#### err-007-flow-missing-target
+flowchart TD
+  A -->
+#---
+Parse error on line 4:
+...owchart TD  A -->
+--------------------^
+Expecting 'AMP', 'COLON', 'PIPE', 'TESTSTR', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'EOF'
+#### err-008-flow-missing-source
+flowchart TD
+  --> B
+#---
+Parse error on line 1:
+flowchart TD  --> B
+------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', got 'LINK'
+#### err-009-flow-bad-link
+flowchart TD
+  A -> B
+#---
+Parse error on line 2:
+flowchart TD  A -> B
+----------------^
+Expecting 'SEMI', 'NEWLINE', 'EOF', 'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'MINUS'
+#### err-010-flow-bad-link-two-dash
+flowchart TD
+  A -- B
+#---
+Parse error on line 4:
+...wchart TD  A -- B
+--------------------^
+Expecting 'LINK', 'UNICODE_TEXT', 'EDGE_TEXT', got '1'
+#### err-011-flow-bad-link-text
+flowchart TD
+  A -->|text B
+#---
+Parse error on line 4:
+... TD  A -->|text B
+--------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'
+#### err-012-flow-bad-link-text-2
+flowchart TD
+  A --|text| B
+#---
+Parse error on line 4:
+... TD  A --|text| B
+--------------------^
+Expecting 'LINK', 'UNICODE_TEXT', 'EDGE_TEXT', got '1'
+#### err-013-flow-pipe-no-close
+flowchart TD
+  A -- text B
+#---
+Parse error on line 4:
+...t TD  A -- text B
+--------------------^
+Expecting 'LINK', 'UNICODE_TEXT', 'EDGE_TEXT', got '1'
+#### err-014-flow-subgraph-no-end
+flowchart TD
+  subgraph one
+  A --> B
+#---
+Parse error on line 5:
+...raph one  A --> B
+--------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'subgraph', 'end', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'AMP', 'COLON', 'STYLE', 'LINKSTYLE', 'CLASSDEF', 'CLASS', 'CLICK', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'direction_td', got '1'
+#### err-015-flow-end-without-subgraph
+flowchart TD
+  A --> B
+  end
+#---
+Parse error on line 3:
+...hart TD  A --> B  end
+---------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'subgraph', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'AMP', 'COLON', 'STYLE', 'LINKSTYLE', 'CLASSDEF', 'CLASS', 'CLICK', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'direction_td', got 'end'
+#### err-016-flow-subgraph-no-title
+flowchart TD
+  subgraph
+  A --> B
+  end
+#---
+Cannot read properties of undefined (reading 'text')
+#### err-017-flow-subgraph-nested-no-end
+flowchart TD
+  subgraph a
+  subgraph b
+  X --> Y
+  end
+#---
+Parse error on line 7:
+... b  X --> Y  end
+-------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'subgraph', 'end', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'AMP', 'COLON', 'STYLE', 'LINKSTYLE', 'CLASSDEF', 'CLASS', 'CLICK', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'direction_td', got '1'
+#### err-018-flow-bad-direction
+flowchart XX
+  A --> B
+#---
+Lexical error on line 1. Unrecognized text.
+flowchart XX  A --> B
+---------^
+#### err-019-flow-no-direction-garbage
+flowchart
+  A --> B ???
+#---
+Parse error on line 2:
+flowchart  A --> B ???
+-------------------^
+Expecting 'SEMI', 'NEWLINE', 'EOF', 'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'NODE_STRING'
+#### err-020-flow-bad-keyword
+flowcart TD
+  A --> B
+#---
+No diagram type detected matching given configuration for text: flowcart TD
+  A --> B
+
+#### err-021-flow-bad-class-def
+flowchart TD
+  classDef
+  A --> B
+#---
+Parse error on line 2:
+...wchart TD  classDef  A --> B
+----------------------^
+Expecting 'SPACE', got 'NEWLINE'
+#### err-022-flow-class-def-no-style
+flowchart TD
+  classDef foo
+  A --> B
+#---
+Parse error on line 2:
+...rt TD  classDef foo  A --> B
+----------------------^
+Expecting 'SPACE', 'AMP', 'COLON', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'NEWLINE'
+#### err-023-flow-class-no-name
+flowchart TD
+  A --> B
+  class A
+#---
+Parse error on line 3:
+...  A --> B  class A
+---------------------^
+Expecting 'SPACE', 'AMP', 'COLON', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'NEWLINE'
+#### err-024-flow-bad-style
+flowchart TD
+  A --> B
+  style A
+#---
+Parse error on line 3:
+...  A --> B  style A
+---------------------^
+Expecting 'SPACE', 'AMP', 'COLON', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'NEWLINE'
+#### err-026-flow-linkstyle-bad
+flowchart TD
+  A --> B
+  linkStyle fill:red
+#---
+Parse error on line 3:
+...A --> B  linkStyle fill:red
+----------------------^
+Expecting 'DEFAULT', 'NUM', got 'NODE_STRING'
+#### err-027-flow-linkstyle-nan
+flowchart TD
+  A --> B
+  linkStyle x stroke:red
+#---
+Parse error on line 3:
+...A --> B  linkStyle x stroke:red
+----------------------^
+Expecting 'DEFAULT', 'NUM', got 'NODE_STRING'
+#### err-028-flow-click-bad
+flowchart TD
+  A --> B
+  click
+#---
+Parse error on line 5:
+...  A --> B  click
+-------------------^
+Expecting 'DIR', 'AMP', 'COLON', 'STR', 'DOWN', 'CALLBACKNAME', 'HREF', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got '1'
+#### err-029-flow-click-no-target
+flowchart TD
+  A --> B
+  click A
+#---
+Parse error on line 3:
+...  A --> B  click A
+---------------------^
+Expecting 'DIR', 'AMP', 'COLON', 'STR', 'DOWN', 'CALLBACKNAME', 'HREF', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'NEWLINE'
+#### err-030-flow-bad-shape-open
+flowchart TD
+  A[/Text) --> B
+#---
+Lexical error on line 2. Unrecognized text.
+...owchart TD  A[/Text) --> B
+----------------------^
+#### err-031-flow-bad-at-shape
+flowchart TD
+  A@{ shape: nonsense } --> B
+#---
+No such shape: nonsense.
+#### err-032-flow-at-shape-yaml
+flowchart TD
+  A@{ shape: [ } --> B
+#---
+missed comma between flow collection entries (3:1)
+
+ 1 | {
+ 2 |  shape: [ 
+ 3 | }
+-----^
+#### err-033-flow-at-shape-no-close
+flowchart TD
+  A@{ shape: rect --> B
+#---
+Parse error on line 4:
+... shape: rect --> B
+---------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'SHAPE_DATA', 'START_LINK', 'LINK', 'LINK_ID', got '1'
+#### err-034-flow-edge-id-no-link
+flowchart TD
+  A e1@ B
+#---
+Parse error on line 2:
+flowchart TD  A e1@ B
+-------------------^
+Expecting 'START_LINK', 'LINK', got 'SPACE'
+#### err-035-flow-ampersand-trailing
+flowchart TD
+  A & --> B
+#---
+Parse error on line 2:
+flowchart TD  A & --> B
+-----------------^
+Expecting 'SPACE', got 'LINK'
+#### err-038-flow-stray-brace
+flowchart TD
+  A --> B
+  }
+#---
+Lexical error on line 3. Unrecognized text.
+...hart TD  A --> B  }
+---------------------^
+#### err-039-flow-stray-paren
+flowchart TD
+  A --> B)
+#---
+Lexical error on line 2. Unrecognized text.
+...owchart TD  A --> B)
+----------------------^
+#### err-040-flow-unicode-garbage
+flowchart TD
+  A --> B
+  ☃☃
+#---
+Lexical error on line 3. Unrecognized text.
+...hart TD  A --> B  ☃☃
+---------------------^
+#### err-041-flow-backtick-unclosed
+flowchart TD
+  A["`markdown unclosed] --> B
+#---
+Parse error on line 4:
+...wn unclosed] --> B
+---------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'
+#### err-042-flow-text-in-edge-brackets
+flowchart TD
+  A -->[text] B
+#---
+Parse error on line 2:
+flowchart TD  A -->[text] B
+-------------------^
+Expecting 'AMP', 'COLON', 'PIPE', 'TESTSTR', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', got 'SQS'
+#### err-043-flow-percent-comment-bad
+flowchart TD
+  A --> B %% c
+  B --> C
+#---
+Parse error on line 2:
+...wchart TD  A --> B %% c  B --> C
+----------------------^
+Expecting 'SEMI', 'NEWLINE', 'EOF', 'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'NODE_STRING'
+#### err-046-flow-bad-front-matter
+---
+title: [unterminated
+---
+flowchart TD
+  A --> B
+#---
+unexpected end of the stream within a flow collection (2:1)
+
+ 1 | title: [unterminated
+ 2 | 
+-----^
+#### err-047-flow-front-matter-unclosed
+---
+title: x
+flowchart TD
+  A --> B
+#---
+Diagrams beginning with --- are not valid. If you were trying to use a YAML front-matter, please ensure that you've correctly opened and closed the YAML front-matter with un-indented `---` blocks
+#### err-049-flow-bad-init-unclosed
+%%{init: {"theme": "dark"}
+flowchart TD
+  A --> B
+#---
+No diagram type detected matching given configuration for text: 
+#### err-053-flow-empty-label-shape
+flowchart TD
+  A[] --> B
+#---
+Parse error on line 2:
+flowchart TD  A[] --> B
+----------------^
+Expecting 'TAGEND', 'STR', 'MD_STR', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got 'SQE'
+#### err-056-flow-tilde-bad
+flowchart TD
+  A ~~ B
+#---
+Lexical error on line 2. Unrecognized text.
+flowchart TD  A ~~ B
+----------------^
+#### err-057-flow-subgraph-bad-title
+flowchart TD
+  subgraph one [unclosed
+  A --> B
+  end
+#---
+Parse error on line 6:
+...ed  A --> B  end
+-------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got '1'
+#### err-058-seq-bad-arrow
+sequenceDiagram
+  A=>B: hi
+#---
+Parse error on line 2:
+sequenceDiagram  A=>B: hi
+-------------------^
+Expecting 'NEWLINE', ',', '()', 'SOLID_OPEN_ARROW', 'DOTTED_OPEN_ARROW', 'SOLID_ARROW', 'SOLID_ARROW_TOP', 'SOLID_ARROW_BOTTOM', 'STICK_ARROW_TOP', 'STICK_ARROW_BOTTOM', 'SOLID_ARROW_TOP_DOTTED', 'SOLID_ARROW_BOTTOM_DOTTED', 'STICK_ARROW_TOP_DOTTED', 'STICK_ARROW_BOTTOM_DOTTED', 'SOLID_ARROW_TOP_REVERSE', 'SOLID_ARROW_BOTTOM_REVERSE', 'STICK_ARROW_TOP_REVERSE', 'STICK_ARROW_BOTTOM_REVERSE', 'SOLID_ARROW_TOP_REVERSE_DOTTED', 'SOLID_ARROW_BOTTOM_REVERSE_DOTTED', 'STICK_ARROW_TOP_REVERSE_DOTTED', 'STICK_ARROW_BOTTOM_REVERSE_DOTTED', 'BIDIRECTIONAL_SOLID_ARROW', 'DOTTED_ARROW', 'BIDIRECTIONAL_DOTTED_ARROW', 'SOLID_CROSS', 'DOTTED_CROSS', 'SOLID_POINT', 'DOTTED_POINT', 'TXT', got 'INVALID'
+#### err-059-seq-bad-arrow-2
+sequenceDiagram
+  A->>>B: hi
+#---
+Parse error on line 2:
+...quenceDiagram  A->>>B: hi
+----------------------^
+Expecting 'link', '+', '-', '()', 'ACTOR', got 'INVALID'
+#### err-060-seq-missing-colon
+sequenceDiagram
+  A->>B hi
+#---
+Parse error on line 2:
+...ceDiagram  A->>B hi
+----------------------^
+Expecting 'TXT', got 'NEWLINE'
+#### err-061-seq-missing-target
+sequenceDiagram
+  A->>: hi
+#---
+Parse error on line 2:
+...quenceDiagram  A->>: hi
+----------------------^
+Expecting 'link', '+', '-', '()', 'ACTOR', got 'TXT'
+#### err-062-seq-missing-source
+sequenceDiagram
+  ->>B: hi
+#---
+Parse error on line 2:
+sequenceDiagram  ->>B: hi
+-----------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'option', 'and', 'else', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got 'SOLID_ARROW'
+#### err-063-seq-participant-no-name
+sequenceDiagram
+  participant
+#---
+Lexical error on line 2. Unrecognized text.
+...iagram  participant
+----------------------^
+#### err-064-seq-actor-no-name
+sequenceDiagram
+  actor
+#---
+Lexical error on line 2. Unrecognized text.
+...uenceDiagram  actor
+----------------------^
+#### err-066-seq-loop-no-end
+sequenceDiagram
+  loop x
+  A->>B: hi
+#---
+Parse error on line 5:
+...loop x  A->>B: hi
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-067-seq-alt-no-end
+sequenceDiagram
+  alt x
+  A->>B: hi
+#---
+Parse error on line 5:
+... alt x  A->>B: hi
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'else', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-068-seq-end-alone
+sequenceDiagram
+  A->>B: hi
+  end
+#---
+Parse error on line 3:
+...agram  A->>B: hi  end
+---------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got 'end'
+#### err-069-seq-else-outside
+sequenceDiagram
+  else x
+  A->>B: hi
+#---
+Parse error on line 2:
+sequenceDiagram  else x  A->>B: hi
+-----------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got 'else'
+#### err-070-seq-and-outside
+sequenceDiagram
+  and x
+  A->>B: hi
+#---
+Parse error on line 2:
+sequenceDiagram  and x  A->>B: hi
+-----------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got 'and'
+#### err-071-seq-option-outside
+sequenceDiagram
+  option x
+  A->>B: hi
+#---
+Parse error on line 2:
+sequenceDiagram  option x  A->>B: hi
+-----------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got 'option'
+#### err-072-seq-note-no-position
+sequenceDiagram
+  Note A: hi
+#---
+Parse error on line 2:
+...uenceDiagram  Note A: hi
+----------------------^
+Expecting 'over', 'left_of', 'right_of', got 'ACTOR'
+#### err-073-seq-note-bad-position
+sequenceDiagram
+  Note above A: hi
+#---
+Parse error on line 2:
+...uenceDiagram  Note above A: hi
+----------------------^
+Expecting 'over', 'left_of', 'right_of', got 'ACTOR'
+#### err-074-seq-note-no-text
+sequenceDiagram
+  A->>B: x
+  Note over A
+#---
+Parse error on line 3:
+...>>B: x  Note over A
+----------------------^
+Expecting ',', 'TXT', got 'NEWLINE'
+#### err-075-seq-note-right-no-actor
+sequenceDiagram
+  Note right of: hi
+#---
+Parse error on line 2:
+...gram  Note right of: hi
+----------------------^
+Expecting 'link', 'ACTOR', got 'TXT'
+#### err-076-seq-activate-no-actor
+sequenceDiagram
+  activate
+#---
+Lexical error on line 2. Unrecognized text.
+...ceDiagram  activate
+----------------------^
+#### err-077-seq-deactivate-unknown
+sequenceDiagram
+  A->>B: x
+  deactivate C
+#---
+Trying to inactivate an inactive participant (C)
+#### err-078-seq-activate-plus-minus
+sequenceDiagram
+  A->>++B: hi
+#---
+Parse error on line 2:
+...uenceDiagram  A->>++B: hi
+----------------------^
+Expecting 'link', 'ACTOR', got '+'
+#### err-079-seq-deactivate-too-many
+sequenceDiagram
+  A->>B: x
+  deactivate B
+#---
+Trying to inactivate an inactive participant (B)
+#### err-080-seq-autonumber-bad
+sequenceDiagram
+  autonumber x
+#---
+Parse error on line 2:
+...iagram  autonumber x
+----------------------^
+Expecting 'NEWLINE', 'NUM', 'off', got 'ACTOR'
+#### err-081-seq-box-no-end
+sequenceDiagram
+  box Aqua
+  participant A
+#---
+Parse error on line 5:
+...ua  participant A
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'end', 'participant', 'participant_actor', 'destroy', got '1'
+#### err-082-seq-rect-no-end
+sequenceDiagram
+  rect rgb(1,2,3)
+  A->>B: x
+#---
+Parse error on line 5:
+...(1,2,3)  A->>B: x
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-084-seq-create-no-participant
+sequenceDiagram
+  create
+  A->>B: x
+#---
+Parse error on line 2:
+...enceDiagram  create  A->>B: x
+----------------------^
+Expecting 'participant', 'participant_actor', 'destroy', got 'NEWLINE'
+#### err-085-seq-destroy-no-actor
+sequenceDiagram
+  destroy
+  A->>B: x
+#---
+Lexical error on line 2. Unrecognized text.
+...nceDiagram  destroy  A->>B: x
+----------------------^
+#### err-092-seq-par-no-end
+sequenceDiagram
+  par x
+  A->>B: hi
+#---
+Parse error on line 5:
+... par x  A->>B: hi
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'and', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-093-seq-critical-no-end
+sequenceDiagram
+  critical x
+  A->>B: hi
+#---
+Parse error on line 5:
+...ical x  A->>B: hi
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'option', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-094-seq-break-no-end
+sequenceDiagram
+  break x
+  A->>B: hi
+#---
+Parse error on line 5:
+...reak x  A->>B: hi
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-095-seq-opt-no-end
+sequenceDiagram
+  opt x
+  A->>B: hi
+#---
+Parse error on line 5:
+... opt x  A->>B: hi
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-096-seq-garbage-line
+sequenceDiagram
+  A->>B: ok
+  this is garbage
+#---
+Parse error on line 3:
+...ok  this is garbage
+----------------------^
+Expecting '()', 'SOLID_OPEN_ARROW', 'DOTTED_OPEN_ARROW', 'SOLID_ARROW', 'SOLID_ARROW_TOP', 'SOLID_ARROW_BOTTOM', 'STICK_ARROW_TOP', 'STICK_ARROW_BOTTOM', 'SOLID_ARROW_TOP_DOTTED', 'SOLID_ARROW_BOTTOM_DOTTED', 'STICK_ARROW_TOP_DOTTED', 'STICK_ARROW_BOTTOM_DOTTED', 'SOLID_ARROW_TOP_REVERSE', 'SOLID_ARROW_BOTTOM_REVERSE', 'STICK_ARROW_TOP_REVERSE', 'STICK_ARROW_BOTTOM_REVERSE', 'SOLID_ARROW_TOP_REVERSE_DOTTED', 'SOLID_ARROW_BOTTOM_REVERSE_DOTTED', 'STICK_ARROW_TOP_REVERSE_DOTTED', 'STICK_ARROW_BOTTOM_REVERSE_DOTTED', 'BIDIRECTIONAL_SOLID_ARROW', 'DOTTED_ARROW', 'BIDIRECTIONAL_DOTTED_ARROW', 'SOLID_CROSS', 'DOTTED_CROSS', 'SOLID_POINT', 'DOTTED_POINT', got 'NEWLINE'
+#### err-097-seq-keyword-as-name
+sequenceDiagram
+  loop->>end: hi
+#---
+Parse error on line 4:
+...m  loop->>end: hi
+--------------------^
+Expecting 'SPACE', 'NEWLINE', 'INVALID', 'create', 'box', 'end', 'autonumber', 'activate', 'deactivate', 'title', 'legacy_title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'loop', 'rect', 'opt', 'alt', 'par', 'par_over', 'critical', 'break', 'participant', 'participant_actor', 'destroy', 'note', 'links', 'link', 'properties', 'details', 'ACTOR', got '1'
+#### err-098-seq-unicode-garbage
+sequenceDiagram
+  A->>B: ok
+  ☃
+#---
+Parse error on line 3:
+...gram  A->>B: ok  ☃
+---------------------^
+Expecting '()', 'SOLID_OPEN_ARROW', 'DOTTED_OPEN_ARROW', 'SOLID_ARROW', 'SOLID_ARROW_TOP', 'SOLID_ARROW_BOTTOM', 'STICK_ARROW_TOP', 'STICK_ARROW_BOTTOM', 'SOLID_ARROW_TOP_DOTTED', 'SOLID_ARROW_BOTTOM_DOTTED', 'STICK_ARROW_TOP_DOTTED', 'STICK_ARROW_BOTTOM_DOTTED', 'SOLID_ARROW_TOP_REVERSE', 'SOLID_ARROW_BOTTOM_REVERSE', 'STICK_ARROW_TOP_REVERSE', 'STICK_ARROW_BOTTOM_REVERSE', 'SOLID_ARROW_TOP_REVERSE_DOTTED', 'SOLID_ARROW_BOTTOM_REVERSE_DOTTED', 'STICK_ARROW_TOP_REVERSE_DOTTED', 'STICK_ARROW_BOTTOM_REVERSE_DOTTED', 'BIDIRECTIONAL_SOLID_ARROW', 'DOTTED_ARROW', 'BIDIRECTIONAL_DOTTED_ARROW', 'SOLID_CROSS', 'DOTTED_CROSS', 'SOLID_POINT', 'DOTTED_POINT', got 'NEWLINE'
+#### err-100-seq-bad-front-matter
+---
+title: [x
+---
+sequenceDiagram
+  A->>B: hi
+#---
+unexpected end of the stream within a flow collection (2:1)
+
+ 1 | title: [x
+ 2 | 
+-----^
+#### err-101-none-empty
+#---
+No diagram type detected matching given configuration for text: 
+#### err-102-none-whitespace
+   
+  
+#---
+No diagram type detected matching given configuration for text: 
+#### err-103-none-garbage-word
+garbage
+#---
+No diagram type detected matching given configuration for text: garbage
+
+#### err-104-none-sentence
+This is not a diagram at all.
+#---
+No diagram type detected matching given configuration for text: This is not a diagram at all.
+
+#### err-105-none-bad-type
+sequence
+  A->>B: hi
+#---
+No diagram type detected matching given configuration for text: sequence
+  A->>B: hi
+
+#### err-106-none-bad-type-2
+graphh TD
+  A --> B
+#---
+Parse error on line 1:
+graphh TD  A --> B
+^
+Expecting 'NEWLINE', 'SPACE', 'GRAPH', got 'NODE_STRING'
+#### err-107-none-markdown-heading
+# Heading
+
+text
+#---
+No diagram type detected matching given configuration for text: # Heading
+
+text
+
+#### err-108-none-json
+{"a": 1}
+#---
+No diagram type detected matching given configuration for text: {"a": 1}
+
+#### err-109-none-comment-only
+%% only a comment
+#---
+No diagram type detected matching given configuration for text: 
+#### err-110-none-front-matter-only
+---
+title: x
+---
+#---
+No diagram type detected matching given configuration for text: 
+#### err-111-none-directive-only
+%%{init: {"theme": "dark"}}%%
+#---
+No diagram type detected matching given configuration for text: 
+
+#### err-112-none-html
+<div>hello</div>
+#---
+No diagram type detected matching given configuration for text: <div>hello</div>
+
+#### err-113-class-bad-relation
+classDiagram
+  A <|-- 
+#---
+Parse error on line 2:
+...lassDiagram  A <|-- 
+----------------------^
+Expecting 'STR', 'ALPHA', 'AGGREGATION', 'EXTENSION', 'COMPOSITION', 'DEPENDENCY', 'LOLLIPOP', 'NUM', 'MINUS', 'UNICODE_TEXT', 'BQUOTE_STR', got 'NEWLINE'
+#### err-114-class-bad-member
+classDiagram
+  class A {
+  +int x
+#---
+Parse error on line 3:
+...class A {  +int x
+--------------------^
+Expecting 'STRUCT_STOP', 'MEMBER', got 'EOF_IN_STRUCT'
+#### err-115-class-unclosed-brace
+classDiagram
+  class A {
+  +x
+#---
+Parse error on line 3:
+...m  class A {  +x
+-------------------^
+Expecting 'STRUCT_STOP', 'MEMBER', got 'EOF_IN_STRUCT'
+#### err-117-class-bad-cardinality
+classDiagram
+  A "1 --> B
+#---
+Parse error on line 4:
+...agram  A "1 --> B
+--------------------^
+Expecting 'AGGREGATION', 'EXTENSION', 'COMPOSITION', 'DEPENDENCY', 'LOLLIPOP', 'LINE', 'DOTTED_LINE', got 'STR'
+#### err-118-state-bad-arrow
+stateDiagram-v2
+  A -> B
+#---
+Parse error on line 2:
+stateDiagram-v2  A -> B
+-------------------^
+Expecting 'SPACE', 'NL', 'DESCR', '-->', 'HIDE_EMPTY', 'scale', 'COMPOSIT_STATE', 'STRUCT_STOP', 'STATE_DESCR', 'ID', 'FORK', 'JOIN', 'CHOICE', 'CONCURRENT', 'note', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'CLICK', 'STRING', 'HREF', 'classDef', 'style', 'class', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'EDGE_STATE', 'STYLE_SEPARATOR', got 'INVALID'
+#### err-119-state-no-end
+stateDiagram-v2
+  state A {
+  B --> C
+#---
+Parse error on line 3:
+...tate A {  B --> C
+--------------------^
+Expecting 'SPACE', 'NL', 'HIDE_EMPTY', 'scale', 'COMPOSIT_STATE', 'STRUCT_STOP', 'STATE_DESCR', 'ID', 'FORK', 'JOIN', 'CHOICE', 'CONCURRENT', 'note', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'CLICK', 'classDef', 'style', 'class', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'EDGE_STATE', got '1'
+#### err-120-state-hyphen-id
+stateDiagram-v2
+  [*] --> ai-requirements
+  ai-requirements --> ai-design
+#---
+Parse error on line 2:
+...gram-v2  [*] --> ai-requirements  ai-r
+----------------------^
+Expecting 'SPACE', 'NL', 'DESCR', '-->', 'HIDE_EMPTY', 'scale', 'COMPOSIT_STATE', 'STRUCT_STOP', 'STATE_DESCR', 'ID', 'FORK', 'JOIN', 'CHOICE', 'CONCURRENT', 'note', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'CLICK', 'STRING', 'HREF', 'classDef', 'style', 'class', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'EDGE_STATE', 'STYLE_SEPARATOR', got 'INVALID'
+#### err-121-state-bad-note
+stateDiagram-v2
+  note A
+#---
+Lexical error on line 2. Unrecognized text.
+...teDiagram-v2  note A
+----------------------^
+#### err-123-er-bad-relation
+erDiagram
+  A |--| B
+#---
+Parse error on line 2:
+erDiagram  A |--| B
+-------------^
+Expecting 'EOF', 'NEWLINE', 'COLON', 'STYLE_SEPARATOR', 'BLOCK_START', 'SQS', 'SQE', 'title', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'END', 'SUBGRAPH', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'CLASSDEF', 'UNICODE_TEXT', 'CLASS', 'STYLE', 'SEMI', 'NUM', 'ENTITY_NAME', 'DECIMAL_NUM', 'ENTITY_ONE', 'ZERO_OR_ONE', 'ZERO_OR_MORE', 'ONE_OR_MORE', 'ONLY_ONE', 'MD_PARENT', got '|'
+#### err-124-er-bad-attribute
+erDiagram
+  A {
+  int
+  }
+#---
+Parse error on line 3:
+...agram  A {  int  }
+--------------------^
+Expecting 'ATTRIBUTE_WORD', '?', got 'BLOCK_STOP'
+#### err-125-er-unclosed
+erDiagram
+  A {
+  int x
+#---
+Parse error on line 3:
+...gram  A {  int x
+-------------------^
+Expecting 'BLOCK_STOP', 'ATTRIBUTE_WORD', 'ATTRIBUTE_KEY', 'COMMENT', got '1'
+#### err-127-gantt-bad-date
+gantt
+  dateFormat YYYY-MM-DD
+  section S
+  Task :a1, nonsense, 3d
+#---
+Invalid date:nonsense
+#### err-128-gantt-bad-keyword
+gantt
+  titel T
+#---
+Parse error on line 2:
+gantt  titel T
+--------------^
+Expecting 'taskData', got 'NL'
+#### err-130-pie-bad-value
+pie
+  "A" : abc
+#---
+Parsing failed: Lexer error on line 2, column 9: unexpected character: ->a<- at offset: 12, skipped 3 characters. Parse error on line 2, column 12: Expecting token of type 'NUMBER_PIE' but found `
+`.
+#### err-131-pie-missing-colon
+pie
+  "A" 5
+#---
+Parsing failed:  Parse error on line 2, column 7: Expecting token of type ':' but found `5`.
+#### err-132-pie-unquoted-label
+pie
+  A : 5
+#---
+Parsing failed: Lexer error on line 2, column 3: unexpected character: ->A<- at offset: 6, skipped 1 characters. Parse error on line 2, column 5: Expecting token of type 'EOF' but found `:`.
+#### err-133-pie-negative
+pie
+  "A" : -5
+#---
+"A" has invalid value: -5. Negative values are not allowed in pie charts. All slice values must be >= 0.
+#### err-135-journey-missing-score
+journey
+  section S
+    Task
+#---
+Parse error on line 3:
+...  section S    Task
+----------------------^
+Expecting 'taskData', got 'NEWLINE'
+#### err-136-gitgraph-bad-command
+gitGraph
+  committ
+#---
+Parsing failed:  Parse error on line 2, column 3: Expecting token of type 'EOF' but found `committ`.
+#### err-137-gitgraph-bad-branch
+gitGraph
+  branch
+#---
+Parsing failed:  Parse error on line 2, column 9: Expecting: one of these possible Token sequences:
+  1. [REFERENCE]
+  2. [STRING]
+but found: '
+'
+#### err-138-gitgraph-checkout-unknown
+gitGraph
+  commit
+  checkout nope
+#---
+Trying to checkout branch which is not yet created. (Help try using "branch nope")
+#### err-139-gitgraph-merge-unknown
+gitGraph
+  commit
+  merge nope
+#---
+Incorrect usage of "merge". Branch to be merged (nope) does not exist
+#### err-140-mindmap-bad-indent
+mindmap
+  root((r))
+      child
+    other
+  third
+#---
+There can be only one root. No parent could be found for ("third")
+#### err-141-mindmap-two-roots
+mindmap
+  root
+  other root
+#---
+There can be only one root. No parent could be found for ("other root")
+#### err-142-mindmap-unclosed-shape
+mindmap root((mind
+#---
+Parse error on line 3:
+mindmap root((mind
+------------------^
+Expecting 'NODE_DEND', got '1'
+#### err-144-quadrant-bad-axis
+quadrantChart
+  x-axis
+#---
+Parse error on line 2:
+...adrantChart  x-axis
+----------------------^
+Expecting 'ALPHA', 'NUM', 'COMMA', 'AMP', 'BRKT', 'MULT', 'UNICODE_TEXT', 'STR', 'MD_STR', 'PUNCTUATION', 'PLUS', 'EQUALS', 'DOT', 'UNDERSCORE', got 'NEWLINE'
+#### err-145-quadrant-bad-point
+quadrantChart
+  A: [2, 3]
+#---
+Lexical error on line 2. Unrecognized text.
+quadrantChart  A: [2, 3]
+-------------------^
+#### err-146-xychart-bad-axis
+xychart-beta
+  x-axis
+#---
+Parse error on line 2:
+...ychart-beta  x-axis
+----------------------^
+Expecting 'SQUARE_BRACES_START', 'NUMBER_WITH_DECIMAL', 'STR', 'MD_STR', 'AMP', 'NUM', 'ALPHA', 'PLUS', 'EQUALS', 'MULT', 'DOT', 'BRKT', 'MINUS', 'UNDERSCORE', got 'NEWLINE'
+#### err-147-xychart-bad-bar
+xychart-beta
+  bar [a, b]
+#---
+Parse error on line 2:
+xychart-beta  bar [a, b]
+-------------------^
+Expecting 'NUMBER_WITH_DECIMAL', got 'ALPHA'
+#### err-148-sankey-bad-row
+sankey-beta
+  a,b
+#---
+Parse error on line 2:
+sankey-beta  a,b
+----------------^
+Expecting 'COMMA', got 'EOF'
+#### err-149-packet-bad
+packet-beta
+  0-3
+#---
+Parsing failed:  Parse error on line 2, column 6: Expecting token of type ':' but found `
+`.
+#### err-151-c4-bad
+C4Context
+  Person(
+#---
+Parse error on line 4:
+...4Context  Person(
+--------------------^
+Expecting 'NEWLINE', 'EOF', 'LBRACE', 'RBRACE', 'STR', 'STR_KEY', 'ATTRIBUTE', 'ATTRIBUTE_EMPTY', got '1'
+#### err-152-requirement-bad
+requirementDiagram
+  requirement r {
+  id
+#---
+Parse error on line 3:
+...requirement r {  id
+----------------------^
+Expecting 'COLONSEP', got 'NEWLINE'
+#### err-153-kanban-bad
+kanban
+  [x
+#---
+Parse error on line 4:
+kanban  [x
+----------^
+Expecting 'NODE_DEND', got '1'
+#### err-154-info-bad
+info extra
+#---
+Parsing failed: Lexer error on line 1, column 6: unexpected character: ->e<- at offset: 5, skipped 5 characters. 
+#### err-155-radar-bad
+radar-beta
+  axis
+#---
+Parsing failed:  Parse error on line 2, column 7: Expecting token of type 'ID' but found `
+`.
+#### err-156-treemap-bad
+treemap-beta
+  "A": x
+#---
+Parsing failed:  Parse error on line 2, column 6: Expecting token of type 'EOF' but found `:`.
+Parse error on line 2, column 8: Expecting: one of these possible Token sequences:
+  1. [STRING2]
+  2. [CLASS_DEF]
+but found: 'x'
+#### err-157-architecture-bad
+architecture-beta
+  service
+#---
+Parsing failed:  Parse error on line 2, column 10: Expecting token of type 'ID' but found `
+`.
+#### err-158-deep-nesting-subgraphs
+flowchart TD
+  subgraph s1
+    subgraph s2
+      subgraph s3
+        subgraph s4
+          subgraph s5
+  A --> B
+#---
+Parse error on line 9:
+...graph s5  A --> B
+--------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'subgraph', 'end', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'AMP', 'COLON', 'STYLE', 'LINKSTYLE', 'CLASSDEF', 'CLASS', 'CLICK', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'direction_td', got '1'
+#### err-159-very-long-line-garbage
+flowchart TD
+  A --> B ################################################################################
+#---
+Parse error on line 2:
+...wchart TD  A --> B ####################
+----------------------^
+Expecting 'SEMI', 'NEWLINE', 'EOF', 'AMP', 'START_LINK', 'LINK', 'LINK_ID', got 'BRKT'
+#### err-160-control-char
+flowchart TD
+  A --> B
+#---
+Lexical error on line 2. Unrecognized text.
+...owchart TD  A --> B
+----------------------^
+#### err-161-tab-garbage
+flowchart TD
+	A --> B
+	:::
+#---
+Parse error on line 3:
+...wchart TD	A --> B	:::
+---------------------^
+Expecting 'SEMI', 'NEWLINE', 'SPACE', 'EOF', 'subgraph', 'end', 'acc_title', 'acc_descr', 'acc_descr_multiline_value', 'AMP', 'COLON', 'STYLE', 'LINKSTYLE', 'CLASSDEF', 'CLASS', 'CLICK', 'DOWN', 'DEFAULT', 'NUM', 'COMMA', 'NODE_STRING', 'BRKT', 'MINUS', 'MULT', 'UNICODE_TEXT', 'direction_tb', 'direction_bt', 'direction_rl', 'direction_lr', 'direction_td', got 'STYLE_SEPARATOR'
+#### err-163-only-keyword-seq
+sequenceDiagram
+  autonumber off off
+#---
+Parse error on line 2:
+...am  autonumber off off
+----------------------^
+Expecting 'NEWLINE', got 'off'
