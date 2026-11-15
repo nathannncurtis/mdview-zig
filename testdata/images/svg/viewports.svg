@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="120" height="70" viewBox="0 0 120 70"><defs><symbol id="s" viewBox="0 0 10 10" preserveAspectRatio="xMinYMax slice"><circle cx="5" cy="5" r="5" fill="#ad1457"/><rect width="10" height="10" fill="none" stroke="#000" stroke-width=".5"/></symbol>
+<svg id="n" viewBox="0 0 20 10" width="40" height="20"><rect width="20" height="10" fill="#33691e"/><circle cx="10" cy="5" r="4" fill="#fff"/></svg></defs>
+<use href="#s" x="5" y="5" width="40" height="25"/>
+<use href="#s" x="50" y="5" width="20" height="40"/>
+<use href="#n" x="5" y="40"/>
+<use href="#n" x="55" y="40" width="60" height="25"/></svg>

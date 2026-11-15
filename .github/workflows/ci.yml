@@ -183,6 +183,8 @@ jobs:
             iterations: 2M
           - target: image.decode
             iterations: 400K
+          - target: svg.render
+            iterations: 250K
           - target: math.parse
             iterations: 400K
           - target: math.layout
