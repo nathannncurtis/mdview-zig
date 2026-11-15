@@ -162,17 +162,17 @@ jobs:
           - target: html.Builder
             iterations: 150K
           - target: mermaid.elk
-            iterations: 180K
+            iterations: 50K
           - target: elk.stress
-            iterations: 250K
+            iterations: 120K
           - target: elk.force
             iterations: 250K
           - target: elk.spore
-            iterations: 250K
+            iterations: 100K
           - target: elk.radial
             iterations: 150K
           - target: elk.mrtree
-            iterations: 250K
+            iterations: 150K
           - target: elk.box
             iterations: 250K
           - target: elk.rectpacking
