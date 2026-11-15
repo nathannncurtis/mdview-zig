@@ -209,6 +209,26 @@ test "dd blocks are inset and dt blocks are not" {
 
 }
 
+test "inline math is a run delegate with its depth below the baseline" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.dpi_scale = 1;
+    defer app.math.reset();
+    defer resetBoxes();
+    var doc = try md.parse(testing.allocator, "a $\\frac{a}{b}$ b and $x$");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    try testing.expectEqual(@as(usize, 2), content.math.len);
+    const frac = mac.mathBox(&content.math[0], 16, text_color, 1000) orelse return error.NoBox;
+    try testing.expect(frac.descent > 1);
+    try testing.expectApproxEqAbs(frac.h, mac.delegateAscent(frac) + mac.delegateDescent(frac), 0.001);
+    try testing.expect(mac.delegateAscent(frac) < frac.h - 1);
+    try testing.expectEqual(frac.descent, mac.delegateDescent(frac));
+    try testing.expect(frac.w > 2 * app.math.pad_x);
+    const x = mac.mathBox(&content.math[1], 16, text_color, 1000) orelse return error.NoBox;
+    try testing.expect(x.descent < 0.5);
+}
+
 test "img width and height set the box size and are capped to the line" {
     var canvas = try Canvas.init(10, 10);
     defer canvas.deinit();
