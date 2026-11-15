@@ -3,6 +3,8 @@ const mermaid = @import("mermaid.zig");
 
 const max_input = 1024;
 
+const layering_strategies = [_][]const u8{ "NETWORK_SIMPLEX", "LONGEST_PATH", "LONGEST_PATH_SOURCE", "COFFMAN_GRAHAM", "MIN_WIDTH", "STRETCH_WIDTH", "INTERACTIVE" };
+
 fn seed(comptime bytes: []const u8) []const u8 {
     comptime {
         const len: [4]u8 = @bitCast(std.mem.nativeToLittle(u32, bytes.len));
@@ -101,13 +103,15 @@ pub fn fuzzOne(_: void, smith: *std.testing.Smith) anyerror!void {
         });
     }
 
-    const cfg: mermaid.Config = .{ .direction = switch (r.next() % 5) {
+    const dir: mermaid.Dir = switch (r.next() % 5) {
         0 => .tb,
         1 => .td,
         2 => .bt,
         3 => .lr,
         else => .rl,
-    } };
+    };
+    const strategy = layering_strategies[r.next() % layering_strategies.len];
+    const cfg: mermaid.Config = .{ .direction = dir, .elk = .{ .layering_strategy = strategy, .layering_layer_bound = 1 + @as(f64, @floatFromInt(r.next() % 6)) } };
     const res = mermaid.layout(a, nodes, edges.items, cfg) catch return;
     for (res.nodes) |nd| {
         try std.testing.expect(std.math.isFinite(nd.x) and std.math.isFinite(nd.y));

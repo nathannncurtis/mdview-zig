@@ -31,3 +31,11 @@ ELK Java 0.9.1 (tag v0.9.1 of eclipse/elk) is the version elkjs 0.9.3 is built f
 ## e2e/cases.json
 
 216 flowchart cases from `testdata/mermaid/refs` (the default ELK path of 12.2.0). Each holds the layout input as Mermaid's renderer builds it (nodes in layout order with parent, group flag, shape, measured size or group title size, subgraph direction; edges with start, end, label size and arrow types) and what the reference SVG shows (node translates, cluster rects, edge `data-points`, edge label centres). The input comes from the same capture run as the fixtures above (the recorded `elkGraph` before it is trimmed), the expected values are read from the reference SVGs by a scratch Node script. `src/mermaid/elk/e2e_test.zig` runs `mermaid.layout` on each case and compares.
+
+## lay-*.json
+
+Layering strategy fixtures. `lay-<variant>--<base>.json` takes the `input` of an existing fixture, sets the root `elk.layered.layering.strategy` (variants: `longest` LONGEST_PATH, `longestsrc` LONGEST_PATH_SOURCE, `coffman4` / `coffman2` COFFMAN_GRAHAM with `coffmanGraham.layerBound` 4 / 2, `minwidth` MIN_WIDTH, `stretch` STRETCH_WIDTH, `interactive` INTERACTIVE) and stores what elkjs 0.9.3 returns. `lay-stretch--syn-036-sub-TB`, `--syn-048-sub-LR` and `--c-flow-143-sub-basic` are absent: elkjs never returns for them (StretchWidthLayerer loops forever on a nested graph whose edges all enter from hidden nodes).
+
+`--big-NN` are ten seeded random graphs of 30 to 42 nodes (varied node heights, a few edge labels, some back edges on every third graph, directions DOWN, RIGHT, UP, LEFT in turn), with variants `coffman4`, `minwidth`, `stretch`, `minwidthmulti` (MIN_WIDTH with `minWidth.upperBoundOnWidth` and `upperLayerEstimationScalingFactor` both -1) and `interactive-pos` (INTERACTIVE with random node x/y in the input).
+
+Each file is produced by running `elk.layout` of elkjs 0.9.3 on the modified `input` in Node.
