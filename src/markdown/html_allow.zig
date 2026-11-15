@@ -2,13 +2,13 @@ const std = @import("std");
 
 // From GitHub's Markdown API output, which differs from html-pipeline's DEFAULT_CONFIG (no figure, small, abbr, caption...; section kept).
 const element_names = [_][]const u8{
-    "h1",    "h2",     "h3",    "h4",     "h5",      "h6",      "br",       "b",
-    "i",     "strong", "em",    "a",      "pre",     "code",    "img",      "tt",
-    "div",   "ins",    "del",   "sup",    "sub",     "p",       "picture",  "ol",
-    "ul",    "table",  "thead", "tbody",  "tfoot",   "tr",      "td",       "th",
-    "blockquote", "dl", "dt",   "dd",     "kbd",     "q",       "samp",     "var",
-    "hr",    "ruby",   "rt",    "rp",     "li",      "s",       "strike",   "summary",
-    "details", "mark", "source", "span",  "section",
+    "h1",         "h2",     "h3",     "h4",    "h5",      "h6",   "br",      "b",
+    "i",          "strong", "em",     "a",     "pre",     "code", "img",     "tt",
+    "div",        "ins",    "del",    "sup",   "sub",     "p",    "picture", "ol",
+    "ul",         "table",  "thead",  "tbody", "tfoot",   "tr",   "td",      "th",
+    "blockquote", "dl",     "dt",     "dd",    "kbd",     "q",    "samp",    "var",
+    "hr",         "ruby",   "rt",     "rp",    "li",      "s",    "strike",  "summary",
+    "details",    "mark",   "source", "span",  "section",
 };
 
 const elements = blk: {
@@ -18,14 +18,14 @@ const elements = blk: {
 };
 
 const global_attr_names = [_][]const u8{
-    "abbr",      "accept",   "accept-charset", "accesskey", "action",   "align",    "alt",     "axis",
-    "char",      "charoff",  "charset",        "checked",   "clear",    "cols",     "colspan", "compact",
-    "coords",    "datetime", "dir",            "disabled",  "enctype",  "for",      "frame",   "headers",
-    "height",    "hreflang", "hspace",         "id",        "ismap",    "label",    "lang",    "maxlength",
-    "media",     "method",   "multiple",       "name",      "nohref",   "noshade",  "nowrap",  "open",
-    "prompt",    "readonly", "rev",            "rows",      "rowspan",  "rules",    "scope",   "selected",
-    "shape",     "size",     "span",           "start",     "summary",  "tabindex", "title",   "type",
-    "usemap",    "valign",   "value",          "width",     "itemprop",
+    "abbr",   "accept",   "accept-charset", "accesskey", "action",   "align",    "alt",     "axis",
+    "char",   "charoff",  "charset",        "checked",   "clear",    "cols",     "colspan", "compact",
+    "coords", "datetime", "dir",            "disabled",  "enctype",  "for",      "frame",   "headers",
+    "height", "hreflang", "hspace",         "id",        "ismap",    "label",    "lang",    "maxlength",
+    "media",  "method",   "multiple",       "name",      "nohref",   "noshade",  "nowrap",  "open",
+    "prompt", "readonly", "rev",            "rows",      "rowspan",  "rules",    "scope",   "selected",
+    "shape",  "size",     "span",           "start",     "summary",  "tabindex", "title",   "type",
+    "usemap", "valign",   "value",          "width",     "itemprop",
 };
 
 const global_attrs = blk: {

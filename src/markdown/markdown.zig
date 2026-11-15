@@ -398,7 +398,7 @@ const Parser = struct {
             .heading => {
                 try p.join(node.content.items);
                 try p.emit(.{
-                    .kind = @enumFromInt(@intFromEnum(BlockKind.h1) + node.level - 1),
+                    .kind = @fromBackingInt(@intCast(@backingInt(BlockKind.h1) + node.level - 1)),
                     .content = try p.parseInline(p.joined.items),
                 });
             },
@@ -706,7 +706,6 @@ const Parser = struct {
             .sup = .{ .lo = su, .hi = su },
         };
     }
-
 
     fn tryTable(p: *Parser, header_line: []const u8, delim_line: []const u8, row_lines: []const []const u8) Allocator.Error!bool {
         const header = try splitRow(p.work, header_line);

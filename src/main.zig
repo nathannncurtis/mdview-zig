@@ -252,7 +252,7 @@ fn headingBlock(anchor: []const u8) ?usize {
     var seen: std.StringHashMapUnmanaged(u32) = .empty;
     var slug: std.ArrayList(u8) = .empty;
     for (blocks, 0..) |b, i| {
-        if (@intFromEnum(b.kind) < @intFromEnum(md.BlockKind.h1) or @intFromEnum(b.kind) > @intFromEnum(md.BlockKind.h6)) continue;
+        if (@backingInt(b.kind) < @backingInt(md.BlockKind.h1) or @backingInt(b.kind) > @backingInt(md.BlockKind.h6)) continue;
         links.slugInto(&slug, a, b.content.text) catch return null;
         const base = a.dupe(u8, slug.items) catch return null;
         const slot = seen.getOrPut(a, base) catch return null;
@@ -314,7 +314,6 @@ fn openMarkdown(target: []const u8) void {
     scroll_y = 0;
     if (fragment.len > 0) jump(fragment) else platform.invalidate();
 }
-
 
 // ============================================================
 // Logging

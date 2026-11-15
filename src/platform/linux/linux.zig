@@ -834,8 +834,13 @@ fn renderTable(cr: *c.cairo_t, pango_layout: *c.PangoLayout, t: md.Table, x: f32
                     c.cairo_move_to(cr, cx + cell_pad_x, row_y + cell_pad_y);
                     c.pango_cairo_show_layout(cr, pango_layout);
                     app.noteHit(.{
-                        .content = t.cell(row, col), .x = cx + cell_pad_x, .y = row_y + cell_pad_y + app.scroll_y, .w = w - cell_pad_x * 2,
-                        .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
+                        .content = t.cell(row, col),
+                        .x = cx + cell_pad_x,
+                        .y = row_y + cell_pad_y + app.scroll_y,
+                        .w = w - cell_pad_x * 2,
+                        .h = text_h,
+                        .header = (row == 0 and t.header_row) or (col == 0 and t.header_col),
+                        .alignment = t.aligns[col],
                     });
                 }
                 cx += w;
@@ -881,7 +886,6 @@ fn renderCodeBlock(
     c.pango_layout_set_width(pango_layout, @intFromFloat((max_width - 32) * @as(f32, c.PANGO_SCALE)));
     c.pango_layout_set_wrap(pango_layout, c.PANGO_WRAP_WORD_CHAR);
     c.pango_layout_set_text(pango_layout, text.ptr, @intCast(text.len));
-
 
     // Apply syntax highlighting as Pango attributes
     const attr_list = buildSyntaxAttributes(toks);

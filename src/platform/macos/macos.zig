@@ -152,8 +152,8 @@ fn createFont(name: []const u8, size: CGFloat, bold: bool, italic: bool) c.CTFon
     const trait_vals = [_]c.CFTypeRef{@ptrCast(trait_num)};
     const traits_dict = c.CFDictionaryCreate(
         null,
-        @constCast(@ptrCast(&trait_keys)),
-        @constCast(@ptrCast(&trait_vals)),
+        @ptrCast(@constCast(&trait_keys)),
+        @ptrCast(@constCast(&trait_vals)),
         1,
         &c.kCFTypeDictionaryKeyCallBacks,
         &c.kCFTypeDictionaryValueCallBacks,
@@ -168,8 +168,8 @@ fn createFont(name: []const u8, size: CGFloat, bold: bool, italic: bool) c.CTFon
     const attrs_vals = [_]c.CFTypeRef{ @ptrCast(cf_name), @ptrCast(traits_dict) };
     const attrs = c.CFDictionaryCreate(
         null,
-        @constCast(@ptrCast(&attrs_keys)),
-        @constCast(@ptrCast(&attrs_vals)),
+        @ptrCast(@constCast(&attrs_keys)),
+        @ptrCast(@constCast(&attrs_vals)),
         2,
         &c.kCFTypeDictionaryKeyCallBacks,
         &c.kCFTypeDictionaryValueCallBacks,
@@ -477,7 +477,7 @@ pub fn textIndexAt(hit: app.Hit, x: f32, y: f32) ?u32 {
 pub fn openExternal(url: []const u8) void {
     const cf = cfString(url) orelse return;
     defer c.CFRelease(cf);
-    const nsurl = msgSend_id_id(objcClass("NSURL"), sel("URLWithString:"), @constCast(@ptrCast(cf)));
+    const nsurl = msgSend_id_id(objcClass("NSURL"), sel("URLWithString:"), @ptrCast(@constCast(cf)));
     if (nsurl == null) return;
     const workspace = msgSend_id(objcClass("NSWorkspace"), sel("sharedWorkspace"));
     _ = msgSend_id_id(workspace, sel("openURL:"), nsurl);
@@ -1372,7 +1372,7 @@ pub fn run() void {
     // Set window title
     const title = cfString("mdview");
     defer c.CFRelease(title);
-    msgSend_void_id(g_window, sel("setTitle:"), @constCast(@ptrCast(title)));
+    msgSend_void_id(g_window, sel("setTitle:"), @ptrCast(@constCast(title)));
 
     // Create content view
     g_view = msgSend_initFrame(alloc(@ptrCast(view_cls)), sel("initWithFrame:"), content_rect);

@@ -28,8 +28,8 @@ fn isSpace(c: u8) bool {
 }
 
 const c1 = [32]u21{
-    0x20AC, 0x81,   0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D,   0x017D, 0x8F,
-    0x90,   0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D,   0x017E, 0x0178,
+    0x20AC, 0x81,   0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D, 0x017D, 0x8F,
+    0x90,   0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D, 0x017E, 0x0178,
 };
 
 /// Splits HTML into tokens. Character references decode only with a semicolon for names.
@@ -336,15 +336,15 @@ fn inSet(comptime names: []const []const u8, n: []const u8) bool {
 
 fn isSpecial(n: []const u8) bool {
     return inSet(&.{
-        "address",  "applet",   "area",     "article", "aside",    "base",     "basefont", "bgsound",  "blockquote", "body",
-        "br",       "button",   "caption",  "center",  "col",      "colgroup", "dd",       "details",  "dir",        "div",
-        "dl",       "dt",       "embed",    "fieldset", "figcaption", "figure", "footer",   "form",     "frame",      "frameset",
-        "h1",       "h2",       "h3",       "h4",      "h5",       "h6",       "head",     "header",   "hgroup",     "hr",
-        "html",     "iframe",   "img",      "input",   "keygen",   "li",       "link",     "listing",  "main",       "marquee",
-        "menu",     "meta",     "nav",      "noembed", "noframes", "noscript", "object",   "ol",       "p",          "param",
-        "plaintext", "pre",     "script",   "search",  "section",  "select",   "source",   "style",    "summary",    "table",
-        "tbody",    "td",       "template", "textarea", "tfoot",   "th",       "thead",    "title",    "tr",         "track",
-        "ul",       "wbr",      "xmp",
+        "address",   "applet", "area",     "article",  "aside",      "base",     "basefont", "bgsound", "blockquote", "body",
+        "br",        "button", "caption",  "center",   "col",        "colgroup", "dd",       "details", "dir",        "div",
+        "dl",        "dt",     "embed",    "fieldset", "figcaption", "figure",   "footer",   "form",    "frame",      "frameset",
+        "h1",        "h2",     "h3",       "h4",       "h5",         "h6",       "head",     "header",  "hgroup",     "hr",
+        "html",      "iframe", "img",      "input",    "keygen",     "li",       "link",     "listing", "main",       "marquee",
+        "menu",      "meta",   "nav",      "noembed",  "noframes",   "noscript", "object",   "ol",      "p",          "param",
+        "plaintext", "pre",    "script",   "search",   "section",    "select",   "source",   "style",   "summary",    "table",
+        "tbody",     "td",     "template", "textarea", "tfoot",      "th",       "thead",    "title",   "tr",         "track",
+        "ul",        "wbr",    "xmp",
     }, n);
 }
 
@@ -366,9 +366,9 @@ fn isHeading(n: []const u8) bool {
 
 fn closesP(n: []const u8) bool {
     return inSet(&.{
-        "address", "article", "aside",  "blockquote", "center", "details", "dialog", "dir",  "div",    "dl",
-        "fieldset", "figcaption", "figure", "footer", "header", "hgroup",  "main",   "menu", "nav",    "ol",
-        "p",      "search", "section", "summary", "ul",
+        "address",  "article",    "aside",   "blockquote", "center", "details", "dialog", "dir",  "div", "dl",
+        "fieldset", "figcaption", "figure",  "footer",     "header", "hgroup",  "main",   "menu", "nav", "ol",
+        "p",        "search",     "section", "summary",    "ul",
     }, n);
 }
 

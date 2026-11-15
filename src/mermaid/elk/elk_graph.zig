@@ -2,6 +2,7 @@ const std = @import("std");
 const lg = @import("lgraph.zig");
 const Allocator = std.mem.Allocator;
 const Vec = lg.Vec;
+const radial_options = @import("radial/options.zig");
 
 pub const ForceModel = enum { fruchterman_reingold, eades };
 pub const StressDimension = enum { xy, x, y };
@@ -91,6 +92,19 @@ pub const Options = struct {
     interactive: ?bool = null,
     omit_node_micro_layout: ?bool = null,
     priority: ?i32 = null,
+    position: ?Vec = null,
+    radial_radius: ?f64 = null,
+    radial_center_on_root: ?bool = null,
+    radial_order_id: ?i32 = null,
+    radial_rotate: ?bool = null,
+    radial_rotation_target_angle: ?f64 = null,
+    radial_rotation_compute_additional_wedge_space: ?bool = null,
+    radial_rotation_outgoing_edge_angles: ?bool = null,
+    radial_compactor: ?radial_options.CompactionStrategy = null,
+    radial_compaction_step_size: ?i32 = null,
+    radial_sorter: ?radial_options.SortingStrategy = null,
+    radial_wedge_criteria: ?radial_options.AnnulusWedgeCriteria = null,
+    radial_optimization_criteria: ?radial_options.RadialTranslationStrategy = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
     stress_fixed: ?bool = null,
@@ -208,6 +222,19 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.underlyingLayoutAlgorithm", "underlying_layout_algorithm" },
     .{ "org.eclipse.elk.overlapRemoval.maxIterations", "overlap_removal_max_iterations" },
     .{ "org.eclipse.elk.overlapRemoval.runScanline", "overlap_removal_run_scanline" },
+    .{ "org.eclipse.elk.position", "position" },
+    .{ "org.eclipse.elk.radial.radius", "radial_radius" },
+    .{ "org.eclipse.elk.radial.centerOnRoot", "radial_center_on_root" },
+    .{ "org.eclipse.elk.radial.orderId", "radial_order_id" },
+    .{ "org.eclipse.elk.radial.rotate", "radial_rotate" },
+    .{ "org.eclipse.elk.radial.rotation.targetAngle", "radial_rotation_target_angle" },
+    .{ "org.eclipse.elk.radial.rotation.computeAdditionalWedgeSpace", "radial_rotation_compute_additional_wedge_space" },
+    .{ "org.eclipse.elk.radial.rotation.outgoingEdgeAngles", "radial_rotation_outgoing_edge_angles" },
+    .{ "org.eclipse.elk.radial.compactor", "radial_compactor" },
+    .{ "org.eclipse.elk.radial.compactionStepSize", "radial_compaction_step_size" },
+    .{ "org.eclipse.elk.radial.sorter", "radial_sorter" },
+    .{ "org.eclipse.elk.radial.wedgeCriteria", "radial_wedge_criteria" },
+    .{ "org.eclipse.elk.radial.optimizationCriteria", "radial_optimization_criteria" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.

@@ -187,7 +187,7 @@ fn toHtml(a: Allocator, doc: md.Document) ![]const u8 {
                 if (!tight) try out.appendSlice(a, "</p>\n");
             },
             .h1, .h2, .h3, .h4, .h5, .h6 => {
-                const n = @intFromEnum(b.kind) - @intFromEnum(md.BlockKind.h1) + 1;
+                const n = @backingInt(b.kind) - @backingInt(md.BlockKind.h1) + 1;
                 try cr(&out, a);
                 try out.print(a, "<h{d}>", .{n});
                 try inlineHtml(&out, a, b.content);

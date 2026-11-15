@@ -204,7 +204,7 @@ pub const Math = struct {
         const n = u16At(d, m.kern_info + 2) catch return null;
         if (idx >= n) return null;
         const rec = m.kern_info + 4 + @as(usize, idx) * 8;
-        const off = u16At(d, rec + @as(usize, @intFromEnum(corner)) * 2) catch return null;
+        const off = u16At(d, rec + @as(usize, @backingInt(corner)) * 2) catch return null;
         if (off == 0) return null;
         const at = m.kern_info + off;
         return .{ .data = d, .at = at, .count = u16At(d, at) catch return null };

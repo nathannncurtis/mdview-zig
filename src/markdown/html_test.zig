@@ -181,11 +181,11 @@ fn containsAny(hay: []const u8, needles: []const []const u8) bool {
 }
 
 const out_of_subset = [_][]const u8{
-    "<html",    "<head",     "<body",    "<!doctype",  "<frame",   "<template", "<select",    "<svg",     "<math",    "<form",
-    "<script",  "<style",    "<title",   "<textarea",  "<iframe",  "<plaintext", "<xmp",      "<noscript", "<noembed", "<noframes",
-    "<isindex", "<menuitem", "<keygen",  "<option",    "<optgroup", "<input",   "<link",      "<meta",    "<base",    "<basefont",
-    "<bgsound", "<command",  "<listing", "<image",     "<object",  "<applet",   "<marquee",   "<button",  "<param",   "<track",
-    "<rb",      "<rtc",      "<dialog",  "<data",      "<hgroup",
+    "<html",    "<head",     "<body",    "<!doctype", "<frame",    "<template",  "<select",  "<svg",      "<math",    "<form",
+    "<script",  "<style",    "<title",   "<textarea", "<iframe",   "<plaintext", "<xmp",     "<noscript", "<noembed", "<noframes",
+    "<isindex", "<menuitem", "<keygen",  "<option",   "<optgroup", "<input",     "<link",    "<meta",     "<base",    "<basefont",
+    "<bgsound", "<command",  "<listing", "<image",    "<object",   "<applet",    "<marquee", "<button",   "<param",   "<track",
+    "<rb",      "<rtc",      "<dialog",  "<data",     "<hgroup",
 };
 
 fn inSubset(c: TreeCase) bool {
@@ -238,10 +238,10 @@ fn treeFile(gpa: Allocator, a: Allocator, name: []const u8, text: []const u8, ta
 }
 
 const tree_files = [_][]const u8{
-    "tests1",       "tests2",         "tests3",   "tests5",   "tests6",     "tests7",   "tests9",           "tests14",
-    "tests15",      "tests17",        "tests18",  "tests20",  "tests22",    "tests23",  "tests24",          "tests25",
-    "adoption01",   "adoption02",     "blocks",   "tables01", "inbody01",   "tests_innerHTML_1", "tricky01", "void-in-phrasing",
-    "main-element", "search-element", "ruby",     "webkit01", "webkit02",   "comments01",
+    "tests1",       "tests2",         "tests3",  "tests5",   "tests6",   "tests7",            "tests9",   "tests14",
+    "tests15",      "tests17",        "tests18", "tests20",  "tests22",  "tests23",           "tests24",  "tests25",
+    "adoption01",   "adoption02",     "blocks",  "tables01", "inbody01", "tests_innerHTML_1", "tricky01", "void-in-phrasing",
+    "main-element", "search-element", "ruby",    "webkit01", "webkit02", "comments01",
 };
 
 test "html5lib tree construction subset" {

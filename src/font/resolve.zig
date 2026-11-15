@@ -4,7 +4,6 @@ const ttf = @import("ttf.zig");
 
 pub const Font = ttf.Font;
 
-
 const Entry = struct { name: []const u8, files: [4][]const u8 };
 
 fn e(name: []const u8, r: []const u8, b: []const u8, i: []const u8, bi: []const u8) Entry {
@@ -67,9 +66,9 @@ const Lookup = union(enum) { named: []const u8, bundled };
 const Pair = [2][]const u8;
 
 const windows_alias = [_]Pair{
-    .{ "sans-serif", "arial" },      .{ "helvetica", "arial" },       .{ "helvetica neue", "arial" },
-    .{ "serif", "times new roman" }, .{ "times", "times new roman" }, .{ "monospace", "consolas" },
-    .{ "courier", "courier new" },   .{ "cursive", "comic sans ms" }, .{ "fantasy", "impact" },
+    .{ "sans-serif", "arial" },      .{ "helvetica", "arial" },        .{ "helvetica neue", "arial" },
+    .{ "serif", "times new roman" }, .{ "times", "times new roman" },  .{ "monospace", "consolas" },
+    .{ "courier", "courier new" },   .{ "cursive", "comic sans ms" },  .{ "fantasy", "impact" },
     .{ "system-ui", "segoe ui" },    .{ "ui-sans-serif", "segoe ui" },
 };
 

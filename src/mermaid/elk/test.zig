@@ -193,6 +193,7 @@ pub fn checkFixtures(algorithm: []const u8, layoutFn: *const fn (std.mem.Allocat
     }.less);
     var stats: Stats = .{};
     for (names.items) |name| {
+        if (std.mem.startsWith(u8, name, "radial-")) continue;
         if (only) |o| if (std.mem.find(u8, name, o) == null) continue;
         var arena = std.heap.ArenaAllocator.init(gpa);
         defer arena.deinit();

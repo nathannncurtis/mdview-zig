@@ -218,7 +218,7 @@ fn build(comptime d: []const u8) Builder {
 }
 
 fn ops(comptime a: md.Alert) []const Op {
-    const b = comptime build(data[@intFromEnum(a) -| 1]);
+    const b = comptime build(data[@backingInt(a) -| 1]);
     const out = b.ops[0..b.n].*;
     return &out;
 }

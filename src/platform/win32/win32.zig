@@ -52,10 +52,24 @@ const CW_USEDEFAULT: i32 = @bitCast(@as(u32, 0x80000000));
 const SW_SHOW: i32 = 5;
 
 const STARTUPINFOW = extern struct {
-    cb: u32, reserved: ?[*:0]u16, desktop: ?[*:0]u16, title: ?[*:0]u16,
-    x: u32, y: u32, x_size: u32, y_size: u32, x_chars: u32, y_chars: u32, fill: u32,
-    flags: u32, show_window: u16, reserved2: u16, reserved3: ?*u8,
-    std_input: ?*anyopaque, std_output: ?*anyopaque, std_error: ?*anyopaque,
+    cb: u32,
+    reserved: ?[*:0]u16,
+    desktop: ?[*:0]u16,
+    title: ?[*:0]u16,
+    x: u32,
+    y: u32,
+    x_size: u32,
+    y_size: u32,
+    x_chars: u32,
+    y_chars: u32,
+    fill: u32,
+    flags: u32,
+    show_window: u16,
+    reserved2: u16,
+    reserved3: ?*u8,
+    std_input: ?*anyopaque,
+    std_output: ?*anyopaque,
+    std_error: ?*anyopaque,
 };
 extern "kernel32" fn GetStartupInfoW(info: *STARTUPINFOW) callconv(.c) void;
 
@@ -88,11 +102,18 @@ const TIMER_SCROLL_SAVE: usize = 2;
 // Structs
 const MSG = extern struct { hwnd: ?HWND, message: u32, wParam: WPARAM, lParam: LPARAM, time: u32, pt: POINT };
 const WNDCLASSEXW = extern struct {
-    cbSize: u32 = @sizeOf(WNDCLASSEXW), style: u32 = 0,
+    cbSize: u32 = @sizeOf(WNDCLASSEXW),
+    style: u32 = 0,
     lpfnWndProc: *const fn (HWND, u32, WPARAM, LPARAM) callconv(.c) LRESULT,
-    cbClsExtra: i32 = 0, cbWndExtra: i32 = 0, hInstance: ?HINSTANCE = null,
-    hIcon: ?*anyopaque = null, hCursor: ?*anyopaque = null, hbrBackground: ?*anyopaque = null,
-    lpszMenuName: ?[*:0]const u16 = null, lpszClassName: [*:0]const u16, hIconSm: ?*anyopaque = null,
+    cbClsExtra: i32 = 0,
+    cbWndExtra: i32 = 0,
+    hInstance: ?HINSTANCE = null,
+    hIcon: ?*anyopaque = null,
+    hCursor: ?*anyopaque = null,
+    hbrBackground: ?*anyopaque = null,
+    lpszMenuName: ?[*:0]const u16 = null,
+    lpszClassName: [*:0]const u16,
+    hIconSm: ?*anyopaque = null,
 };
 const PAINTSTRUCT = extern struct { hdc: ?*anyopaque, fErase: BOOL, rcPaint: RECT, fRestore: BOOL, fIncUpdate: BOOL, rgbReserved: [32]u8 };
 
@@ -132,31 +153,66 @@ const D2D1_RECT_F = extern struct { left: f32, top: f32, right: f32, bottom: f32
 const D2D1_ROUNDED_RECT = extern struct { rect: D2D1_RECT_F, radiusX: f32, radiusY: f32 };
 const D2D1_MATRIX_3X2_F = extern struct { m: [6]f32 };
 const D2D1_RENDER_TARGET_PROPERTIES = extern struct {
-    type: u32 = 0, pixel_format: extern struct { format: u32 = 0, alpha_mode: u32 = 0 } = .{},
-    dpi_x: f32 = 0, dpi_y: f32 = 0, usage: u32 = 0, min_level: u32 = 0,
+    type: u32 = 0,
+    pixel_format: extern struct { format: u32 = 0, alpha_mode: u32 = 0 } = .{},
+    dpi_x: f32 = 0,
+    dpi_y: f32 = 0,
+    usage: u32 = 0,
+    min_level: u32 = 0,
 };
 const D2D1_HWND_RENDER_TARGET_PROPERTIES = extern struct { hwnd: HWND, pixel_size: D2D1_SIZE_U, present_options: u32 = 0 };
 const DWRITE_TEXT_RANGE = extern struct { startPosition: u32, length: u32 };
 const DWRITE_HIT_TEST_METRICS = extern struct {
-    textPosition: u32, length: u32, left: f32, top: f32, width: f32, height: f32, bidiLevel: u32, isText: BOOL, isTrimmed: BOOL,
+    textPosition: u32,
+    length: u32,
+    left: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    bidiLevel: u32,
+    isText: BOOL,
+    isTrimmed: BOOL,
 };
 const DWRITE_GLYPH_RUN = extern struct {
-    fontFace: ?*anyopaque, fontEmSize: f32, glyphCount: u32, glyphIndices: ?*const u16,
-    glyphAdvances: ?*const f32, glyphOffsets: ?*const anyopaque, isSideways: BOOL, bidiLevel: u32,
+    fontFace: ?*anyopaque,
+    fontEmSize: f32,
+    glyphCount: u32,
+    glyphIndices: ?*const u16,
+    glyphAdvances: ?*const f32,
+    glyphOffsets: ?*const anyopaque,
+    isSideways: BOOL,
+    bidiLevel: u32,
 };
 const DWRITE_COLOR_F = extern struct { r: f32, g: f32, b: f32, a: f32 };
 const DWRITE_COLOR_GLYPH_RUN = extern struct {
-    glyphRun: DWRITE_GLYPH_RUN, glyphRunDescription: ?*const anyopaque, baselineOriginX: f32, baselineOriginY: f32,
-    runColor: DWRITE_COLOR_F, paletteIndex: u16,
+    glyphRun: DWRITE_GLYPH_RUN,
+    glyphRunDescription: ?*const anyopaque,
+    baselineOriginX: f32,
+    baselineOriginY: f32,
+    runColor: DWRITE_COLOR_F,
+    paletteIndex: u16,
 };
 const DWRITE_UNDERLINE = extern struct {
-    width: f32, thickness: f32, offset: f32, runHeight: f32, readingDirection: u32, flowDirection: u32,
-    localeName: ?*const u16, measuringMode: u32,
+    width: f32,
+    thickness: f32,
+    offset: f32,
+    runHeight: f32,
+    readingDirection: u32,
+    flowDirection: u32,
+    localeName: ?*const u16,
+    measuringMode: u32,
 };
 const DWRITE_MATRIX = extern struct { m11: f32, m12: f32, m21: f32, m22: f32, dx: f32, dy: f32 };
 const DWRITE_TEXT_METRICS = extern struct {
-    left: f32, top: f32, width: f32, widthIncludingTrailingWhitespace: f32,
-    height: f32, layoutWidth: f32, layoutHeight: f32, maxBidiReorderingDepth: u32, lineCount: u32,
+    left: f32,
+    top: f32,
+    width: f32,
+    widthIncludingTrailingWhitespace: f32,
+    height: f32,
+    layoutWidth: f32,
+    layoutHeight: f32,
+    maxBidiReorderingDepth: u32,
+    lineCount: u32,
 };
 
 extern "d2d1" fn D2D1CreateFactory(factoryType: u32, riid: *const GUID, pFactoryOptions: ?*const anyopaque, ppIFactory: *?*anyopaque) callconv(.c) HRESULT;
@@ -164,15 +220,18 @@ extern "dwrite" fn DWriteCreateFactory(factoryType: u32, iid: *const GUID, facto
 
 // COM vtables
 const ID2D1Factory_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
-    Release: *const fn (*anyopaque) callconv(.c) u32, _pad3_9: [7]*const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
+    Release: *const fn (*anyopaque) callconv(.c) u32,
+    _pad3_9: [7]*const anyopaque,
     CreatePathGeometry: *const fn (*anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 10
     _pad11_13: [3]*const anyopaque,
     CreateHwndRenderTarget: *const fn (*anyopaque, *const D2D1_RENDER_TARGET_PROPERTIES, *const D2D1_HWND_RENDER_TARGET_PROPERTIES, *?*anyopaque) callconv(.c) HRESULT,
 };
 
 const ID2D1RT_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     GetFactory: *const anyopaque,
     _pad4_7: [4]*const anyopaque,
@@ -199,7 +258,8 @@ const ID2D1RT_VTable = extern struct {
 };
 
 const IDWriteFactory_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_14: [12]*const anyopaque,
     CreateTextFormat: *const fn (*anyopaque, [*:0]const u16, ?*anyopaque, u32, u32, u32, f32, [*:0]const u16, *?*anyopaque) callconv(.c) HRESULT, // 15
@@ -210,14 +270,16 @@ const IDWriteFactory_VTable = extern struct {
 const IID_IDWriteTextLayout1 = GUID{ .Data1 = 0x9064d822, .Data2 = 0x80a7, .Data3 = 0x465c, .Data4 = .{ 0xa9, 0x86, 0xdf, 0x65, 0xf7, 0x8b, 0x8f, 0xeb } };
 
 const IDWriteTextLayout1_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_68: [66]*const anyopaque,
     SetCharacterSpacing: *const fn (*anyopaque, f32, f32, f32, DWRITE_TEXT_RANGE) callconv(.c) HRESULT, // 69
 };
 
 const IDWriteTextLayout_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     SetTextAlignment: *const fn (*anyopaque, u32) callconv(.c) HRESULT, // 3
     _pad4_27: [24]*const anyopaque,
@@ -243,21 +305,24 @@ const IDWriteTextLayout_VTable = extern struct {
 };
 
 const IDWriteFactory2_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_27: [25]*const anyopaque,
     TranslateColorGlyphRun: *const fn (*anyopaque, f32, f32, *const DWRITE_GLYPH_RUN, ?*const anyopaque, u32, *const DWRITE_MATRIX, u32, *?*anyopaque) callconv(.c) HRESULT, // 28
 };
 
 const IDWriteColorGlyphRunEnumerator_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     MoveNext: *const fn (*anyopaque, *BOOL) callconv(.c) HRESULT, // 3
     GetCurrentRun: *const fn (*anyopaque, *?*const DWRITE_COLOR_GLYPH_RUN) callconv(.c) HRESULT, // 4
 };
 
 const ID2D1SolidColorBrush_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_7: [5]*const anyopaque,
     SetColor: *const fn (*anyopaque, *const D2D1_COLOR_F) callconv(.c) void, // 8
@@ -523,14 +588,26 @@ pub fn run() void {
     const hi: ?HINSTANCE = if (hinstance) |h| @ptrCast(h) else null;
     const class_name = L("mdview");
     _ = RegisterClassExW(&.{
-        .style = CS_HREDRAW | CS_VREDRAW, .lpfnWndProc = &wndProc,
-        .hInstance = hi, .hCursor = LoadCursorW(null, IDC_ARROW), .lpszClassName = class_name,
+        .style = CS_HREDRAW | CS_VREDRAW,
+        .lpfnWndProc = &wndProc,
+        .hInstance = hi,
+        .hCursor = LoadCursorW(null, IDC_ARROW),
+        .lpszClassName = class_name,
     });
 
     const hwnd = CreateWindowExW(
-        WS_EX_ACCEPTFILES, class_name, L("mdview"),
+        WS_EX_ACCEPTFILES,
+        class_name,
+        L("mdview"),
         WS_POPUP | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 900, 700, null, null, hi, null,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        900,
+        700,
+        null,
+        null,
+        hi,
+        null,
     ) orelse return;
     g_hwnd = hwnd;
 
@@ -608,7 +685,7 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_stripe = solidBrush(rt, 0x151b23);
     _ = vt.CreateSolidColorBrush(rt, &.{ .r = 0.545, .g = 0.580, .b = 0.620, .a = 1 }, null, &g_brush_close);
     for (0..g_brush_hl.len) |n| {
-        const st = hl.style(@enumFromInt(n));
+        const st = hl.style(@fromBackingInt(@intCast(n)));
         if (st.fg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl[n]);
         if (st.bg) |rgb| _ = vt.CreateSolidColorBrush(rt, &rgbColor(rgb), null, &g_brush_hl_bg[n]);
     }
@@ -623,8 +700,8 @@ fn createBrushes(rt: *anyopaque) void {
     g_brush_text_sup = solidBrush(rt, 0xc9d1d9);
     g_brush_color_layer = solidBrush(rt, 0xffffff);
     for ([_]md.Alert{ .note, .tip, .important, .warning, .caution }) |a| {
-        g_alert_border[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).border);
-        g_alert_fg[@intFromEnum(a) - 1] = solidBrush(rt, alerts.style(a).fg);
+        g_alert_border[@backingInt(a) - 1] = solidBrush(rt, alerts.style(a).border);
+        g_alert_fg[@backingInt(a) - 1] = solidBrush(rt, alerts.style(a).fg);
     }
 }
 
@@ -697,7 +774,7 @@ fn render() void {
                 const alert = block.frames[block.frames.len - 1].alert;
                 y += 8;
                 drawAlertIcon(vt_rt, rt, alert, x, y);
-                _ = renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h4.?, x + 24, y - 2, w - 24, g_alert_fg[@intFromEnum(alert) - 1].?);
+                _ = renderTextBlock(vt_rt, vt_dw, rt, dwf, block.content, g_text_format_h4.?, x + 24, y - 2, w - 24, g_alert_fg[@backingInt(alert) - 1].?);
                 y += 16;
                 gap = 16;
             },
@@ -724,7 +801,7 @@ fn render() void {
         for (block.frames, 0..) |f, i| {
             if (f.kind != .quote) continue;
             if (f.alert != .none and !f.open) y += 8;
-            const brush = if (f.alert == .none) g_brush_bar.? else g_alert_border[@intFromEnum(f.alert) - 1].?;
+            const brush = if (f.alert == .none) g_brush_bar.? else g_alert_border[@backingInt(f.alert) - 1].?;
             const bar_x = padding + block.insetBefore(i);
             vt_rt.FillRectangle(rt, &.{ .left = bar_x, .top = top, .right = bar_x + md.quote_bar, .bottom = y + if (f.open) gap else 0 }, brush);
         }
@@ -759,14 +836,16 @@ fn solidBrush(rt: *anyopaque, hex: u24) ?*anyopaque {
 const D2D1_BEZIER_SEGMENT = extern struct { p1: D2D1_POINT_2F, p2: D2D1_POINT_2F, p3: D2D1_POINT_2F };
 
 const ID2D1PathGeometry_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     _pad3_16: [14]*const anyopaque,
     Open: *const fn (*anyopaque, *?*anyopaque) callconv(.c) HRESULT, // 17
 };
 
 const ID2D1GeometrySink_VTable = extern struct {
-    QueryInterface: *const anyopaque, AddRef: *const anyopaque,
+    QueryInterface: *const anyopaque,
+    AddRef: *const anyopaque,
     Release: *const fn (*anyopaque) callconv(.c) u32,
     SetFillMode: *const fn (*anyopaque, u32) callconv(.c) void, // 3
     _pad4: *const anyopaque,
@@ -812,12 +891,12 @@ fn createAlertGeometries(factory: *anyopaque) void {
         if (open) sv.EndFigure(sink, 0);
         _ = sv.Close(sink);
         _ = sv.Release(sink);
-        g_alert_geom[@intFromEnum(a) - 1] = g;
+        g_alert_geom[@backingInt(a) - 1] = g;
     }
 }
 
 fn drawAlertIcon(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, alert: md.Alert, x: f32, y: f32) void {
-    const idx = @intFromEnum(alert) - 1;
+    const idx = @backingInt(alert) - 1;
     const geom = g_alert_geom[idx] orelse return;
     const brush = g_alert_fg[idx] orelse return;
     vt_rt.SetTransform(rt, &.{ .m = .{ 1, 0, 0, 1, x, y - app.scroll_y } });
@@ -1083,8 +1162,13 @@ fn renderTable(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable
                 } else if (lay) |l| {
                     drawLayout(vt_rt, rt, l, cx + cell_pad_x, row_y + cell_pad_y, g_brush_text.?, t.cell(row, col));
                     app.noteHit(.{
-                        .content = t.cell(row, col), .x = cx + cell_pad_x, .y = row_y + cell_pad_y, .w = w - cell_pad_x * 2,
-                        .h = text_h, .header = (row == 0 and t.header_row) or (col == 0 and t.header_col), .alignment = t.aligns[col],
+                        .content = t.cell(row, col),
+                        .x = cx + cell_pad_x,
+                        .y = row_y + cell_pad_y,
+                        .w = w - cell_pad_x * 2,
+                        .h = text_h,
+                        .header = (row == 0 and t.header_row) or (col == 0 and t.header_col),
+                        .alignment = t.aligns[col],
                     });
                 }
             }
@@ -1132,7 +1216,8 @@ fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VT
     if (g_brush_code_bg) |bg| {
         vt_rt.FillRoundedRectangle(rt, &.{
             .rect = .{ .left = x, .top = y, .right = x + max_width, .bottom = y + block_height },
-            .radiusX = 6, .radiusY = 6,
+            .radiusX = 6,
+            .radiusY = 6,
         }, bg);
     }
     drawLineBackgrounds(vt_rt, rt, lay, text, toks, x, y + 12, max_width);
@@ -1153,7 +1238,7 @@ fn applySyntaxHighlighting(lay: *anyopaque, text: []const u8, toks: []const hl.T
     for (toks) |tok| {
         const st = hl.style(tok.kind);
         const range = synRange(&cursor, tok.start, tok.end);
-        if (g_brush_hl[@intFromEnum(tok.kind)]) |brush| _ = vt.SetDrawingEffect(lay, brush, range);
+        if (g_brush_hl[@backingInt(tok.kind)]) |brush| _ = vt.SetDrawingEffect(lay, brush, range);
         if (st.bold) _ = vt.SetFontWeight(lay, 700, range);
         if (st.underline) _ = vt.SetUnderline(lay, 1, range);
     }
@@ -1165,7 +1250,7 @@ fn drawLineBackgrounds(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyop
     const vt = vtable(IDWriteTextLayout_VTable, lay);
     var cursor: md.Utf16Cursor = .{ .text = text };
     for (toks) |tok| {
-        const brush = g_brush_hl_bg[@intFromEnum(tok.kind)] orelse continue;
+        const brush = g_brush_hl_bg[@backingInt(tok.kind)] orelse continue;
         const range = synRange(&cursor, tok.start, tok.end);
         var stack: [16]DWRITE_HIT_TEST_METRICS = undefined;
         var rects: []DWRITE_HIT_TEST_METRICS = &stack;
@@ -1289,9 +1374,20 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const border: i32 = 6;
             const w: i32 = @intFromFloat(app.window_width);
             const h: i32 = @intFromFloat(app.window_height);
-            if (pt.x > w - 40 and pt.y < 36) { PostQuitMessage(0); return 0; }
-            if (pt.y < border) { if (pt.x < border) return HTTOPLEFT; if (pt.x > w - border) return HTTOPRIGHT; return HTTOP; }
-            if (pt.y > h - border) { if (pt.x < border) return HTBOTTOMLEFT; if (pt.x > w - border) return HTBOTTOMRIGHT; return HTBOTTOM; }
+            if (pt.x > w - 40 and pt.y < 36) {
+                PostQuitMessage(0);
+                return 0;
+            }
+            if (pt.y < border) {
+                if (pt.x < border) return HTTOPLEFT;
+                if (pt.x > w - border) return HTTOPRIGHT;
+                return HTTOP;
+            }
+            if (pt.y > h - border) {
+                if (pt.x < border) return HTBOTTOMLEFT;
+                if (pt.x > w - border) return HTBOTTOMRIGHT;
+                return HTBOTTOM;
+            }
             if (pt.x < border) return HTLEFT;
             if (pt.x > w - border) return HTRIGHT;
             if ((@as(u16, @bitCast(GetKeyState(VK_MENU))) & 0x8000) != 0) return HTCAPTION;

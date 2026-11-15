@@ -149,7 +149,7 @@ const names = "\x00+\xb1\x00-\xb1\x0010\xb0\x0123\xb4\x01st_place_meda\xec\x002n
     "\x07squar\xe5\x02me\xee\x02\xee\x01in_yan\xe7\x01o_y\xef\x01u\xed\x00zambi\xe1\x02ny_fac\xe5\x02\xf0\x01ebr\xe1\x02r\xef\x01imbabw\xe5\x02pper_mouth_fac\xe5\x01ombi\xe5\x06_ma\xee\x07woma\xee\x01z\xfa";
 
 const restarts = [_]u16{
-    0, 449, 888, 1273, 1788, 2281, 2652, 3109, 3577, 4140, 4629, 5044, 5491, 6021, 6448, 6946,
+    0,    449,  888,  1273, 1788, 2281, 2652,  3109,  3577,  4140,  4629,  5044,  5491,  6021,  6448, 6946,
     7499, 7933, 8426, 8902, 9441, 9910, 10399, 10826, 11293, 11792, 12307, 12729, 13227, 13739,
 };
 
