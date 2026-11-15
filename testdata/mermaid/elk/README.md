@@ -58,3 +58,12 @@ Each file is produced by running `elk.layout` of elkjs 0.9.3 on the modified `in
 ## radial-*.json
 
 `radial-real-*` are 25 of the inputs above with the root `elk.algorithm` changed to `radial`; `radial-syn-*` are 62 seeded synthetic graphs (trees, forests, DAGs with a shared child, a cycle outside the root's tree, edge and node labels, nested nodes, every `elk.radial.*` option, `elk.position`, `elk.spacing.nodeNode`, padding, fixed graph size). `output` is what elkjs 0.9.3 returned. They are checked by `src/mermaid/elk/radial/test.zig`, not by the layered test.
+
+## box-*.json and rectpacking-*.json
+
+Same shape (`source` is empty), checked by `src/mermaid/elk/box/test.zig` and `src/mermaid/elk/rectpacking/test.zig`, not by the layered test (which skips every fixture whose root `elk.algorithm` is not layered). Each algorithm has 85 fixtures:
+
+- `<algorithm>-m-*`: 25 of the Mermaid inputs above (12 with subgraphs, 13 flat) with the root `elk.algorithm` set to `elk.box` / `elk.rectpacking`. Subgraphs keep their own layered options, so they are laid out by layered first and packed as boxes.
+- `<algorithm>-s-*`: 60 generated graphs (seeded, 1 to 60 nodes of mixed sizes, some nested, some with node labels) with varied algorithm options (box: `box.packingMode`, `expandNodes`, `interactive`, `priority`; rectpacking: width approximation, optimization goal, packing strategy, compaction iterations, whitespace elimination, `trybox`, `inNewRow`, `desiredPosition`) and the common ones (`aspectRatio`, `spacing.nodeNode`, `padding`, `nodeSize.*`, `contentAlignment`).
+
+`output` is what elkjs 0.9.3 returned for `input`, reduced to the same fields as above.

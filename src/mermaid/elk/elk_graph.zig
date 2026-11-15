@@ -7,6 +7,12 @@ const radial_options = @import("radial/options.zig");
 pub const ForceModel = enum { fruchterman_reingold, eades };
 pub const StressDimension = enum { xy, x, y };
 
+pub const BoxPackingMode = enum { simple, group_dec, group_mixed, group_inc };
+pub const WidthApproximationStrategy = enum { greedy, target_width };
+pub const OptimizationGoal = enum { aspect_ratio_driven, max_scale_driven, area_driven };
+pub const PackingStrategy = enum { compaction, simple, none };
+pub const WhiteSpaceEliminationStrategy = enum { equal_between_structures, to_aspect_ratio };
+
 // Layout options as set on an ELK graph element. null = not set (Java hasProperty false), so copying onto an
 // LGraph element (copyProperties) only overrides what was given.
 pub const Options = struct {
@@ -105,6 +111,19 @@ pub const Options = struct {
     radial_sorter: ?radial_options.SortingStrategy = null,
     radial_wedge_criteria: ?radial_options.AnnulusWedgeCriteria = null,
     radial_optimization_criteria: ?radial_options.RadialTranslationStrategy = null,
+    expand_nodes: ?bool = null,
+    box_packing_mode: ?BoxPackingMode = null,
+    rp_width_approximation_strategy: ?WidthApproximationStrategy = null,
+    rp_target_width: ?f64 = null,
+    rp_optimization_goal: ?OptimizationGoal = null,
+    rp_last_place_shift: ?bool = null,
+    rp_packing_strategy: ?PackingStrategy = null,
+    rp_row_height_reevaluation: ?bool = null,
+    rp_compaction_iterations: ?i32 = null,
+    rp_white_space_elimination: ?WhiteSpaceEliminationStrategy = null,
+    rp_trybox: ?bool = null,
+    rp_desired_position: ?i32 = null,
+    rp_in_new_row: ?bool = null,
     // InternalProperties.MODEL_ORDER, set on ELK elements by the importer before copyProperties
     model_order: ?i32 = null,
     stress_fixed: ?bool = null,
@@ -235,6 +254,19 @@ pub const option_ids = [_]struct { []const u8, []const u8 }{
     .{ "org.eclipse.elk.radial.sorter", "radial_sorter" },
     .{ "org.eclipse.elk.radial.wedgeCriteria", "radial_wedge_criteria" },
     .{ "org.eclipse.elk.radial.optimizationCriteria", "radial_optimization_criteria" },
+    .{ "org.eclipse.elk.expandNodes", "expand_nodes" },
+    .{ "org.eclipse.elk.box.packingMode", "box_packing_mode" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.strategy", "rp_width_approximation_strategy" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.targetWidth", "rp_target_width" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.optimizationGoal", "rp_optimization_goal" },
+    .{ "org.eclipse.elk.rectpacking.widthApproximation.lastPlaceShift", "rp_last_place_shift" },
+    .{ "org.eclipse.elk.rectpacking.packing.strategy", "rp_packing_strategy" },
+    .{ "org.eclipse.elk.rectpacking.packing.compaction.rowHeightReevaluation", "rp_row_height_reevaluation" },
+    .{ "org.eclipse.elk.rectpacking.packing.compaction.iterations", "rp_compaction_iterations" },
+    .{ "org.eclipse.elk.rectpacking.whiteSpaceElimination.strategy", "rp_white_space_elimination" },
+    .{ "org.eclipse.elk.rectpacking.trybox", "rp_trybox" },
+    .{ "org.eclipse.elk.rectpacking.desiredPosition", "rp_desired_position" },
+    .{ "org.eclipse.elk.rectpacking.inNewRow", "rp_in_new_row" },
 };
 
 // Sets option `key` from its string form; unknown keys and unparsable values are ignored like elkjs does.

@@ -152,6 +152,10 @@ jobs:
             iterations: 150K
           - target: elk.radial
             iterations: 150K
+          - target: elk.box
+            iterations: 150K
+          - target: elk.rectpacking
+            iterations: 150K
           - target: font.parse
             iterations: 2M
           - target: image.decode

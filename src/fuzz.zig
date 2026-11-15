@@ -6,6 +6,8 @@ const elk_force_fuzz = @import("mermaid/elk/force/fuzz.zig");
 const elk_stress_fuzz = @import("mermaid/elk/stress/fuzz.zig");
 const spore_fuzz = @import("mermaid/elk/spore/fuzz.zig");
 const elk_radial_fuzz = @import("mermaid/elk/radial/fuzz.zig");
+const elk_box_fuzz = @import("mermaid/elk/box/fuzz.zig");
+const elk_rect_fuzz = @import("mermaid/elk/rectpacking/fuzz.zig");
 const font = @import("font/font.zig");
 const image = @import("image/image.zig");
 const fuzz_images = @import("image/fuzz_seeds.zig");
@@ -142,6 +144,14 @@ fn buildOne(_: void, smith: *std.testing.Smith) anyerror!void {
 
 test "fuzz html.Builder" {
     try std.testing.fuzz({}, buildOne, .{ .corpus = &html_corpus });
+}
+
+test "fuzz elk.box" {
+    try std.testing.fuzz({}, elk_box_fuzz.fuzzOne, .{ .corpus = &elk_box_fuzz.corpus });
+}
+
+test "fuzz elk.rectpacking" {
+    try std.testing.fuzz({}, elk_rect_fuzz.fuzzOne, .{ .corpus = &elk_rect_fuzz.corpus });
 }
 
 test "fuzz mermaid.elk" {

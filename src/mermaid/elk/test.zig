@@ -161,6 +161,12 @@ pub const Cmp = struct {
     }
 };
 
+fn isLayeredFixture(doc: Value) bool {
+    const opts = field(field(doc, "input") orelse return true, "layoutOptions") orelse return true;
+    const alg = field(opts, "elk.algorithm") orelse return true;
+    return alg == .string and std.mem.endsWith(u8, alg.string, "layered");
+}
+
 test "elk layout matches elkjs on the fixtures" {
     try checkFixtures("layered", layered.layout, 200);
 }
