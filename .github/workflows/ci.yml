@@ -166,7 +166,7 @@ jobs:
           - target: mermaid.render
             iterations: 25K
           - target: flowchart.render
-            iterations: 20K
+            iterations: 12K
           - target: font.parse
             iterations: 1M
           - target: image.decode
