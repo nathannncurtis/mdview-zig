@@ -2,7 +2,7 @@
 const std = @import("std");
 const lg = @import("../lgraph.zig");
 
-// java.util.PriorityQueue (binary heap); ties resolve by the heap's sift order, so it is ported as is
+// GWT java.util.PriorityQueue (binary heap); sift-down stops only on a strict win, so ties move down
 fn PriorityQueue(comptime Ctx: type) type {
     return struct {
         const Self = @This();
@@ -20,7 +20,7 @@ fn PriorityQueue(comptime Ctx: type) type {
             const q = self.heap.items;
             while (k > 0) {
                 const parent = (k - 1) >> 1;
-                if (self.cmp(e, q[parent]) >= 0) break;
+                if (self.cmp(q[parent], e) <= 0) break;
                 q[k] = q[parent];
                 k = parent;
             }
@@ -40,11 +40,11 @@ fn PriorityQueue(comptime Ctx: type) type {
                     var child = 2 * k + 1;
                     var c = q[child];
                     const right = child + 1;
-                    if (right < n and self.cmp(c, q[right]) > 0) {
+                    if (right < n and self.cmp(q[right], c) < 0) {
                         child = right;
                         c = q[child];
                     }
-                    if (self.cmp(x, c) <= 0) break;
+                    if (self.cmp(x, c) < 0) break;
                     q[k] = c;
                     k = child;
                 }
@@ -63,14 +63,16 @@ const SourceCtx = struct {
         const list_v = self.in_topo[@intCast(v.id)].items;
         var iu = list_u.len;
         var iv = list_v.len;
+        var consumed = false;
         while (iu > 0 and iv > 0) {
             iu -= 1;
             iv -= 1;
-            if (list_u[iu] != list_v[iv]) return if (list_u[iu] < list_v[iv]) -1 else 1;
+            consumed = true;
+            // elkjs compares the boxed Integers by reference: equal values above 127 are distinct objects
+            if (list_u[iu] != list_v[iv] or list_u[iu] > 127 or list_u[iu] < -128) return if (list_u[iu] < list_v[iv]) -1 else if (list_u[iu] > list_v[iv]) 1 else 0;
         }
-        if (iu == 0 and iv == 0) return 0;
-        if (iu == 0) return -1;
-        return 1;
+        // elkjs asks the iterators hasNext, which is true only for a list that was walked
+        return if (consumed) 1 else 0;
     }
 };
 

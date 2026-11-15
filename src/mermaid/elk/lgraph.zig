@@ -395,10 +395,8 @@ pub const LPort = struct {
         if (node) |o| try o.ports.append(self.a, self);
     }
 
-    // LPort.setSide also invalidates the node's cached side indices
     pub fn setSide(self: *LPort, s: PortSide) void {
         self.side = s;
-        if (self.owner) |o| o.port_sides_cached = false;
     }
 
     pub fn degree(self: *const LPort) usize {
@@ -491,6 +489,9 @@ pub const LNode = struct {
     margin: Margin = .{},
     padding: Margin = .{},
     port_sides_cached: bool = false,
+    side_first: [5]usize = @splat(0),
+    side_last: [5]usize = @splat(0),
+    side_has: [5]bool = @splat(false),
     p: Props = .{},
 
     pub fn init(a: Allocator, graph: ?*LGraph) Allocator.Error!*LNode {
@@ -523,15 +524,40 @@ pub const LNode = struct {
         unreachable;
     }
 
-    // ports on `side` as a view of `ports` (ELK keeps ports ordered by side); valid until `ports` changes
+    // ELK keeps the side index ranges from the last cachePortSides call even after the ports are reordered
+    pub fn cachePortSides(self: *LNode) void {
+        self.port_sides_cached = true;
+        self.findPortIndices();
+    }
+
+    fn findPortIndices(self: *LNode) void {
+        self.side_has = @splat(false);
+        var first: usize = 0;
+        var cur: PortSide = .north;
+        for (self.ports.items, 0..) |q, i| {
+            if (q.side != cur) {
+                if (first != i) self.setSideRange(cur, first, i);
+                cur = q.side;
+                first = i;
+            }
+        }
+        self.setSideRange(cur, first, self.ports.items.len);
+    }
+
+    fn setSideRange(self: *LNode, side: PortSide, first: usize, last: usize) void {
+        const k = @backingInt(side);
+        self.side_has[k] = true;
+        self.side_first[k] = first;
+        self.side_last[k] = last;
+    }
+
+    // valid until `ports` changes
     pub fn portSideView(self: *LNode, side: PortSide) []*LPort {
-        var first: usize = self.ports.items.len;
-        var last: usize = 0;
-        for (self.ports.items, 0..) |q, i| if (q.side == side) {
-            if (i < first) first = i;
-            last = i + 1;
-        };
-        if (first >= last) return self.ports.items[0..0];
+        if (!self.port_sides_cached) self.findPortIndices();
+        const k = @backingInt(side);
+        if (!self.side_has[k]) return self.ports.items[0..0];
+        const last = @min(self.side_last[k], self.ports.items.len);
+        const first = @min(self.side_first[k], last);
         return self.ports.items[first..last];
     }
 
