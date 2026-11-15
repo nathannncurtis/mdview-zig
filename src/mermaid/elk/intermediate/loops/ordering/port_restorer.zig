@@ -168,7 +168,6 @@ fn restore(r: *Restorer, h: *sl.SelfLoopHolder) lg.Error!void {
     const node = h.l_node;
     const old = try h.a.dupe(*lg.LPort, node.ports.items);
     node.ports.clearRetainingCapacity();
-    node.port_sides_cached = false;
     var next: usize = 0;
 
     try addAll(r, .north, .start, node);
