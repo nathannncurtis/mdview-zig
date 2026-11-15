@@ -6,13 +6,17 @@ const blocks = @import("blocks.zig");
 const yaml = @import("yaml.zig");
 const links = @import("links.zig");
 const html = @import("html.zig");
+const detect = @import("../math/detect.zig");
 
 pub const Link = links.Link;
 pub const Image = links.Image;
 
 pub const Definition = blocks.Definition;
 
-pub const BlockKind = enum { h1, h2, h3, h4, h5, h6, paragraph, code_block, hr, table, alert_title, error_box, diagram };
+/// Inline math: `start`/`len` cover the one object character it takes in the text; `display` sets it in display style.
+pub const MathSpan = struct { start: u32, len: u32, src: []const u8, display: bool };
+
+pub const BlockKind = enum { h1, h2, h3, h4, h5, h6, paragraph, code_block, hr, table, alert_title, error_box, diagram, math };
 
 pub const code_scale: f32 = 0.85;
 pub const code_radius: f32 = 6;
@@ -53,11 +57,17 @@ pub const Inline = struct {
     emoji: []const Span = &.{},
     links: []const Link = &.{},
     images: []const Image = &.{},
+    math: []const MathSpan = &.{},
     sup: []const Span = &.{},
     styles: []const Styled = &.{},
 
     pub fn linkAt(self: Inline, byte: u32) ?Link {
         for (self.links) |l| if (byte >= l.start and byte < l.start + l.len) return l;
+        return null;
+    }
+
+    pub fn mathAt(self: Inline, byte: u32) ?MathSpan {
+        for (self.math) |m| if (byte >= m.start and byte < m.start + m.len) return m;
         return null;
     }
 
@@ -314,6 +324,7 @@ const RawInline = struct {
     emoji: Range,
     links: Range,
     images: Range,
+    math: Range,
     sup: Range,
     styles: Range,
 };
@@ -379,6 +390,7 @@ const Parser = struct {
     emoji: std.ArrayList(Span) = .empty,
     links: std.ArrayList(Link) = .empty,
     images: std.ArrayList(Image) = .empty,
+    math: std.ArrayList(MathSpan) = .empty,
     sup: std.ArrayList(Span) = .empty,
     styles: std.ArrayList(Styled) = .empty,
     anchors: std.ArrayList(Anchor) = .empty,
@@ -395,6 +407,7 @@ const Parser = struct {
     tb: ?*TableBuild = null,
     cell_blocks: std.ArrayList([]const RawBlock) = .empty,
     html_used: bool = false,
+    in_cell: bool = false,
     html_ids: u32 = 0,
     ev_ctx: u32 = html.nil,
     run_ctx: u32 = html.nil,
@@ -577,6 +590,11 @@ const Parser = struct {
                 try p.text.appendSlice(p.a, body);
                 const content = p.textFrom(start);
                 const word = info[0 .. std.mem.indexOfAny(u8, info, " \t") orelse info.len];
+                if (node.fenced and std.mem.eql(u8, word, "math")) {
+                    try p.emit(.{ .kind = .math, .content = content });
+                    try p.leafClose(.pre, opened);
+                    return;
+                }
                 const lang_start = p.textLen();
                 try p.text.appendSlice(p.a, word);
                 const kind: BlockKind = if (node.fenced and std.mem.eql(u8, word, "mermaid")) .diagram else .code_block;
@@ -670,6 +688,12 @@ const Parser = struct {
             try src.append(p.work, '\n');
         }
         try p.join(src.items);
+        if (detect.displayBlock(p.joined.items)) |tex| {
+            const start = p.textLen();
+            try p.text.appendSlice(p.a, tex);
+            try p.emit(.{ .kind = .math, .content = p.textFrom(start), .compact = compact });
+            return;
+        }
         var text: []const u8 = p.joined.items;
         if (in_item and p.leads.items.len > 0 and text.len >= 4 and text[0] == '[' and text[2] == ']' and
             (text[1] == ' ' or text[1] == 'x' or text[1] == 'X') and (text[3] == ' ' or text[3] == '\n'))
@@ -865,6 +889,7 @@ const Parser = struct {
             .emoji = p.emoji.items[r.emoji.lo..r.emoji.hi],
             .links = p.links.items[r.links.lo..r.links.hi],
             .images = p.images.items[r.images.lo..r.images.hi],
+            .math = p.math.items[r.math.lo..r.math.hi],
             .sup = p.sup.items[r.sup.lo..r.sup.hi],
             .styles = p.styles.items[r.styles.lo..r.styles.hi],
         };
@@ -882,6 +907,7 @@ const Parser = struct {
         const em: u32 = @intCast(p.emoji.items.len);
         const l: u32 = @intCast(p.links.items.len);
         const im: u32 = @intCast(p.images.items.len);
+        const ma: u32 = @intCast(p.math.items.len);
         const su: u32 = @intCast(p.sup.items.len);
         const sy: u32 = @intCast(p.styles.items.len);
         return .{
@@ -893,6 +919,7 @@ const Parser = struct {
             .emoji = .{ .lo = em, .hi = em },
             .links = .{ .lo = l, .hi = l },
             .images = .{ .lo = im, .hi = im },
+            .math = .{ .lo = ma, .hi = ma },
             .sup = .{ .lo = su, .hi = su },
             .styles = .{ .lo = sy, .hi = sy },
         };
@@ -940,6 +967,8 @@ const Parser = struct {
                 if (raw[i] == '\\' and i + 1 < raw.len and raw[i + 1] == '|') i += 1;
                 try p.scratch.append(p.a, raw[i]);
             }
+            p.in_cell = true;
+            defer p.in_cell = false;
             try p.cells.append(p.work, try p.parseInline(p.scratch.items));
         }
     }
@@ -960,8 +989,11 @@ const Parser = struct {
         const Open = struct { kind: inl.Kind, pos: u32, url: []const u8, title: []const u8, alt: []const u8 };
         var stack: std.ArrayList(Open) = .empty;
         var copied: usize = 0;
+        const found = try detect.inlineSpans(ta, parsed.text, try mathSegs(ta, parsed));
+        var next_math: usize = 0;
         for (parsed.events) |ev| {
-            if (!p.hidden()) try f.put(parsed.text[copied..ev.pos]);
+            try p.putText(&f, parsed.text, &copied, ev.pos, found, &next_math);
+            if (ev.pos < copied) continue;
             copied = ev.pos;
             const at: u32 = @intCast(f.text.items.len);
             switch (ev.tag) {
@@ -998,9 +1030,36 @@ const Parser = struct {
                 .soft, .hard => {},
             }
         }
-        if (!p.hidden()) try f.put(parsed.text[copied..]);
+        try p.putText(&f, parsed.text, &copied, parsed.text.len, found, &next_math);
         if (p.html_used) try p.closeOpenSpans(&f);
         return p.commit(&f);
+    }
+
+    /// Copies `text[from.*..to]` into `f`; each formula found on the way becomes one object character.
+    fn putText(p: *Parser, f: *Frag, text: []const u8, from: *usize, to: usize, found: []const detect.Found, next: *usize) Allocator.Error!void {
+        while (next.* < found.len and found[next.*].start < to) : (next.* += 1) {
+            const m = found[next.*];
+            if (m.start >= from.*) {
+                if (!p.hidden()) try f.put(text[from.*..m.start]);
+                from.* = m.end;
+                if (p.hidden()) continue;
+                const at: u32 = @intCast(f.text.items.len);
+                try f.put(inl.object_char);
+                try f.math.append(f.a, .{ .start = at, .len = inl.object_char.len, .src = try p.mathSrc(m.src), .display = m.display });
+            }
+        }
+        if (from.* < to) {
+            if (!p.hidden()) try f.put(text[from.*..to]);
+            from.* = to;
+        }
+    }
+
+    // GitHub's table cells hand MathJax the source with each ampersand escaped twice.
+    fn mathSrc(p: *Parser, src: []const u8) Allocator.Error![]const u8 {
+        if (!p.in_cell or std.mem.indexOfScalar(u8, src, '&') == null) return p.a.dupe(u8, src);
+        var out: std.ArrayList(u8) = .empty;
+        for (src) |c| if (c == '&') try out.appendSlice(p.a, "&amp;") else try out.append(p.a, c);
+        return out.items;
     }
 
     // Elements still open at the end of the paragraph cover all of it, and go on covering the next one.
@@ -1434,6 +1493,7 @@ const Parser = struct {
         try p.styles.appendSlice(p.a, f.styles.items);
         try p.links.appendSlice(p.a, f.links.items);
         try p.images.appendSlice(p.a, f.images.items);
+        try p.math.appendSlice(p.a, f.math.items);
         return p.closeRange(r);
     }
 
@@ -1790,6 +1850,7 @@ const Parser = struct {
         r.emoji.hi = @intCast(p.emoji.items.len);
         r.links.hi = @intCast(p.links.items.len);
         r.images.hi = @intCast(p.images.items.len);
+        r.math.hi = @intCast(p.math.items.len);
         r.sup.hi = @intCast(p.sup.items.len);
         r.styles.hi = @intCast(p.styles.items.len);
         return r;
@@ -1927,6 +1988,7 @@ const Frag = struct {
     styles: std.ArrayList(Styled) = .empty,
     links: std.ArrayList(Link) = .empty,
     images: std.ArrayList(Image) = .empty,
+    math: std.ArrayList(MathSpan) = .empty,
     space: bool = false,
     any: bool = false,
     suppress: u32 = 0,
@@ -1946,6 +2008,7 @@ const Frag = struct {
         f.styles.clearRetainingCapacity();
         f.links.clearRetainingCapacity();
         f.images.clearRetainingCapacity();
+        f.math.clearRetainingCapacity();
         f.space = false;
         f.any = false;
     }
@@ -2005,11 +2068,81 @@ const Frag = struct {
         }
         f.styles.shrinkRetainingCapacity(w);
         for (f.links.items) |*l| l.len = @min(l.len, n -| l.start);
+        var m: usize = 0;
+        for (f.math.items) |ms| {
+            if (ms.start + ms.len > n) continue;
+            f.math.items[m] = ms;
+            m += 1;
+        }
+        f.math.shrinkRetainingCapacity(m);
     }
 };
 
 fn parserOf(h: *const inl.Hooks) *Parser {
     return @ptrCast(@alignCast(h.ctx.?));
+}
+
+/// The text runs of a parsed paragraph in the shape math detection reads: split at every tag, break and span edge, soft breaks aside.
+fn mathSegs(a: Allocator, parsed: inl.Parsed) Allocator.Error![]const detect.Seg {
+    var out: std.ArrayList(detect.Seg) = .empty;
+    var open: std.ArrayList(inl.Kind) = .empty;
+    var blocked: u32 = 0;
+    var tags: std.ArrayList([]const u8) = .empty;
+    var in_code = false;
+    var pos: u32 = 0;
+    for (parsed.events) |ev| {
+        if (ev.tag == .soft) continue;
+        if (ev.pos > pos) try out.append(a, .{ .start = pos, .end = ev.pos, .code = in_code, .scan = blocked == 0 });
+        pos = ev.pos;
+        switch (ev.tag) {
+            .open => {
+                try open.append(a, ev.kind);
+                switch (ev.kind) {
+                    .code => in_code = true,
+                    .em, .link, .image => blocked += 1,
+                    else => {},
+                }
+            },
+            .close => switch (open.pop() orelse continue) {
+                .code => in_code = false,
+                .em, .link, .image => blocked -|= 1,
+                else => {},
+            },
+            .hard => pos += 1,
+            .html => {
+                const raw = ev.raw;
+                const closing = raw.len > 2 and raw[1] == '/';
+                const name = tagName(raw[@min(raw.len, @as(usize, if (closing) 2 else 1))..]);
+                if (name.len == 0 or raw[raw.len - 1] != '>') continue;
+                const hides = !std.ascii.eqlIgnoreCase(name, "sup");
+                if (closing) {
+                    var i = tags.items.len;
+                    while (i > 0) : (i -= 1) if (std.ascii.eqlIgnoreCase(tags.items[i - 1], name)) {
+                        _ = tags.orderedRemove(i - 1);
+                        if (hides) blocked -|= 1;
+                        break;
+                    };
+                } else if (raw[raw.len - 2] != '/' and !isVoidTag(name)) {
+                    try tags.append(a, name);
+                    if (hides) blocked += 1;
+                }
+            },
+            else => {},
+        }
+    }
+    if (parsed.text.len > pos) try out.append(a, .{ .start = pos, .end = @intCast(parsed.text.len), .code = in_code, .scan = blocked == 0 });
+    return out.items;
+}
+
+fn tagName(s: []const u8) []const u8 {
+    var n: usize = 0;
+    while (n < s.len and std.ascii.isAlphanumeric(s[n])) n += 1;
+    return s[0..n];
+}
+
+fn isVoidTag(name: []const u8) bool {
+    for ([_][]const u8{ "br", "img", "hr", "wbr", "input", "source", "area", "base", "col", "embed", "link", "meta", "param", "track" }) |v| if (std.ascii.eqlIgnoreCase(name, v)) return true;
+    return false;
 }
 
 fn linkHook(h: *const inl.Hooks, a: Allocator, src: []const u8, text_start: usize, close: usize, image: bool) Allocator.Error!?inl.LinkMatch {
@@ -3138,4 +3271,117 @@ test "html: unclosed elements and deep nesting are bounded" {
     var nested = try parseTest(tables.items);
     defer nested.deinit();
     try testing.expectEqual(BlockKind.table, nested.blocks[0].kind);
+}
+
+fn expectMath(src: []const u8, want: []const []const u8) !void {
+    var doc = try parse(testing.allocator, src);
+    defer doc.deinit();
+    var got: std.ArrayList([]const u8) = .empty;
+    defer got.deinit(testing.allocator);
+    for (doc.blocks) |b| {
+        for (b.content.math) |m| try got.append(testing.allocator, m.src);
+        for (b.table.cells) |c| for (c.math) |m| try got.append(testing.allocator, m.src);
+    }
+    try testing.expectEqual(want.len, got.items.len);
+    for (want, got.items) |w, g| try testing.expectEqualStrings(w, g);
+}
+
+test "math: inline dollars become one object character" {
+    var doc = try parse(testing.allocator, "Inline $x^2$ here and $$y = mx + b$$ there");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqualStrings("Inline \u{fffc} here and \u{fffc} there", c.text);
+    try testing.expectEqual(@as(usize, 2), c.math.len);
+    try testing.expectEqualStrings("x^2", c.math[0].src);
+    try testing.expect(!c.math[0].display);
+    try testing.expectEqualStrings("y = mx + b", c.math[1].src);
+    try testing.expect(c.math[1].display);
+    try testing.expect(c.mathAt(c.math[0].start) != null);
+    try testing.expectEqual(@as(u32, 7), c.math[0].start);
+}
+
+test "math: delimiter rules over parsed text" {
+    try expectMath("Costs $5 and $10 each.", &.{});
+    try expectMath("Costs $5 and then x$ y $z.", &.{"5 and then x"});
+    try expectMath("a$x$ 5$x$ \"$x$\" -$x$", &.{});
+    try expectMath("$x$, $x$: ($x$) $x$. $x$'s", &.{ "x", "x", "x", "x", "x" });
+    try expectMath("$x$y $x$5", &.{});
+    try expectMath("$ x $ $x $ $ x$ $ $", &.{});
+    try expectMath("text $$ a $$ text $$$$ $$ $$", &.{});
+    try expectMath("$a$b$ c", &.{});
+}
+
+test "math: the backtick form" {
+    var doc = try parse(testing.allocator, "see $`a_b*c*`$ now");
+    defer doc.deinit();
+    const c = doc.blocks[0].content;
+    try testing.expectEqualStrings("see \u{fffc} now", c.text);
+    try testing.expectEqualStrings("a_b*c*", c.math[0].src);
+    try testing.expectEqual(@as(usize, 0), c.code.len);
+    try expectMath("$`x`$y", &.{});
+    try expectMath("y$`x`$", &.{});
+    try expectMath("($`x`$)", &.{"x"});
+    try expectMath("`$x$`", &.{});
+}
+
+test "math: Markdown escapes are resolved before the dollars are read" {
+    try expectMath("\\$x\\$", &.{"x"});
+    try expectMath("$\\$5$", &.{});
+    try expectMath("$a\\$b$", &.{});
+    try expectMath("$a\\{b\\}$", &.{"a{b}"});
+    try expectMath("$x\\_y$", &.{"x_y"});
+    try expectMath("$a_\\*b$", &.{"a_*b"});
+    try expectMath("$\\frac{1$", &.{"\\frac{1"});
+    try expectMath("$\\undefinedcmd x$", &.{"\\undefinedcmd x"});
+    try expectMath("\\[ x \\] \\( y \\) \\begin{align}", &.{});
+}
+
+test "math: emphasis and links hide math, strong and strike do not" {
+    try expectMath("$a_1 *emph* b$", &.{});
+    try expectMath("$a*b$ then $c*d$", &.{});
+    try expectMath("*$a$* _$b$_", &.{});
+    try expectMath("**$i$ j**", &.{"i"});
+    try expectMath("~~$c$~~", &.{"c"});
+    try expectMath("[l $m$](url) <https://example.org/$x$>", &.{});
+    try expectMath("<sup>$j$</sup>", &.{"j"});
+    try expectMath("<b>bold $i$</b> <em>$e$</em> <span>$s$</span> after $k$", &.{"k"});
+    try expectMath("<br> $a$ <img src=\"x.png\"> $b$", &.{ "a", "b" });
+    try expectMath("<div>$h$</div>", &.{});
+}
+
+test "math: headings, quotes, lists and table cells" {
+    try expectMath("# Head $x$\n\n> quote $y$\n\n- item $z$\n", &.{ "x", "y", "z" });
+    try expectMath("| a | b |\\n|---|---|\\n| $x$ | $a\\|b$ |\\n", &.{ "x", "a|b" });
+    try expectMath("| a |\n|---|\n| $a&b$ |\n", &.{"a&amp;b"});
+}
+
+test "math: a paragraph that is exactly double dollars is a display block" {
+    for ([_][]const u8{ "$$x^2$$", "$$\nx^2\n$$", "$$ x^2 $$", "- $$x^2$$", "> $$\n> x^2\n> $$" }) |src| {
+        var doc = try parse(testing.allocator, src);
+        defer doc.deinit();
+        try testing.expectEqual(BlockKind.math, doc.blocks[0].kind);
+        try testing.expectEqualStrings("x^2", doc.blocks[0].content.text);
+    }
+    var doc = try parse(testing.allocator, "$$x$$ trailing\n\nlead $$y$$\n\n$$a\n\nb$$\n");
+    defer doc.deinit();
+    for (doc.blocks) |b| try testing.expect(b.kind != .math);
+    try testing.expectEqual(@as(usize, 1), doc.blocks[0].content.math.len);
+    try testing.expect(doc.blocks[0].content.math[0].display);
+    try testing.expectEqual(@as(usize, 1), doc.blocks[1].content.math.len);
+    try testing.expectEqual(@as(usize, 0), doc.blocks[2].content.math.len);
+}
+
+test "math: fences with the info word math" {
+    for ([_][]const u8{ "```math\nx^2\n```\n", "~~~math\nx^2\n~~~\n", "```math foo\nx^2\n```\n" }) |src| {
+        var doc = try parse(testing.allocator, src);
+        defer doc.deinit();
+        try testing.expectEqual(BlockKind.math, doc.blocks[0].kind);
+        try testing.expectEqualStrings("x^2\n", doc.blocks[0].content.text);
+    }
+    for ([_][]const u8{ "```Math\nx\n```\n", "    $$x$$\n", "`$$x$$`" }) |src| {
+        var doc = try parse(testing.allocator, src);
+        defer doc.deinit();
+        try testing.expect(doc.blocks[0].kind != .math);
+        try testing.expectEqual(@as(usize, 0), doc.blocks[0].content.math.len);
+    }
 }

@@ -213,6 +213,19 @@ pub fn cutFrom(content: md.Inline, from: u32) ?md.Inline {
         n += 1;
     }
     out.images = images[0..n];
+
+    const maths = a.alloc(md.MathSpan, content.math.len) catch return null;
+    n = 0;
+    for (content.math) |m| {
+        const end = m.start + m.len;
+        if (end <= from) continue;
+        const start = @max(m.start, from);
+        maths[n] = m;
+        maths[n].start = start - from;
+        maths[n].len = end - start;
+        n += 1;
+    }
+    out.math = maths[0..n];
     return out;
 }
 

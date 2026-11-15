@@ -26,6 +26,8 @@ const WM_SIZE: u32 = 0x0005;
 const WM_PAINT: u32 = 0x000F;
 const WM_KEYDOWN: u32 = 0x0100;
 const WM_MOUSEWHEEL: u32 = 0x020A;
+const WM_MOUSEHWHEEL: u32 = 0x020E;
+const VK_SHIFT: i32 = 0x10;
 const WM_NCHITTEST: u32 = 0x0084;
 const WM_SETCURSOR: u32 = 0x0020;
 const WM_MOUSEMOVE: u32 = 0x0200;
@@ -466,7 +468,7 @@ const inline_object_vtable = InlineObject_VTable{
     .GetBreakConditions = objectBreaks,
 };
 
-const ImageKind = enum(u32) { pending, picture, broken };
+const ImageKind = enum(u32) { pending, picture, broken, math };
 
 /// Width of the broken image glyph with its gap to the alt text that follows, and its height.
 const broken_w: f32 = 18;
@@ -478,7 +480,13 @@ const ImageObject = extern struct {
     w: f32,
     h: f32,
     kind: ImageKind,
-    image: *const md.Image,
+    image: ?*const md.Image,
+    /// Distance from the top of the object to the text baseline it sits on.
+    baseline: f32 = 0,
+    math: ?*const md.MathSpan = null,
+    size: f32 = 0,
+    /// Full width of a formula wider than the line, which scrolls inside `w`.
+    math_w: f32 = 0,
 };
 
 var g_objects: ?std.heap.ArenaAllocator = null;
@@ -502,7 +510,7 @@ fn objectDraw(_: *anyopaque, _: ?*anyopaque, _: *anyopaque, _: f32, _: f32, _: B
 }
 fn objectMetrics(self: *anyopaque, out: *DWRITE_INLINE_OBJECT_METRICS) callconv(.c) HRESULT {
     const obj: *const ImageObject = @ptrCast(@alignCast(self));
-    out.* = .{ .width = obj.w, .height = obj.h, .baseline = obj.h, .supports_sideways = 0 };
+    out.* = .{ .width = obj.w, .height = obj.h, .baseline = if (obj.kind == .math) obj.baseline else obj.h, .supports_sideways = 0 };
     return 0;
 }
 fn objectOverhang(_: *anyopaque, out: *DWRITE_OVERHANG_METRICS) callconv(.c) HRESULT {
@@ -536,6 +544,21 @@ fn imageObject(im: *const md.Image, max_width: f32) ?*ImageObject {
     return obj;
 }
 
+fn mathObject(m: *const md.MathSpan, size: f32, max_width: f32) ?*ImageObject {
+    if (g_objects == null) g_objects = .init(app.gpa);
+    const look = app.math.look(m.src, m.display, size) orelse return null;
+    const obj = g_objects.?.allocator().create(ImageObject) catch return null;
+    obj.* = .{ .w = @min(look.w, max_width), .h = look.ascent + look.descent, .kind = .math, .image = null, .baseline = look.ascent, .math = m, .size = size, .math_w = look.w };
+    return obj;
+}
+
+const text_rgb: u24 = 0xc9d1d9;
+const muted_rgb: u24 = 0x8b949e;
+
+pub fn brushRgb(brush: *anyopaque) u24 {
+    return if (brush == g_brush_quote) muted_rgb else text_rgb;
+}
+
 /// The size an `<img width height>` asks for; the natural size is what `look` reports for an unbounded width.
 fn sizedImage(im: *const md.Image, max_width: f32) ?app.images.Size {
     const natural = switch (app.images.look(im.target, std.math.floatMax(f32))) {
@@ -552,8 +575,15 @@ fn drawImageObject(dc: *const DrawContext, obj: *const ImageObject, x: f32, y: f
     switch (obj.kind) {
         .pending => {},
         .picture => {
-            const bm = app.images.bitmap(obj.image.target, .{ .w = obj.w, .h = obj.h }) orelse return;
+            const bm = app.images.bitmap((obj.image orelse return).target, .{ .w = obj.w, .h = obj.h }) orelse return;
             vt_rt.DrawBitmap(dc.rt, bm.native, &.{ .left = x, .top = y, .right = x + obj.w, .bottom = y + obj.h }, 1, 1, null);
+        },
+        .math => {
+            const m = obj.math orelse return;
+            const key = @intFromPtr(m.src.ptr);
+            const max = obj.math_w - obj.w;
+            if (max > 0) app.noteMathBlock(.{ .x = x, .y = y, .w = obj.w, .h = obj.h }, key, max);
+            drawMathPieces(vt_rt, dc.rt, m.src, m.display, obj.size, brushRgb(dc.brush), x, x + obj.w, x - app.mathOffset(key) + app.math.pad_x, y, obj.h);
         },
         .broken => {
             if (app.images.brokenIcon()) |icon| {
@@ -827,7 +857,7 @@ fn drawCodeBackgrounds(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyop
 pub fn drawLayout(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, lay: *anyopaque, x: f32, y: f32, brush: *anyopaque, content: md.Inline) void {
     if (content.code.len > 0) drawCodeBackgrounds(vt_rt, rt, lay, x, y, content);
     if (content.styles.len > 0) html.drawStyleBackgrounds(vt_rt, rt, lay, x, y, content);
-    if (content.sup.len == 0 and content.images.len == 0 and !html.hasStyle(content, .sub)) {
+    if (content.sup.len == 0 and content.images.len == 0 and content.math.len == 0 and !html.hasStyle(content, .sub)) {
         vt_rt.DrawTextLayout(rt, .{ .x = x, .y = y }, lay, brush, draw_color_font);
         return;
     }
@@ -1429,6 +1459,10 @@ pub fn createLayout(vt_dw: *const IDWriteFactory_VTable, dwf: *anyopaque, conten
         const obj = imageObject(im, max_width) orelse continue;
         _ = vt_layout.SetInlineObject(lay, obj, wideRange(content.text, .{ im.start, im.len }));
     }
+    for (content.math) |*m| {
+        const obj = mathObject(m, baseFontSize(text_format), max_width) orelse continue;
+        _ = vt_layout.SetInlineObject(lay, obj, wideRange(content.text, .{ m.start, m.len }));
+    }
     return lay;
 }
 
@@ -1451,6 +1485,38 @@ fn padCodeSpans(lay: *anyopaque, content: md.Inline, font_size: f32) void {
 pub fn wideRange(text: []const u8, span: md.Span) DWRITE_TEXT_RANGE {
     const start = md.utf16Offset(text, span[0]);
     return .{ .startPosition = start, .length = md.utf16Offset(text, span[0] + span[1]) - start };
+}
+
+/// A display formula: centred in the column with 6px above and below, or pinned left and scrolled sideways when wider than it.
+pub fn renderMathBlock(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, src: []const u8, rgb: u24, x: f32, y: f32, w: f32, draw: bool) f32 {
+    const look = app.math.look(src, true, 16) orelse return 0;
+    const h = app.math.displayHeight(look);
+    if (!draw) return h;
+    const key = @intFromPtr(src.ptr);
+    const max = app.math.maxScroll(w, look.w);
+    app.noteMathBlock(.{ .x = x, .y = y, .w = w, .h = h }, key, max);
+    if (y + h - app.scroll_y < 0 or y - app.scroll_y > app.window_height) return h;
+    const left = x + app.math.displayX(w, look.w, app.mathOffset(key)) + app.math.pad_x;
+    drawMathPieces(vt_rt, rt, src, true, 16, rgb, x, x + w, left, y + app.math.pad_y, look.ascent + look.descent);
+    return h;
+}
+
+/// Draws the tiles of a formula whose bitmap starts at `left`, showing only `vl..vr`.
+fn drawMathPieces(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, src: []const u8, display: bool, size: f32, rgb: u24, vl: f32, vr: f32, left: f32, top: f32, h: f32) void {
+    var out: [app.math.max_tiles]app.math.Piece = undefined;
+    for (app.math.pieces(src, display, size, rgb, vl - left, vr - left, &out)) |p| {
+        const at = left + p.x;
+        const l = @max(vl, at);
+        const r = @min(vr, at + p.w);
+        if (r <= l) continue;
+        const k = @as(f32, @floatFromInt(p.px_w)) / p.w;
+        vt_rt.DrawBitmap(rt, p.native, &.{ .left = l, .top = top, .right = r, .bottom = top + h }, 1, 1, &.{
+            .left = (l - at) * k,
+            .top = 0,
+            .right = (r - at) * k,
+            .bottom = @floatFromInt(p.px_h),
+        });
+    }
 }
 
 pub fn renderCodeBlock(vt_rt: *const ID2D1RT_VTable, vt_dw: *const IDWriteFactory_VTable, rt: *anyopaque, dwf: *anyopaque, text: []const u8, toks: []const hl.Token, x: f32, y: f32, max_width: f32, draw: bool) f32 {
@@ -1561,11 +1627,18 @@ fn wndProc(hwnd: HWND, msg: u32, wParam: WPARAM, lParam: LPARAM) callconv(.c) LR
             const wp: usize = @bitCast(wParam);
             const raw: i16 = @bitCast(@as(u16, @truncate(wp >> 16)));
             const delta: f32 = @floatFromInt(raw);
+            if ((@as(u16, @bitCast(GetKeyState(VK_SHIFT))) & 0x8000) != 0 and app.scrollMath(-delta / 120.0 * 60.0)) return 0;
             app.scroll_y -= delta / 120.0 * 60.0;
             if (app.scroll_y < 0) app.scroll_y = 0;
             const max_scroll = app.content_height - app.window_height + 40;
             if (max_scroll > 0 and app.scroll_y > max_scroll) app.scroll_y = max_scroll;
             _ = InvalidateRect(hwnd, null, 0);
+            return 0;
+        },
+        WM_MOUSEHWHEEL => {
+            const wp: usize = @bitCast(wParam);
+            const raw: i16 = @bitCast(@as(u16, @truncate(wp >> 16)));
+            _ = app.scrollMath(@as(f32, @floatFromInt(raw)) / 120.0 * 60.0);
             return 0;
         },
         WM_MOUSEMOVE => {
@@ -1914,6 +1987,75 @@ test "a loaded image is drawn through Direct2D and its bitmap is cached" {
     const bm = app.images.bitmap("wide.png", .{ .w = 220, .h = 110 }) orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(u32, 400), bm.w);
     try testing.expectEqual(@as(u32, 200), bm.h);
+}
+
+fn mathLine(src: []const u8) !struct { line: DWRITE_LINE_METRICS, look: app.math.Look } {
+    var doc = try md.parse(testing.allocator, src);
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    try testing.expectEqual(@as(usize, 1), content.math.len);
+    const m = content.math[0];
+    const look = app.math.look(m.src, m.display, 16) orelse return error.TestUnexpectedResult;
+    const dwf = g_dwrite_factory.?;
+    const lay = createLayout(vtable(IDWriteFactory_VTable, dwf), dwf, content, g_text_format.?, 600) orelse return error.TestUnexpectedResult;
+    defer _ = vtable(IDWriteTextLayout_VTable, lay).Release(lay);
+    // SAFETY: written by GetLineMetrics
+    var lines: [4]DWRITE_LINE_METRICS = undefined;
+    var n: u32 = 0;
+    _ = vtable(IDWriteTextLayout_VTable, lay).GetLineMetrics(lay, &lines, 4, &n);
+    try testing.expectEqual(@as(u32, 1), n);
+    return .{ .line = lines[0], .look = look };
+}
+
+test "inline math sits on the text baseline with its depth below it" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.dpi_scale = 1;
+    defer app.math.reset();
+    defer resetObjects();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    const r = try mathLine("a $\\frac{a}{b}$ b");
+    try testing.expect(r.look.descent > 1);
+    try testing.expect(r.line.baseline + 0.5 >= r.look.ascent);
+    try testing.expect(r.line.baseline < r.look.ascent + r.look.descent - 1);
+    try testing.expect(r.line.height - r.line.baseline + 0.5 >= r.look.descent);
+    const plain = try mathLine("a $x$ b");
+    try testing.expect(plain.look.descent < 0.5);
+    try testing.expect(r.line.height > plain.line.height);
+}
+
+test "an inline formula wider than the line is cut to the line and scrolls" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.dpi_scale = 1;
+    defer app.math.reset();
+    defer resetObjects();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    var doc = try md.parse(testing.allocator, "$x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x+x$");
+    defer doc.deinit();
+    const content = doc.blocks[0].content;
+    const look = app.math.look(content.math[0].src, false, 16).?;
+    try testing.expect(look.w > 300);
+    try testing.expect(layoutSize(content, 200).width <= 200.5);
+    try testing.expect(layoutSize(content, 2000).width >= look.w - 0.5);
+}
+
+test "a display formula takes its height plus 6px above and below" {
+    app.gpa = testing.allocator;
+    app.images.init(testing.allocator, testing.io);
+    app.images.dpi_scale = 1;
+    defer app.math.reset();
+    _ = CoInitializeEx(null, 0x2);
+    initD2D();
+    const hwnd = CreateWindowExW(0, L("STATIC"), L("t"), WS_POPUP, 0, 0, 300, 200, null, null, null, null) orelse return error.NoWindow;
+    defer _ = DestroyWindow(hwnd);
+    createRenderTarget(hwnd);
+    const rt = g_render_target orelse return error.TestUnexpectedResult;
+    const look = app.math.look("\\sum_{i=1}^n i", true, 16) orelse return error.TestUnexpectedResult;
+    const h = renderMathBlock(vtable(ID2D1RT_VTable, rt), rt, "\\sum_{i=1}^n i", text_rgb, 0, 0, 400, false);
+    try testing.expectApproxEqAbs(look.ascent + look.descent + 12, h, 0.001);
 }
 
 test "the view matrix scales layout units to device pixels" {
