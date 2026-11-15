@@ -4,16 +4,14 @@ const eg = @import("elk_graph.zig");
 const layered = @import("layered.zig");
 const geo = @import("geometry.zig");
 const lg = @import("lgraph.zig");
-const hops = @import("line_hops.zig");
 
-const P = geo.P;
-const Rect = geo.Rect;
+pub const P = geo.P;
+pub const Rect = geo.Rect;
 
 pub const Error = lg.Error || error{UnknownNode};
 
 pub const elkMessage = lg.elkMessage;
 
-pub const LineHops = enum { off, arc, gap };
 
 pub const Dir = enum { tb, td, bt, lr, rl };
 
@@ -35,9 +33,20 @@ pub const Node = struct {
     skip_center_points: bool = false,
     intersect: ?geo.Intersect = null,
     outline: Outline = .none,
+    hook: ?Hook = null,
 };
 
 pub const Outline = enum { none, rect, diamond, circle };
+
+/// A shape's own outline: where the line from the node centre to `p` leaves the shape, for a node of the given size and centre.
+pub const Hook = struct { ctx: *anyopaque, f: *const fn (ctx: *anyopaque, node: Rect, p: P) ?P };
+
+const HookCall = struct { rect: Rect, hook: Hook };
+
+fn hookCall(ctx: *anyopaque, p: P) ?P {
+    const hc: *HookCall = @ptrCast(@alignCast(ctx));
+    return hc.hook.f(hc.hook.ctx, hc.rect, p);
+}
 
 pub const Edge = struct {
     id: []const u8,
@@ -97,11 +106,11 @@ pub const Algorithm = enum {
 };
 
 pub const Config = struct {
+    deadline: ?lg.Deadline = null,
     algorithm: Algorithm = .layered,
     direction: Dir = .tb,
     straighten_edges: bool = true,
     orient_feedback_edges: bool = true,
-    line_hops: LineHops = .arc,
     elk: ElkConfig = .{},
 };
 
@@ -112,7 +121,6 @@ pub const EdgeOut = struct {
     has_label_pos: bool,
     x: f64,
     y: f64,
-    hop_path: ?[]const u8 = null,
     rounded: bool = true,
 };
 
@@ -212,8 +220,13 @@ const State = struct {
     fn isect(self: *const State, i: usize, tmp: *Rect) ?geo.Intersect {
         const n = self.nodes[i];
         if (n.intersect) |f| return f;
-        if (n.outline == .none) return null;
+        if (n.outline == .none and n.hook == null) return null;
         tmp.* = .{ .x = self.x[i], .y = self.y[i], .width = self.w[i], .height = self.h[i] };
+        if (n.hook) |h| {
+            const hc = self.a.create(HookCall) catch return null;
+            hc.* = .{ .rect = tmp.*, .hook = h };
+            return .{ .ctx = hc, .f = hookCall };
+        }
         return .{ .ctx = tmp, .f = switch (n.outline) {
             .rect => rectIntersect,
             .diamond => diamondIntersect,
@@ -453,6 +466,8 @@ fn setIncludeChildren(st: *State, i: usize, anc: ?usize) Allocator.Error!void {
 }
 
 pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Config) Error!Result {
+    lg.deadline = cfg.deadline;
+    defer lg.deadline = null;
     const n = nodes.len;
     var st: State = .{
         .a = a,
@@ -567,7 +582,6 @@ pub fn layout(a: Allocator, nodes: []const Node, edges: []const Edge, cfg: Confi
 
     const res: Result = .{ .nodes = try a.alloc(NodeOut, n), .edges = try a.alloc(EdgeOut, edges.len), .warnings = st.warnings.items };
     try applyEdgeLayout(&st, cfg, res.edges);
-    if (cfg.line_hops != .off) try applyLineHops(&st, res.edges, cfg.line_hops);
     for (0..n) |i| res.nodes[i] = .{ .x = st.x[i], .y = st.y[i], .width = st.w[i], .height = st.h[i] };
     return res;
 }
@@ -758,15 +772,6 @@ fn applyEdgeLayout(st: *State, cfg: Config, out: []EdgeOut) Error!void {
             .rounded = st.elk_edges[k].sections.items.len > 0,
         };
     }
-}
-
-fn applyLineHops(st: *State, out: []EdgeOut, mode: LineHops) Error!void {
-    const a = st.a;
-    const geoms = try a.alloc(hops.EdgeGeom, out.len);
-    for (out, st.edges, geoms) |o, e, *g| {
-        g.* = .{ .id = e.id, .points = o.points, .rounded = o.rounded, .marker_start = markerPathOffset(e.arrow_type_start), .marker_end = markerPathOffset(e.arrow_type_end) };
-    }
-    for (try hops.apply(a, geoms, if (mode == .gap) .gap else .arc)) |r| out[r.index].hop_path = r.d;
 }
 
 fn alignDegenerate(st: *State, i: usize, anchor: P, aligned: *std.AutoHashMap(usize, void)) Error!void {

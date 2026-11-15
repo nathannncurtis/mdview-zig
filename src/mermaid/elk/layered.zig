@@ -358,6 +358,7 @@ fn endLabelPreprocessor(g: *lg.LGraph) void {
 }
 
 fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
+    try lg.checkDeadline();
     switch (p) {
         .phase => |ph| switch (ph) {
             .p1_cycle_breaking => switch (g.p.cycle_breaking) {

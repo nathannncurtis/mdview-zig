@@ -8,7 +8,9 @@ const nodes_mod = @import("../render/nodes.zig");
 const edges_mod = @import("../render/edges.zig");
 const markers = @import("../render/markers.zig");
 const dagre = @import("../dagre/layout.zig");
-const layout_mod = @import("../layout.zig");
+const elk = @import("../elk/mermaid.zig");
+const line_jump = @import("../render/line_jump.zig");
+const intersect_mod = @import("../render/intersect.zig");
 const Allocator = std.mem.Allocator;
 const El = dom.El;
 const NodeData = model.NodeData;
@@ -366,7 +368,7 @@ pub const Renderer = struct {
         const off = tm / 2;
         for (try getEdgesToRender(al, g, off)) |seg| {
             for (seg.edge.points) |*p| p.y += off;
-            const paths = try edges_mod.insertEdge(self.ctx, edge_paths, seg.edge, .{ .ctx = &self.st, .getFn = clusterGet }, self.diagram_type, g.node(seg.start).?, g.node(seg.end).?, self.id);
+            const paths = try edges_mod.insertEdge(self.ctx, edge_paths, seg.edge, .{ .ctx = &self.st, .getFn = clusterGet }, self.diagram_type, g.node(seg.start).?, g.node(seg.end).?, self.id, false);
             try edges_mod.positionEdgeLabel(self.ctx, seg.edge, paths);
         }
 
@@ -619,8 +621,173 @@ fn renderFlat(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
         for (edge.points) |*p| p.y += off;
         const sn = g.node(edge.start) orelse continue;
         const en = g.node(edge.end) orelse continue;
-        const paths = try edges_mod.insertEdge(ctx, edge_paths, edge, .{ .ctx = &r.st, .getFn = clusterGet }, r.diagram_type, sn, en, r.id);
+        const paths = try edges_mod.insertEdge(ctx, edge_paths, edge, .{ .ctx = &r.st, .getFn = clusterGet }, r.diagram_type, sn, en, r.id, false);
         if (hasLabel(edge)) try edges_mod.positionEdgeLabel(ctx, edge, paths);
+    }
+}
+
+fn elkDir(d: ?[]const u8) ?elk.Dir {
+    const s = d orelse return null;
+    if (std.mem.eql(u8, s, "LR")) return .lr;
+    if (std.mem.eql(u8, s, "RL")) return .rl;
+    if (std.mem.eql(u8, s, "BT")) return .bt;
+    if (std.mem.eql(u8, s, "TD")) return .td;
+    if (std.mem.eql(u8, s, "TB")) return .tb;
+    return null;
+}
+
+fn outlineHook(node_ptr: *anyopaque, c: elk.Rect, p: elk.P) ?elk.P {
+    const node: *const NodeData = @ptrCast(@alignCast(node_ptr));
+    var at = node.*;
+    at.x = c.x;
+    at.y = c.y;
+    at.width = c.width;
+    at.height = c.height;
+    const q = intersect_mod.intersectNode(&at, .{ .x = p.x, .y = p.y });
+    return .{ .x = q.x, .y = q.y };
+}
+
+fn noCluster(_: *anyopaque, _: []const u8) ?edges_mod.ClusterEntry {
+    return null;
+}
+
+fn groupDepth(by_id: *const std.StringHashMapUnmanaged(*NodeData), n: *const NodeData) usize {
+    var depth: usize = 0;
+    var cur = n.parent_id;
+    while (cur) |id| : (depth += 1) {
+        if (depth > 64) break;
+        const parent = by_id.get(id) orelse break;
+        if (!parent.is_group) break;
+        cur = parent.parent_id;
+    }
+    return depth;
+}
+
+fn paintsBefore(by_id: *const std.StringHashMapUnmanaged(*NodeData), a: *const NodeData, b: *const NodeData) bool {
+    if (a.is_group != b.is_group) return a.is_group;
+    if (a.is_group) return groupDepth(by_id, a) < groupDepth(by_id, b);
+    return false;
+}
+
+fn renderElk(r: *Renderer, root: *El, data: *model.LayoutData) Error!void {
+    const al = r.a();
+    const ctx = r.ctx;
+    const elem = try root.insert("g");
+    try elem.setAttr("class", "root");
+    const clusters_g = try elem.insert("g");
+    try clusters_g.setAttr("class", "clusters");
+    const edge_paths = try elem.insert("g");
+    try edge_paths.setAttr("class", "edges edgePaths");
+    const edge_labels = try elem.insert("g");
+    try edge_labels.setAttr("class", "edgeLabels");
+    const nodes_g = try elem.insert("g");
+    try nodes_g.setAttr("class", "nodes");
+
+    var by_id: std.StringHashMapUnmanaged(*NodeData) = .empty;
+    const nodes = try al.alloc(*NodeData, data.nodes.len);
+    for (data.nodes, nodes) |n0, *slot| {
+        var n = n0;
+        n.dom_id = try std.fmt.allocPrint(al, "{s}-{s}", .{ data.diagram_id, n0.dom_id orelse n0.id });
+        slot.* = try copyNode(al, n);
+        try by_id.put(al, slot.*.id, slot.*);
+    }
+    for (nodes) |node| {
+        if (node.is_group) {
+            const unwrap = !std.mem.eql(u8, node.label_type, "markdown");
+            if (unwrap) node.wrapping_width = std.math.inf(f64);
+            const h = try shape_util.labelHelper(ctx, nodes_g, node, null);
+            node.wrapping_width = null;
+            node.label_bbox = .{ .x = 0, .y = 0, .w = if (node.label != null) h.w else 0, .h = if (node.label != null) h.h else 0 };
+            h.shape.detach();
+        } else {
+            const el = try nodes_mod.insertNode(ctx, nodes_g, node, .{ .dir = resolveDir(&by_id, node, data.direction) });
+            if (el.bbox()) |b| {
+                node.width = dom.r32(b.w);
+                node.height = dom.r32(b.h);
+            }
+        }
+    }
+    const edges = try al.alloc(*EdgeData, data.edges.len);
+    for (data.edges, edges) |e0, *slot| {
+        slot.* = try copyEdge(al, e0);
+        if (hasLabel(slot.*)) try edges_mod.insertEdgeLabel(ctx, edge_labels, slot.*);
+    }
+
+    const gn = try al.alloc(elk.Node, nodes.len);
+    for (nodes, gn) |n, *o| o.* = .{
+        .id = n.id,
+        .parent_id = n.parent_id,
+        .is_group = n.is_group,
+        .width = n.width,
+        .height = n.height,
+        .label_text = if (n.is_group) n.label orelse "" else "",
+        .label_w = if (n.label_bbox) |b| b.w else 0,
+        // shortcut: references show Mermaid hands ELK a one-line group title 22px tall against the 24px label box; multi-line titles are assumed to lose the same 2px
+        .label_h = if (n.label_bbox) |b| @max(0, b.h - 2) else 0,
+        .padding = n.padding orelse ctx.cfg.padding,
+        .dir = if (n.is_group) elkDir(n.dir) else null,
+        .hook = if (!n.is_group and n.intersect != null) .{ .ctx = n, .f = outlineHook } else null,
+    };
+    const ge = try al.alloc(elk.Edge, edges.len);
+    for (edges, ge) |e, *o| o.* = .{
+        .id = e.id,
+        .start = e.start,
+        .end = e.end,
+        .label_text = if (hasLabel(e)) e.label.? else "",
+        .label_w = e.width,
+        .label_h = e.height,
+        .arrow_type_start = e.arrow_type_start,
+        .arrow_type_end = e.arrow_type_end,
+    };
+    var cfg = ctx.cfg.elk;
+    cfg.direction = elkDir(data.direction) orelse .tb;
+    if (ctx.elk_algorithm) |name| {
+        cfg.algorithm = elk.Algorithm.fromId(name) orelse .layered;
+    }
+    if (ctx.deadline) |d| cfg.deadline = .{ .ctx = d.ctx, .expired = d.f };
+    const res = elk.layout(al, gn, ge, cfg) catch |e| return if (e == error.Timeout) error.Timeout else error.ElkLayout;
+
+    for (nodes, res.nodes) |n, out| {
+        n.x = out.x;
+        n.y = out.y;
+        if (n.is_group) {
+            const title = if (n.label_bbox) |b| b.w + (n.padding orelse ctx.cfg.padding) else 0;
+            n.width = @max(out.width, title);
+            n.height = out.height;
+        }
+    }
+    const order = try al.dupe(*NodeData, nodes);
+    std.mem.sort(*NodeData, order, &by_id, struct {
+        fn lt(m: *const std.StringHashMapUnmanaged(*NodeData), a: *NodeData, b: *NodeData) bool {
+            return paintsBefore(m, a, b);
+        }
+    }.lt);
+    for (order) |node| {
+        if (node.is_group) _ = try clusters.insertCluster(ctx, &r.reg, clusters_g, node) else _ = try nodes_mod.positionNode(ctx, node);
+    }
+
+    var dummy: u8 = 0;
+    const no_clusters: edges_mod.ClusterDb = .{ .ctx = &dummy, .getFn = noCluster };
+    const geoms = try al.alloc(line_jump.EdgeGeom, edges.len);
+    for (edges, res.edges, geoms) |e, out, *geom| {
+        const pts = try al.alloc(model.Point, out.points.len);
+        for (out.points, pts) |p, *q| q.* = .{ .x = p.x, .y = p.y };
+        e.points = pts;
+        e.curve = "rounded";
+        if (out.has_label_pos) {
+            e.x = out.x;
+            e.y = out.y;
+        }
+        const sn = by_id.get(e.start) orelse return error.ElkLayout;
+        const en = by_id.get(e.end) orelse return error.ElkLayout;
+        const paths = try edges_mod.insertEdge(ctx, edge_paths, e, no_clusters, r.diagram_type, sn, en, r.id, true);
+        if (hasLabel(e)) try edges_mod.positionEdgeLabel(ctx, e, paths);
+        geom.* = .{ .id = e.id, .points = pts, .curve = e.curve, .arrow_type_start = e.arrow_type_start, .arrow_type_end = e.arrow_type_end };
+    }
+    switch (ctx.cfg.line_hops) {
+        .off => {},
+        .arc => try line_jump.applyLineHops(al, edge_paths, geoms, .arc),
+        .gap => try line_jump.applyLineHops(al, edge_paths, geoms, .gap),
     }
 }
 
@@ -640,7 +807,7 @@ pub fn render(ctx: *const model.Ctx, data: *model.LayoutData) Error!Rendered {
     nodes_mod.clear();
     try markers.insertMarkers(al, root, &.{ "point", "circle", "cross" }, data.diagram_type, data.diagram_id);
 
-    if (ctx.layout == .dagre or !layout_mod.elk_ported) {
+    if (ctx.layout == .dagre) {
         const g = try r.st.newGraph(data.direction);
         g.label.nodesep = cfg.node_spacing;
         g.label.ranksep = cfg.rank_spacing;
@@ -653,7 +820,7 @@ pub fn render(ctx: *const model.Ctx, data: *model.LayoutData) Error!Rendered {
         try addEdges(&r, g, data);
         try r.st.adjustClustersAndEdges(g);
         _ = try r.recursiveRender(root, g, null);
-    } else try renderFlat(&r, root, data);
+    } else try renderElk(&r, root, data);
 
     try addShadowFilters(al, svg, data.diagram_id, cfg);
     const pad = cfg.diagram_padding;

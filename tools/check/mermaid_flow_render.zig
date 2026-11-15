@@ -62,8 +62,8 @@ fn withoutText(a: Allocator, m: cmp.Model) Allocator.Error!cmp.Model {
     return .{ .view_box = m.view_box, .items = items.items };
 }
 
-// flow-153: ELK drops the edge to an empty subgraph, which no other layout does. flow-208: the handDrawn look is not ported.
-const known_gaps = [_][]const u8{ "flow-153-", "flow-208-" };
+// flow-208: the handDrawn look is not ported.
+const known_gaps = [_][]const u8{"flow-208-"};
 
 fn isKnownGap(name: []const u8) bool {
     for (known_gaps) |g| if (std.mem.startsWith(u8, name, g)) return true;
