@@ -57,6 +57,44 @@ fn premul(c: u8, a: u8) i32 {
     return @intCast(@as(u32, c) * a / 255);
 }
 
+fn dark(rgba: []const u8, i: usize) bool {
+    const a: u32 = rgba[i + 3];
+    const lum: u32 = (@as(u32, rgba[i]) + rgba[i + 1] + rgba[i + 2]) / 3;
+    return a > 128 and lum < 110;
+}
+
+fn printRuns(label: []const u8, rgba: []const u8, w: u32, h: u32) void {
+    std.debug.print("{s}:", .{label});
+    var x: u32 = 0;
+    var in_run = false;
+    var x0: u32 = 0;
+    var y0: u32 = h;
+    var y1: u32 = 0;
+    while (x <= w) : (x += 1) {
+        var any = false;
+        if (x < w) {
+            var y: u32 = 0;
+            while (y < h) : (y += 1) {
+                if (dark(rgba, (y * w + x) * 4)) {
+                    any = true;
+                    y0 = @min(y0, y);
+                    y1 = @max(y1, y);
+                }
+            }
+        }
+        if (any and !in_run) {
+            in_run = true;
+            x0 = x;
+        } else if (!any and in_run) {
+            in_run = false;
+            std.debug.print(" x{d}-{d} y{d}-{d}", .{ x0, x - 1, y0, y1 });
+            y0 = h;
+            y1 = 0;
+        }
+    }
+    std.debug.print("\n", .{});
+}
+
 fn checkFixture(comptime f: Fixture) !void {
     const a = std.testing.allocator;
     const src = testdata.file("images/svg/" ++ f.name ++ ".svg");
@@ -88,6 +126,8 @@ fn checkFixture(comptime f: Fixture) !void {
     std.debug.print("{s}: mean {d:.3}, bad {d:.3}%\n", .{ f.name, mean, bad_pct });
     if (mean > f.mean or bad_pct > f.bad) {
         std.debug.print("{s}: mean {d:.3} (limit {d}), bad {d:.3}% (limit {d}%)\n", .{ f.name, mean, f.mean, bad_pct, f.bad });
+        printRuns("  reference", ref, f.w, f.h);
+        printRuns("  rendered", got, f.w, f.h);
         return error.TestUnexpectedResult;
     }
 }
