@@ -13,15 +13,30 @@ const pad = basic.pad;
 const pre = basic.pre;
 const outer = ext1.outer;
 
-pub fn multiPath(ctx: *const model.Ctx, p: basic.Pre, node: *NodeData, ds: []const []const u8, class: []const u8) Error!*El {
-    _ = ctx;
-    const g = try p.h.shape.insertFirst("g");
-    try g.setAttr("class", class);
-    for (ds) |d| {
-        const path = try g.insert("path");
-        try path.setAttr("d", d);
-        if (p.st.node.len > 0) try path.setAttr("style", p.st.node);
-    }
+pub const MultiMode = enum { nested, tagged, merged };
+
+pub fn multiPath(ctx: *const model.Ctx, p: basic.Pre, node: *NodeData, ds: []const []const u8, class: []const u8, mode: MultiMode) Error!*El {
+    const st = u.roughStyle(ctx, p.st.node);
+    const first = try u.rough.drawPath(ctx.a, ds[0], st);
+    const second = try u.rough.drawPath(ctx.a, ds[1], st);
+    const g = switch (mode) {
+        .nested => blk: {
+            try first.append(second);
+            break :blk first;
+        },
+        .tagged => blk: {
+            try second.kids.insert(ctx.a, 0, first);
+            first.parent = second;
+            break :blk second;
+        },
+        .merged => blk: {
+            const m = try El.create(ctx.a, "g");
+            try m.append(try u.rough.mergePaths(ctx.a, first));
+            try m.append(try u.rough.mergePaths(ctx.a, second));
+            break :blk m;
+        },
+    };
+    _ = try u.insertRough(p.h.shape, g, class, p.st.node);
     u.updateNodeBounds(node, g);
     return g;
 }
@@ -87,7 +102,7 @@ pub fn dividedRect(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts)
     const x = -w / 2;
     const y = -h / 2 - ro / 2;
     const pts = [_]Point{ .{ .x = x, .y = y + ro }, .{ .x = -x, .y = y + ro }, .{ .x = -x, .y = -y }, .{ .x = x, .y = -y }, .{ .x = x, .y = y }, .{ .x = -x, .y = y }, .{ .x = -x, .y = y + ro } };
-    _ = try outer(ctx, p, node, &pts, "basic label-container outer-path", null);
+    _ = try ext1.outerPoly(ctx, p, node, &pts, "basic label-container outer-path", null);
     try p.h.label.setAttr("transform", try u.translate(a, x + pad(node) / 2, y + ro + pad(node) / 2));
     node.intersect = .rect;
     return p.h.shape;
@@ -104,7 +119,7 @@ pub fn shadedProcess(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opt
     const x = f - tw / 2;
     const y = -th / 2;
     const pts = [_]Point{ .{ .x = x, .y = y }, .{ .x = x + w, .y = y }, .{ .x = x + w, .y = y + h }, .{ .x = x - f, .y = y + h }, .{ .x = x - f, .y = y }, .{ .x = x, .y = y }, .{ .x = x, .y = y + h } };
-    _ = try outer(ctx, p, node, &pts, "basic label-container outer-path", null);
+    _ = try ext1.outerPoly(ctx, p, node, &pts, "basic label-container outer-path", null);
     try p.h.label.setAttr("transform", try u.translate(a, f / 2 - p.h.w / 2, -(p.h.h / 2)));
     node.intersect = .rect;
     return p.h.shape;
@@ -130,7 +145,7 @@ pub fn taggedRect(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) 
     const y = -h / 2;
     const rect_pts = [_]Point{ .{ .x = x - tag_w / 2, .y = y }, .{ .x = x + w + tag_w / 2, .y = y }, .{ .x = x + w + tag_w / 2, .y = y + h }, .{ .x = x - tag_w / 2, .y = y + h } };
     const tag_pts = [_]Point{ .{ .x = x + w - tag_w / 2, .y = y + h }, .{ .x = x + w + tag_w / 2, .y = y + h }, .{ .x = x + w + tag_w / 2, .y = y + h - tag_h } };
-    _ = try multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, &rect_pts), try u.createPathFromPoints(a, &tag_pts) }, "basic label-container outer-path");
+    _ = try multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, &rect_pts), try u.createPathFromPoints(a, &tag_pts) }, "basic label-container outer-path", .tagged);
     node.intersect = .{ .polygon = .{ .points = try u.dupePoints(a, &rect_pts) } };
     return p.h.shape;
 }
@@ -158,7 +173,7 @@ pub fn multiRect(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) E
         .{ .x = x + ro, .y = y },          .{ .x = x, .y = y },                   .{ .x = x, .y = y + ro },
     };
     const ip = [_]Point{ .{ .x = x, .y = y + ro }, .{ .x = x + w - ro, .y = y + ro }, .{ .x = x + w - ro, .y = y + h }, .{ .x = x + w, .y = y + h }, .{ .x = x + w, .y = y }, .{ .x = x, .y = y } };
-    _ = try multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, &op), try u.createPathFromPoints(a, &ip) }, "basic label-container outer-path");
+    _ = try multiPath(ctx, p, node, &.{ try u.createPathFromPoints(a, &op), try u.createPathFromPoints(a, &ip) }, "basic label-container outer-path", .merged);
     try p.h.label.setAttr("transform", try u.translate(a, -(p.h.w / 2) - ro, -(p.h.h / 2) + ro));
     node.intersect = .{ .polygon = .{ .points = try u.dupePoints(a, &op) } };
     return p.h.shape;

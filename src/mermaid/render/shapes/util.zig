@@ -8,7 +8,7 @@ const El = dom.El;
 const Point = model.Point;
 const NodeData = model.NodeData;
 
-pub const Error = Allocator.Error || error{ NoSuchShape, ImageDecode };
+pub const Error = Allocator.Error || error{ NoSuchShape, ImageDecode, BadPath };
 
 pub const Opts = struct { dir: ?[]const u8 = null };
 
@@ -142,14 +142,54 @@ pub fn createPathFromPoints(a: Allocator, points: []const Point) Allocator.Error
     return out.items;
 }
 
-// Rough.js with roughness 0 draws the exact outline, so one path stands in for its fill+stroke pair.
-pub fn insertOuterPath(shape: *El, d: []const u8, class: []const u8, style: []const u8) Allocator.Error!*El {
-    const g = try shape.insertFirst("g");
-    try g.setAttr("class", class);
-    const p = try g.insert("path");
-    try p.setAttr("d", d);
-    if (style.len > 0) try p.setAttr("style", style);
+pub const rough = @import("rough.zig");
+
+const fallback_fill = "#ececff";
+
+pub fn roughStyle(ctx: *const model.Ctx, style: []const u8) rough.Style {
+    var st = rough.Style{ .fill = fallback_fill, .stroke = ctx.cfg.node_border };
+    var it = std.mem.splitScalar(u8, style, ';');
+    while (it.next()) |entry| {
+        const colon = std.mem.indexOfScalar(u8, entry, ':') orelse continue;
+        const key = std.mem.trim(u8, entry[0..colon], " \t\r\n");
+        var val = std.mem.trim(u8, entry[colon + 1 ..], " \t\r\n");
+        if (std.mem.endsWith(u8, val, "!important")) val = std.mem.trim(u8, val[0 .. val.len - "!important".len], " ");
+        if (val.len == 0) continue;
+        if (std.mem.eql(u8, key, "fill")) st.fill = val;
+        if (std.mem.eql(u8, key, "stroke")) st.stroke = val;
+        if (std.mem.eql(u8, key, "stroke-width")) st.stroke_width = std.mem.trimEnd(u8, val, "px");
+    }
+    return st;
+}
+
+pub fn setPathStyle(g: *El, style: []const u8) Allocator.Error!void {
+    for (g.kids.items) |k| {
+        if (std.mem.eql(u8, k.tag, "path")) try k.setAttr("style", style) else try setPathStyle(k, style);
+    }
+}
+
+pub fn insertRough(parent: *El, g: *El, class: []const u8, style: []const u8) Allocator.Error!*El {
+    g.parent = parent;
+    try parent.kids.insert(parent.a, 0, g);
+    if (class.len > 0) try g.setAttr("class", class);
+    try setPathStyle(g, style);
     return g;
+}
+
+pub fn pointsToP2(a: Allocator, pts: []const Point) Allocator.Error![]const [2]f64 {
+    const out = try a.alloc([2]f64, pts.len);
+    for (pts, 0..) |p, i| out[i] = .{ p.x, p.y };
+    return out;
+}
+
+pub fn insertOuterPolygon(ctx: *const model.Ctx, shape: *El, pts: []const Point, class: []const u8, style: []const u8) Error!*El {
+    const st = roughStyle(ctx, style);
+    return insertRough(shape, try rough.polygonG(ctx.a, try pointsToP2(ctx.a, pts), st), class, style);
+}
+
+pub fn insertOuterPath(ctx: *const model.Ctx, shape: *El, d: []const u8, class: []const u8, style: []const u8) Error!*El {
+    const st = roughStyle(ctx, style);
+    return insertRough(shape, try rough.drawPath(ctx.a, d, st), class, style);
 }
 
 pub fn generateCirclePoints(a: Allocator, out: *std.ArrayList(Point), cx: f64, cy: f64, radius: f64, n: usize, start_deg: f64, end_deg: f64) Allocator.Error!void {
@@ -209,3 +249,7 @@ pub const test_support = struct {
         return .{ .a = arena.allocator(), .measurer = model.widthMeasurer(&S.dummy, w), .cfg = cfg, .diagram_id = "t" };
     }
 };
+
+test {
+    _ = rough;
+}

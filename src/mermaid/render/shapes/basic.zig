@@ -98,7 +98,7 @@ pub fn stadium(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) Err
     try u.generateCirclePoints(a, &pts, -w / 2 + r, 0, r, arc_point_count, 90, 270);
     try pts.append(a, .{ .x = w / 2 - r, .y = h / 2 });
     try u.generateCirclePoints(a, &pts, w / 2 - r, 0, r, arc_point_count, 270, 450);
-    const g = try u.insertOuterPath(p.h.shape, try u.createPathFromPoints(a, pts.items), "basic label-container outer-path", p.st.node);
+    const g = try u.insertOuterPath(ctx, p.h.shape, try u.createPathFromPoints(a, pts.items), "basic label-container outer-path", p.st.node);
     u.updateNodeBounds(node, g);
     node.intersect = .{ .polygon = .{ .points = pts.items } };
     return p.h.shape;
@@ -281,7 +281,7 @@ pub fn rectLeftInvArrow(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: 
     const y = -h / 2;
     const notch = y / 2;
     const pts = [_]Point{ .{ .x = x + notch, .y = y }, .{ .x = x, .y = 0 }, .{ .x = x + notch, .y = -y }, .{ .x = -x, .y = -y }, .{ .x = -x, .y = y } };
-    const g = try u.insertOuterPath(p.h.shape, try u.createPathFromPoints(a, &pts), "basic label-container outer-path", p.st.node);
+    const g = try u.insertOuterPath(ctx, p.h.shape, try u.createPathFromPoints(a, &pts), "basic label-container outer-path", p.st.node);
     try g.setAttr("transform", try u.translateC(a, -notch / 2, 0));
     try p.h.label.setAttr("transform", try u.translate(a, -notch / 2 - p.h.w / 2, -(p.h.h / 2)));
     u.updateNodeBounds(node, g);
@@ -358,9 +358,11 @@ pub fn forkJoin(ctx: *const model.Ctx, parent: *El, node: *NodeData, opts: Opts)
         w = @max(10, node.width);
         h = @max(70, node.height);
     };
-    const rect = try shape.insertFirst("rect");
-    try setNodeStyle(rect, st);
-    _ = try (try (try (try rect.attrNum("x", -w / 2)).attrNum("y", -h / 2)).attrNum("width", w)).attrNum("height", h);
+    var rs = u.roughStyle(ctx, st.node);
+    rs.fill = ctx.cfg.node_border;
+    rs.stroke = ctx.cfg.node_border;
+    const rect = try u.rough.rectangleG(a, -w / 2, -h / 2, w, h, rs);
+    _ = try u.insertRough(shape, rect, "", st.node);
     u.updateNodeBounds(node, rect);
     // state.padding default (config.schema.yaml) halved, as forkJoin.ts does
     node.width += 4;
@@ -400,14 +402,14 @@ pub fn stateEnd(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) Er
     const shape = try parent.insert("g");
     try shape.setAttr("class", "node default");
     try shape.setAttr("id", node.dom_id orelse node.id);
-    const g = try shape.insertFirst("g");
-    try g.setAttr("class", "outer-path");
-    const outer = try g.insert("circle");
-    _ = try (try (try outer.attrNum("r", node.width / 2)).attrNum("cx", 0)).attrNum("cy", 0);
-    try outer.setAttr("class", "state-end-outer");
-    const inner = try g.insert("circle");
-    _ = try (try (try inner.attrNum("r", node.width * 5 / 28)).attrNum("cx", 0)).attrNum("cy", 0);
-    try inner.setAttr("class", "state-end-inner");
+    var os = u.roughStyle(ctx, st.node);
+    os.stroke = ctx.cfg.node_border;
+    os.stroke_width = "2";
+    const g = try u.rough.circleG(a, 0, 0, node.width, os);
+    var is = os;
+    is.fill = ctx.cfg.node_border;
+    try g.append(try u.rough.circleG(a, 0, 0, node.width * 5 / 14, is));
+    _ = try u.insertRough(shape, g, "outer-path", "");
     u.updateNodeBounds(node, g);
     node.intersect = .{ .circle = node.width / 2 };
     return shape;
@@ -422,7 +424,7 @@ pub fn choice(ctx: *const model.Ctx, parent: *El, node: *NodeData, _: Opts) Erro
     try shape.setAttr("id", node.dom_id orelse node.id);
     const s = @max(28, node.width);
     const pts = [_]Point{ .{ .x = 0, .y = s / 2 }, .{ .x = s / 2, .y = 0 }, .{ .x = 0, .y = -s / 2 }, .{ .x = -s / 2, .y = 0 } };
-    _ = try u.insertOuterPath(shape, try u.createPathFromPoints(a, &pts), "", st.node);
+    _ = try u.insertOuterPath(ctx, shape, try u.createPathFromPoints(a, &pts), "", st.node);
     node.width = 28;
     node.height = 28;
     node.intersect = .{ .polygon = .{ .points = try u.dupePoints(a, &pts) } };

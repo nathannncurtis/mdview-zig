@@ -3,7 +3,6 @@ const model = @import("../model.zig");
 const dom = @import("../dom.zig");
 const u = @import("util.zig");
 const basic = @import("basic.zig");
-const ext2 = @import("ext2.zig");
 const El = dom.El;
 const Point = model.Point;
 const NodeData = model.NodeData;
@@ -33,11 +32,18 @@ fn openPath(a: std.mem.Allocator, pts: []const Point) ![]const u8 {
 
 fn finish(ctx: *const model.Ctx, p: basic.Pre, node: *NodeData, braces: []const []const Point, rect_pts: []const Point, tx: f64, lx: f64, ly: f64) Error!*El {
     const a = ctx.a;
-    var ds: std.ArrayList([]const u8) = .empty;
-    for (braces) |b| try ds.append(a, try openPath(a, b));
-    try ds.append(a, try u.createPathFromPoints(a, rect_pts));
-    const g = try ext2.multiPath(ctx, p, node, ds.items, "text");
-    try g.kids.items[ds.items.len - 1].setAttr("stroke-opacity", "0");
+    var st = u.roughStyle(ctx, p.st.node);
+    st.fill = null;
+    const g = try El.create(a, "g");
+    var i = braces.len;
+    while (i > 0) {
+        i -= 1;
+        try g.append(try u.rough.drawPath(a, try openPath(a, braces[i]), st));
+    }
+    const rect = try u.rough.drawPath(a, try u.createPathFromPoints(a, rect_pts), st);
+    try rect.setAttr("stroke-opacity", "0");
+    try g.append(rect);
+    _ = try u.insertRough(p.h.shape, g, "text", p.st.node);
     try g.setAttr("transform", try u.translate(a, tx, 0));
     try p.h.label.setAttr("transform", try u.translateC(a, lx, ly));
     u.updateNodeBounds(node, g);
