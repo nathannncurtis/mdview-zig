@@ -13,6 +13,7 @@ pub const segment = @import("segment.zig");
 pub const svg = @import("svg.zig");
 pub const css = @import("css.zig");
 pub const info = @import("info.zig");
+pub const flowchart = @import("flowchart/flowchart.zig");
 pub const layout = @import("layout.zig");
 pub const fuzz = @import("fuzz.zig");
 pub const sequence = @import("sequence/sequence.zig");
@@ -25,6 +26,7 @@ const max_text_size_default: f64 = 50_000;
 const max_text_message = "graph TB;a[Maximum text size in diagram exceeded];style a fill:#faa";
 
 const diagram = @import("diagram.zig");
+pub const ImageProbe = diagram.ImageProbe;
 pub const Error = diagram.Error;
 pub const ClassDef = diagram.ClassDef;
 pub const Acc = diagram.Acc;
@@ -36,6 +38,8 @@ pub const Def = diagram.Def;
 pub const registry = [_]Def{
     info.def,
     sequence.def,
+    flowchart.def_v2,
+    flowchart.def_elk,
     error_def,
 };
 
@@ -97,6 +101,8 @@ pub const Opts = struct {
     timeout_ms: u32 = 5000,
     /// Cap on what one diagram may allocate.
     memory_limit: usize = 256 * 1024 * 1024,
+    /// Natural size of an image a flowchart `image` shape names; unset, such a shape fails as an undecodable image.
+    image_probe: ?*const fn (href: []const u8) diagram.ImageProbe = null,
 };
 
 pub const Image = struct { bytes: []const u8, w: f32, h: f32 };
@@ -227,10 +233,55 @@ fn userStyles(ctx: *Ctx, defs: []const ClassDef) Allocator.Error![]const u8 {
     return out.items;
 }
 
+/// The browser serialises the colours of a class rule as rgb(), so #rgb and #rrggbb in `s` become rgb(r, g, b).
+fn rgbHex(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var i: usize = 0;
+    while (i < s.len) {
+        if (s[i] == '#') {
+            var n: usize = 0;
+            while (i + 1 + n < s.len and std.ascii.isHex(s[i + 1 + n])) n += 1;
+            const boundary = i + 1 + n >= s.len or !std.ascii.isAlphanumeric(s[i + 1 + n]);
+            if (boundary and (n == 3 or n == 6)) {
+                const h = s[i + 1 ..][0..n];
+                var c: [3]u8 = undefined;
+                for (&c, 0..) |*v, k| v.* = if (n == 3)
+                    std.fmt.parseInt(u8, &[_]u8{ h[k], h[k] }, 16) catch 0
+                else
+                    std.fmt.parseInt(u8, h[k * 2 ..][0..2], 16) catch 0;
+                try out.print(a, "rgb({d}, {d}, {d})", .{ c[0], c[1], c[2] });
+                i += 1 + n;
+                continue;
+            }
+        }
+        try out.append(a, s[i]);
+        i += 1;
+    }
+    return out.items;
+}
+
+/// The browser writes a space separated stroke-dasharray as a comma list.
+fn dasharrayList(a: Allocator, s: []const u8) Allocator.Error![]const u8 {
+    const t = std.mem.trimStart(u8, s, " ");
+    if (!std.mem.startsWith(u8, t, "stroke-dasharray")) return s;
+    const colon = std.mem.indexOfScalar(u8, s, ':') orelse return s;
+    var out: std.ArrayList(u8) = .empty;
+    try out.appendSlice(a, s[0 .. colon + 1]);
+    var it = std.mem.tokenizeAny(u8, s[colon + 1 ..], " ,");
+    var first = true;
+    while (it.next()) |tok| {
+        if (!first) try out.appendSlice(a, ", ");
+        first = false;
+        try out.appendSlice(a, tok);
+    }
+    return out.items;
+}
+
 fn important(a: Allocator, out: *std.ArrayList(u8), class: []const u8, element: []const u8, items: []const []const u8, text_fill: bool) Allocator.Error!void {
     var block: std.ArrayList(u8) = .empty;
     try block.appendSlice(a, "{ ");
-    for (items, 0..) |s, i| {
+    for (items, 0..) |raw, i| {
+        const s = try dasharrayList(a, try rgbHex(a, raw));
         if (i > 0) try block.appendSlice(a, " !important; ");
         if (text_fill) {
             if (std.mem.indexOf(u8, s, "color")) |at| {
@@ -275,7 +326,7 @@ fn renderInner(a: Allocator, source: []const u8, opts: Opts) (Allocator.Error ||
 
     var deadline: Deadline = .{ .clock = opts.clock, .limit_ns = @as(i64, opts.timeout_ms) * std.time.ns_per_ms };
     if (opts.clock) |c| deadline.start = c();
-    var ctx: Ctx = .{ .a = a, .cfg = &cfg, .measurer = opts.measurer, .deadline = &deadline, .svg_id = opts.svg_id, .title = pre.title, .frontmatter_line_offset = pre.frontmatter_line_offset, .layout = layout.select(&cfg) };
+    var ctx: Ctx = .{ .a = a, .cfg = &cfg, .measurer = opts.measurer, .deadline = &deadline, .svg_id = opts.svg_id, .title = pre.title, .frontmatter_line_offset = pre.frontmatter_line_offset, .layout = layout.select(&cfg), .image_probe = opts.image_probe };
 
     var parse_text = code;
     if (def.preserve_comments) if (with_comments) |wc| {
@@ -312,7 +363,7 @@ fn renderInner(a: Allocator, source: []const u8, opts: Opts) (Allocator.Error ||
     try w.start("style", &.{});
     try w.text(try css.compile(a, selector, raw_css));
     try w.end();
-    try w.leaf("g", &.{});
+    if (!def.owns_group) try w.leaf("g", &.{});
 
     def.emit(&ctx, model, geometry, &w) catch |e| return stageError(&ctx, e);
 
@@ -367,6 +418,7 @@ test {
     _ = svg;
     _ = css;
     _ = info;
+    _ = flowchart;
     _ = layout;
     _ = diagram;
     _ = fuzz;
@@ -389,12 +441,26 @@ test "parse errors, unknown types and unsupported types" {
     const unknown = try render(std.testing.allocator, "foo", .{});
     defer free(std.testing.allocator, unknown);
     try std.testing.expectEqualStrings("No diagram type detected matching given configuration for text: foo", unknown.err);
-    const flow = try render(std.testing.allocator, "flowchart TD\nA-->B", .{});
-    defer free(std.testing.allocator, flow);
-    try std.testing.expectEqualStrings("flowchart-v2", flow.unsupported);
+    const seq = try render(std.testing.allocator, "sequenceDiagram\nA->>B: hi", .{});
+    defer free(std.testing.allocator, seq);
+    try std.testing.expectEqualStrings("sequence", seq.unsupported);
     const dashes = try render(std.testing.allocator, "---\nfoo", .{});
     defer free(std.testing.allocator, dashes);
     try std.testing.expectEqualStrings(errors.dashes_message, dashes.err);
+}
+
+var ticking_now: i64 = 0;
+
+fn tickingClock() i64 {
+    ticking_now += std.time.ns_per_s;
+    return ticking_now;
+}
+
+test "a flowchart past its time limit gives the timeout error" {
+    ticking_now = 0;
+    const r = try render(std.testing.allocator, "flowchart TD\nA-->B\nB-->C\n", .{ .clock = tickingClock, .timeout_ms = 1 });
+    defer free(std.testing.allocator, r);
+    try std.testing.expectEqualStrings(errors.timeout_message, r.err);
 }
 
 test "memory limit and deadline" {

@@ -20,11 +20,11 @@ pub const corpus = [_][]const u8{
     seed("\x14\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x28\x00\x13\x13\x01\x01"),
 };
 
-const Reader = struct {
+pub const Reader = struct {
     bytes: []const u8,
     pos: usize = 0,
 
-    fn next(self: *Reader) u8 {
+    pub fn next(self: *Reader) u8 {
         if (self.bytes.len == 0) return 0;
         const b = self.bytes[self.pos % self.bytes.len];
         self.pos += 1;

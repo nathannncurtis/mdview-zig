@@ -2,6 +2,13 @@ const std = @import("std");
 const markdown = @import("markdown/markdown.zig");
 const html = @import("html");
 const elk_fuzz = @import("mermaid/elk/fuzz.zig");
+const elk_force_fuzz = @import("mermaid/elk/force/fuzz.zig");
+const elk_stress_fuzz = @import("mermaid/elk/stress/fuzz.zig");
+const spore_fuzz = @import("mermaid/elk/spore/fuzz.zig");
+const elk_radial_fuzz = @import("mermaid/elk/radial/fuzz.zig");
+const elk_box_fuzz = @import("mermaid/elk/box/fuzz.zig");
+const elk_rect_fuzz = @import("mermaid/elk/rectpacking/fuzz.zig");
+const mrtree_fuzz = @import("mermaid/elk/mrtree/fuzz.zig");
 const font = @import("font");
 const svg = @import("image/svg.zig");
 const image = @import("image/image.zig");
@@ -145,8 +152,36 @@ test "fuzz html.Builder" {
     try std.testing.fuzz({}, buildOne, .{ .corpus = &html_corpus });
 }
 
+test "fuzz elk.box" {
+    try std.testing.fuzz({}, elk_box_fuzz.fuzzOne, .{ .corpus = &elk_box_fuzz.corpus });
+}
+
+test "fuzz elk.rectpacking" {
+    try std.testing.fuzz({}, elk_rect_fuzz.fuzzOne, .{ .corpus = &elk_rect_fuzz.corpus });
+}
+
 test "fuzz mermaid.elk" {
     try std.testing.fuzz({}, elk_fuzz.fuzzOne, .{ .corpus = &elk_fuzz.corpus });
+}
+
+test "fuzz elk.force" {
+    try std.testing.fuzz({}, elk_force_fuzz.fuzzOne, .{ .corpus = &elk_force_fuzz.corpus });
+}
+
+test "fuzz elk.stress" {
+    try std.testing.fuzz({}, elk_stress_fuzz.fuzzOne, .{ .corpus = &elk_fuzz.corpus });
+}
+
+test "fuzz elk.spore" {
+    try std.testing.fuzz({}, spore_fuzz.fuzzOne, .{ .corpus = &spore_fuzz.corpus });
+}
+
+test "fuzz elk.radial" {
+    try std.testing.fuzz({}, elk_radial_fuzz.fuzzOne, .{ .corpus = &elk_radial_fuzz.corpus });
+}
+
+test "fuzz elk.mrtree" {
+    try std.testing.fuzz({}, mrtree_fuzz.fuzzOne, .{ .corpus = &mrtree_fuzz.corpus });
 }
 
 const font_corpus = [_][]const u8{
