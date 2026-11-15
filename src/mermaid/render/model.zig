@@ -42,6 +42,15 @@ pub fn testConfig(a: Allocator) Config {
 
 pub const SubGraphTitleMargin = struct { top: f64 = 0, bottom: f64 = 0 };
 
+fn pxSize(s: ?[]const u8) ?f64 {
+    const t = s orelse return null;
+    return std.fmt.parseFloat(f64, std.mem.trimEnd(u8, t, "px")) catch null;
+}
+
+fn isDarkTheme(name: []const u8) bool {
+    return std.mem.eql(u8, name, "dark") or std.mem.endsWith(u8, name, "-dark") or std.mem.indexOf(u8, name, "-dark-") != null;
+}
+
 pub const Config = struct {
     font_family: []const u8,
     font_size: f64,
@@ -77,8 +86,8 @@ pub const Config = struct {
         const v = &c.vars;
         const html = c.htmlLabels();
         return .{
-            .font_family = c.str("fontFamily") orelse text.default_family,
-            .font_size = c.num("fontSize") orelse 16,
+            .font_family = v.str("fontFamily") orelse c.str("fontFamily") orelse text.default_family,
+            .font_size = pxSize(v.str("fontSize")) orelse c.num("fontSize") orelse 16,
             .node_spacing = c.num("flowchart.nodeSpacing") orelse 50,
             .rank_spacing = c.num("flowchart.rankSpacing") orelse 50,
             .curve = c.str("flowchart.curve") orelse "basis",
@@ -90,7 +99,7 @@ pub const Config = struct {
             .use_max_width = c.boolean("flowchart.useMaxWidth") orelse true,
             .html_labels = html,
             .node_html_labels = html,
-            .dark_theme = v.get("darkMode").truthy(),
+            .dark_theme = v.get("darkMode").truthy() or isDarkTheme(c.str("theme") orelse ""),
             .node_border = v.str("nodeBorder") orelse "",
             .cluster_bkg = v.str("clusterBkg") orelse "",
             .cluster_border = v.str("clusterBorder") orelse "",
@@ -236,11 +245,15 @@ test {
     _ = dom;
 }
 
+/// What the host knows about an image a diagram names; `pending` is a load still under way (size unknown for now).
+pub const ImageProbe = union(enum) { size: struct { w: f32, h: f32 }, pending, failed };
+
 pub const Ctx = struct {
     a: Allocator,
     measurer: Measurer,
     cfg: *const Config,
     diagram_id: []const u8,
+    image_probe: ?*const fn (href: []const u8) ImageProbe = null,
     /// The engine the diagram's `layout` setting names; anything but dagre takes the flat path.
     layout: layout_mod.Engine = .dagre,
 };

@@ -8,6 +8,7 @@ const nodes_mod = @import("../render/nodes.zig");
 const edges_mod = @import("../render/edges.zig");
 const markers = @import("../render/markers.zig");
 const dagre = @import("../dagre/layout.zig");
+const layout_mod = @import("../layout.zig");
 const Allocator = std.mem.Allocator;
 const El = dom.El;
 const NodeData = model.NodeData;
@@ -639,7 +640,7 @@ pub fn render(ctx: *const model.Ctx, data: *model.LayoutData) Error!Rendered {
     nodes_mod.clear();
     try markers.insertMarkers(al, root, &.{ "point", "circle", "cross" }, data.diagram_type, data.diagram_id);
 
-    if (ctx.layout == .dagre) {
+    if (ctx.layout == .dagre or !layout_mod.elk_ported) {
         const g = try r.st.newGraph(data.direction);
         g.label.nodesep = cfg.node_spacing;
         g.label.ranksep = cfg.rank_spacing;

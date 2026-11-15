@@ -45,12 +45,16 @@ fn parsed(m: *anyopaque) *Parsed {
 
 fn layoutStage(ctx: *core.Ctx, m: *anyopaque) core.Error!*anyopaque {
     const p = parsed(m);
-    const mctx: model.Ctx = .{ .a = ctx.a, .measurer = ctx.measurer, .cfg = p.cfg, .diagram_id = ctx.svg_id, .layout = ctx.layout.engine };
+    const mctx: model.Ctx = .{ .a = ctx.a, .measurer = ctx.measurer, .cfg = p.cfg, .diagram_id = ctx.svg_id, .layout = ctx.layout.engine, .image_probe = ctx.image_probe };
     const out = try ctx.a.create(render.Rendered);
     out.* = render.render(&mctx, &p.data) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.NoSuchShape => {
             ctx.err_msg = "No such shape. Please check your syntax.";
+            return error.Layout;
+        },
+        error.ImageDecode => {
+            ctx.err_msg = "The source image cannot be decoded.";
             return error.Layout;
         },
         else => {
@@ -123,6 +127,7 @@ pub fn renderSource(ctx: *const model.Ctx, source: []const u8) Allocator.Error!R
     const r = render.render(ctx, &data) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         error.NoSuchShape => return .{ .err = "No such shape. Please check your syntax." },
+        error.ImageDecode => return .{ .err = "The source image cannot be decoded." },
         else => return .{ .err = @errorName(e) },
     };
     var out: std.ArrayList(u8) = .empty;
@@ -144,6 +149,29 @@ test "renders a small chart and reports parse errors verbatim" {
     try std.testing.expect(ok.ok.svg.len > 1000);
     const bad = try renderSource(&ctx, "flowchart TD\n  A -->\n\n");
     try std.testing.expect(std.mem.startsWith(u8, bad.err, "Parse error on line 4:"));
+}
+
+fn probeSize(_: []const u8) model.ImageProbe {
+    return .{ .size = .{ .w = 40, .h = 20 } };
+}
+
+fn probeFailed(_: []const u8) model.ImageProbe {
+    return .failed;
+}
+
+test "an image node takes its size from the probe and fails with Mermaid's decode error" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const cfg = model.testConfig(arena.allocator());
+    const src = "flowchart TD\n  C@{ img: \"a.png\", label: \"p\", pos: b }\n";
+    var ctx: model.Ctx = .{ .a = arena.allocator(), .measurer = model.widthMeasurer(null, fakeWidth), .cfg = &cfg, .diagram_id = "d", .image_probe = probeSize };
+    const ok = try renderSource(&ctx, src);
+    try std.testing.expect(std.mem.indexOf(u8, ok.ok.svg, "<image") != null);
+    ctx.image_probe = probeFailed;
+    const bad = try renderSource(&ctx, src);
+    try std.testing.expectEqualStrings("The source image cannot be decoded.", bad.err);
+    ctx.image_probe = null;
+    try std.testing.expectEqualStrings("The source image cannot be decoded.", (try renderSource(&ctx, src)).err);
 }
 
 test "self loop inside a directed subgraph renders through the dagre path" {
@@ -169,6 +197,7 @@ test {
     _ = @import("../render/geom.zig");
     _ = @import("../render/pathlen.zig");
     _ = @import("../render/intersect.zig");
+    _ = @import("../render/line_jump.zig");
     _ = @import("../render/labels.zig");
     _ = @import("../render/markers.zig");
     _ = @import("../render/shapes_test.zig");

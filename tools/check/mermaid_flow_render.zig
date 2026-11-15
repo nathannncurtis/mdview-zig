@@ -46,6 +46,13 @@ fn sizesMatch(a: Allocator, ref: cmp.Model, cand: cmp.Model) Allocator.Error!?[]
     return null;
 }
 
+// Labels are drawn as text rather than foreignObject, so only groups, boxes and edges are compared.
+fn withoutText(a: Allocator, m: cmp.Model) Allocator.Error!cmp.Model {
+    var items: std.ArrayList(cmp.Item) = .empty;
+    for (m.items) |it| if (it.kind != .label and it.kind != .text) try items.append(a, it);
+    return .{ .view_box = m.view_box, .items = items.items };
+}
+
 fn isDagre(src: []const u8) bool {
     return std.mem.indexOf(u8, src, "dagre") != null;
 }
@@ -94,8 +101,9 @@ pub fn main(init: std.process.Init) !u8 {
         const src = try cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.mmd", .{ cases_dir, name }), a, .limited(1 << 22));
         const ref = try cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ refs_dir, name }), a, .limited(1 << 26));
         const side = cwd.readFileAlloc(io, try std.fmt.allocPrint(a, "{s}/{s}.labels.json", .{ refs_dir, name }), a, .limited(1 << 24)) catch null;
-        const ref_model = try cmp.extract(a, ref);
-        var replay: Replay = .{ .sizes = try cmp.ReplayMeasurer.init(a, ref_model, side) };
+        const ref_full = try cmp.extract(a, ref);
+        const ref_model = try withoutText(a, ref_full);
+        var replay: Replay = .{ .sizes = try cmp.ReplayMeasurer.init(a, ref_full, side) };
         const dagre = isDagre(src);
         if (dagre) dagre_total += 1 else other_total += 1;
         const tag: []const u8 = if (dagre) "dagre" else "default";
@@ -104,7 +112,7 @@ pub fn main(init: std.process.Init) !u8 {
         switch (res) {
             .svg => |img| {
                 if (out_dir) |d| try cwd.writeFile(io, .{ .sub_path = try std.fmt.allocPrint(a, "{s}/{s}.svg", .{ d, name }), .data = img.bytes });
-                const cand = try cmp.extract(a, img.bytes);
+                const cand = try withoutText(a, try cmp.extract(a, img.bytes));
                 const full = try cmp.compare(a, ref_model, cand);
                 const style_same = std.mem.eql(u8, styleOf(ref), styleOf(img.bytes));
                 const size_problem = try sizesMatch(a, ref_model, cand);
@@ -113,7 +121,14 @@ pub fn main(init: std.process.Init) !u8 {
                 if (full.passed()) {
                     if (dagre) dagre_ok += 1 else other_ok += 1;
                 } else std.log.info("FAIL {s} [{s}] items={d} bad={d} missing={d} extra={d} max={d:.2}: {s}", .{ name, tag, full.items, full.bad, full.missing, full.extra, full.max_dev, full.first });
-                if (!style_same) std.log.info("CSS {s} [{s}] differs", .{ name, tag });
+                if (!style_same) {
+                    const rs = styleOf(ref);
+                    const cs = styleOf(img.bytes);
+                    var at: usize = 0;
+                    while (at < rs.len and at < cs.len and rs[at] == cs[at]) at += 1;
+                    const from = at -| 60;
+                    std.log.info("CSS {s} [{s}] differs at {d}: ref {s} | got {s}", .{ name, tag, at, rs[from..@min(rs.len, at + 80)], cs[from..@min(cs.len, at + 80)] });
+                }
                 if (size_problem) |p| std.log.info("SIZE {s} [{s}]: {s}", .{ name, tag, p });
             },
             .err => |m| std.log.info("ERROR {s} [{s}]: {s}", .{ name, tag, m }),

@@ -467,8 +467,7 @@ fn rgbaValue(t: *Vars, r: f64, g: f64, b: f64, a: f64) Err!V {
 /// khroma's `fade`: the colour with its alpha set to `opacity`.
 pub fn fade(t: *Vars, color: V, opacity: f64) Err!V {
     var c = try parse(try text(color));
-    try c.set(.a, clamp(.a, opacity));
-    return .{ .s = try stringify(t.a, &c) };
+    return rgbaValue(t, c.get(.r), c.get(.g), c.get(.b), opacity);
 }
 
 pub fn rgba(t: *Vars, r: f64, g: f64, b: f64, a: f64) Err!V {
