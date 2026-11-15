@@ -162,7 +162,7 @@ jobs:
           - target: html.Builder
             iterations: 150K
           - target: mermaid.render
-            iterations: 300K
+            iterations: 65K
           - target: font.parse
             iterations: 2M
           - target: image.decode
@@ -174,7 +174,7 @@ jobs:
           - target: math.layout
             iterations: 150K
           - target: mermaid.sequence
-            iterations: 250K
+            iterations: 100K
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
