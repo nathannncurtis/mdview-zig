@@ -339,7 +339,8 @@ fn padStart(a: Allocator, n: isize, width: usize) Allocator.Error![]const u8 {
 }
 
 /// js-yaml's `makeSnippet` with its default options (indent 1, 3 lines before, 2 after, 79 columns).
-fn makeSnippet(a: Allocator, buffer: []const u8, position: usize, mark_line: usize) Allocator.Error![]const u8 {
+fn makeSnippet(a: Allocator, buffer: []const u8, position_in: usize, mark_line: usize) Allocator.Error![]const u8 {
+    const position = @min(position_in, buffer.len);
     const line: isize = @intCast(mark_line);
     var starts: std.ArrayList(usize) = .empty;
     var ends: std.ArrayList(usize) = .empty;
@@ -534,4 +535,11 @@ test "snippet line numbers survive NUL bytes that lineCol does not count" {
     const s = try makeSnippet(arena.allocator(), "\x00\x00\x00abc", 5, 0);
     try std.testing.expect(std.mem.indexOf(u8, s, " -2 | ") != null);
     try std.testing.expect(std.mem.indexOf(u8, s, " 1 | ") != null);
+}
+
+test "snippet position past the end of the buffer is clamped" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const s = try makeSnippet(arena.allocator(), "a: b\nc: d", 514, 1);
+    try std.testing.expect(std.mem.indexOf(u8, s, " 2 | c: d") != null);
 }
