@@ -1,7 +1,6 @@
 const std = @import("std");
 const model = @import("model.zig");
 const shapes = @import("shapes.zig");
-const icon = @import("shapes/icon.zig");
 const dom = @import("dom.zig");
 
 const widths = [_]struct { []const u8, f64 }{
