@@ -374,7 +374,7 @@ pub fn layoutBlocks(g: win.Gfx, blocks: []const md.Block, x0: f32, w0: f32, y_st
                 gap = 16;
             },
             .math => {
-                y += win.renderMathBlock(vt_rt, rt, content.text, x, y, w, draw);
+                y += win.renderMathBlock(vt_rt, rt, content.text, win.brushRgb(text_brush), x, y, w, draw);
                 gap = 16;
             },
             .table => {

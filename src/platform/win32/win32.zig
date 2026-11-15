@@ -531,7 +531,7 @@ fn mathObject(m: *const md.MathSpan, size: f32) ?*ImageObject {
 const text_rgb: u24 = 0xc9d1d9;
 const muted_rgb: u24 = 0x8b949e;
 
-fn brushRgb(brush: *anyopaque) u24 {
+pub fn brushRgb(brush: *anyopaque) u24 {
     return if (brush == g_brush_quote) muted_rgb else text_rgb;
 }
 
@@ -1253,7 +1253,7 @@ pub fn wideRange(text: []const u8, span: md.Span) DWRITE_TEXT_RANGE {
 }
 
 /// A display formula: centred in the column with 6px above and below, or pinned left and scrolled sideways when wider than it.
-pub fn renderMathBlock(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, src: []const u8, x: f32, y: f32, w: f32, draw: bool) f32 {
+pub fn renderMathBlock(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, src: []const u8, rgb: u24, x: f32, y: f32, w: f32, draw: bool) f32 {
     const look = app.math.look(src, true, 16) orelse return 0;
     const h = app.math.displayHeight(look);
     if (!draw) return h;
@@ -1261,7 +1261,7 @@ pub fn renderMathBlock(vt_rt: *const ID2D1RT_VTable, rt: *anyopaque, src: []cons
     const max = app.math.maxScroll(w, look.w);
     app.noteMathBlock(.{ .x = x, .y = y, .w = w, .h = h }, key, max);
     if (y + h - app.scroll_y < 0 or y - app.scroll_y > app.window_height) return h;
-    const bm = app.math.bitmap(src, true, 16, text_rgb) orelse return h;
+    const bm = app.math.bitmap(src, true, 16, rgb) orelse return h;
     const left = x + app.math.displayX(w, look.w, app.mathOffset(key)) + app.math.pad_x;
     const right = left + look.w - 2 * app.math.pad_x;
     const vl = @max(left, x);
@@ -1794,7 +1794,7 @@ test "a display formula takes its height plus 6px above and below" {
     createRenderTarget(hwnd);
     const rt = g_render_target orelse return error.TestUnexpectedResult;
     const look = app.math.look("\\sum_{i=1}^n i", true, 16) orelse return error.TestUnexpectedResult;
-    const h = renderMathBlock(vtable(ID2D1RT_VTable, rt), rt, "\\sum_{i=1}^n i", 0, 0, 400, false);
+    const h = renderMathBlock(vtable(ID2D1RT_VTable, rt), rt, "\\sum_{i=1}^n i", text_rgb, 0, 0, 400, false);
     try testing.expectApproxEqAbs(look.ascent + look.descent + 12, h, 0.001);
 }
 
