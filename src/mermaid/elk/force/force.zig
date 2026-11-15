@@ -579,4 +579,19 @@ pub fn layout(a: Allocator, node: *eg.ElkNode) lg.Error!void {
     }
     const result = try recombine(a, comps, &cfg);
     try applyLayout(a, node, result, &cfg);
+    if (!resultIsFinite(node)) {
+        lg.setElkMessage("force layout produced a position that is not a number");
+        return error.ElkException;
+    }
+}
+
+// elkjs does not return for the inputs that make the model diverge, so there is no result to match
+fn resultIsFinite(node: *const eg.ElkNode) bool {
+    if (!std.math.isFinite(node.width) or !std.math.isFinite(node.height)) return false;
+    for (node.children.items) |c| if (!std.math.isFinite(c.x) or !std.math.isFinite(c.y)) return false;
+    for (node.declared_edges.items) |e| for (e.sections.items) |sec| {
+        if (!std.math.isFinite(sec.start.x) or !std.math.isFinite(sec.start.y) or !std.math.isFinite(sec.end.x) or !std.math.isFinite(sec.end.y)) return false;
+        for (sec.bend_points.items) |p| if (!std.math.isFinite(p.x) or !std.math.isFinite(p.y)) return false;
+    };
+    return true;
 }
