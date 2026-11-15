@@ -457,3 +457,15 @@ pub fn resizeNode(node: *lg.LNode, new_size: lg.Vec, move_ports: bool, move_labe
     node.size = new_size;
     node.p.node_size_constraints = .{};
 }
+
+// LNode.getDesignation
+pub fn designation(a: std.mem.Allocator, n: *const lg.LNode) lg.Error![]const u8 {
+    if (n.labels.items.len > 0 and n.labels.items[0].text.len > 0) return n.labels.items[0].text;
+    if (n.p.origin_id.len > 0) return n.p.origin_id;
+    return std.fmt.allocPrint(a, "{d}", .{n.index()});
+}
+
+pub fn elkFail(a: std.mem.Allocator, comptime fmt: []const u8, args: anytype) lg.Error {
+    lg.setElkMessage(try std.fmt.allocPrint(a, fmt, args));
+    return error.ElkException;
+}

@@ -9,7 +9,12 @@ const compound_post = @import("compound/compound_graph_postprocessor.zig");
 const components = @import("components/components_processor.zig");
 const recursive = @import("recursive_layout.zig");
 
-const p1 = @import("p1cycles/depth_first_cycle_breaker.zig");
+const p1 = struct {
+    const depth_first = @import("p1cycles/depth_first_cycle_breaker.zig");
+    const greedy = @import("p1cycles/greedy_cycle_breaker.zig");
+    const interactive = @import("p1cycles/interactive_cycle_breaker.zig");
+    const model_order = @import("p1cycles/model_order_cycle_breaker.zig");
+};
 const p2 = struct {
     const network_simplex = @import("p2layers/network_simplex_layerer.zig");
     const longest_path = @import("p2layers/longest_path_layerer.zig");
@@ -151,7 +156,7 @@ fn phaseConfigurations(g: *const lg.LGraph, c: *Config) lg.Error!void {
     if (g.p.cycle_breaking != .depth_first or g.p.node_placement == .interactive or g.p.edge_routing != .orthogonal) {
         return error.Unsupported;
     }
-    // DepthFirstCycleBreaker
+    if (g.p.cycle_breaking == .interactive) c.before(.p1_cycle_breaking, .interactive_external_port_positioner);
     c.after(.p5_edge_routing, .reversed_edge_restorer);
     // the layerers share one baseline; InteractiveLayerer swaps the first processor
     switch (g.p.layering) {
@@ -302,7 +307,14 @@ fn endLabelPreprocessor(g: *lg.LGraph) void {
 fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
     switch (p) {
         .phase => |ph| switch (ph) {
-            .p1_cycle_breaking => try p1.process(g),
+            .p1_cycle_breaking => switch (g.p.cycle_breaking) {
+                .depth_first => try p1.depth_first.process(g),
+                .greedy => try p1.greedy.process(g, false),
+                .greedy_model_order => try p1.greedy.process(g, true),
+                .interactive => try p1.interactive.process(g),
+                .model_order => try p1.model_order.process(g),
+            },
+
             .p2_layering => switch (g.p.layering) {
                 .network_simplex => try p2.network_simplex.process(g),
                 .longest_path => try p2.longest_path.process(g),
@@ -355,8 +367,8 @@ fn runProcessor(p: Processor, g: *lg.LGraph) lg.Error!void {
             .label_dummy_remover => try im.label_dummy_remover.process(g),
             .reversed_edge_restorer => try im.reversed_edge_restorer.process(g),
             .hierarchical_node_resizer => try im.hierarchical_node_resizer.process(g),
-            .hyperedge_dummy_merger => try im.hyperedge_dummy_merger.process(g),
             .interactive_external_port_positioner => try im.interactive_external_port_positioner.process(g),
+            .hyperedge_dummy_merger => try im.hyperedge_dummy_merger.process(g),
             .end_label_preprocessor => endLabelPreprocessor(g),
             // they act on HEAD / TAIL labels only, which Mermaid's layout-elk never hands to ELK
             .end_label_sorter, .end_label_postprocessor => {},

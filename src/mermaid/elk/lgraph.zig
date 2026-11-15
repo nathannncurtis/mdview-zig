@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 pub const Error = Allocator.Error || error{ Unsupported, ElkException };
 
-threadlocal var elk_message_buf: [512]u8 = undefined;
+threadlocal var elk_message_buf: [2048]u8 = undefined;
 threadlocal var elk_message_len: usize = 0;
 
 pub fn setElkMessage(msg: []const u8) void {
@@ -325,6 +325,7 @@ pub const Props = struct {
     end_label_edge: ?*LEdge = null,
     original_dummy_node_position: ?f64 = null,
     origin: Origin = .none,
+    origin_id: []const u8 = "",
     coordinate_system_origin: ?*LGraph = null,
     hidden_nodes: std.ArrayList(*LNode) = .empty,
     original_opposite_port: ?*LPort = null,

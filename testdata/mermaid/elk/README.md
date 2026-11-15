@@ -46,3 +46,7 @@ Layering strategy fixtures. `lay-<variant>--<base>.json` takes the `input` of an
 `--big-NN` are ten seeded random graphs of 30 to 42 nodes (varied node heights, a few edge labels, some back edges on every third graph, directions DOWN, RIGHT, UP, LEFT in turn), with variants `coffman4`, `minwidth`, `stretch`, `minwidthmulti` (MIN_WIDTH with `minWidth.upperBoundOnWidth` and `upperLayerEstimationScalingFactor` both -1) and `interactive-pos` (INTERACTIVE with random node x/y in the input).
 
 Each file is produced by running `elk.layout` of elkjs 0.9.3 on the modified `input` in Node.
+
+## opt-*.json
+
+`opt-<setting>--<base>.json` are the same capture with one `elk:` option set in the front matter (mergeEdges, cycleBreakingStrategy, forceNodeModelOrder, considerModelOrder, keepEntryNodeOnTop, orientFeedbackEdges, preset legacy, and two combinations). `<base>` is one of 13 graphs of the first set or `big-cyc-a` to `big-cyc-d`, seeded graphs of 24 to 48 nodes with back edges, multi edges, fans around a hub and subgraphs. Their `output` edges also carry `junctionPoints`, which `test.zig` compares for these files only. Made with the same patched mermaid@12.2.0 and Playwright script as above, one `---\nconfig:\n  layout: elk\n  elk:\n    <option>: <value>\n---` header per file.

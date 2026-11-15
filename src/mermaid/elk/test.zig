@@ -7,7 +7,9 @@ const Value = std.json.Value;
 test {
     std.testing.refAllDecls(@import("mermaid.zig"));
     std.testing.refAllDecls(@import("fuzz.zig"));
+    _ = @import("line_hops.zig");
     _ = @import("e2e_test.zig");
+    _ = @import("errors_test.zig");
     _ = @import("p1cycles/test.zig");
     _ = @import("p2layers/test.zig");
     _ = @import("p3order/test.zig");
@@ -119,6 +121,10 @@ const Cmp = struct {
             self.point(e.id, gs.end.x, gs.end.y, num(field(ep, "x").?), num(field(ep, "y").?));
             for (gs.bend_points.items, wb) |gp, wp| self.point(e.id, gp.x, gp.y, num(field(wp, "x").?), num(field(wp, "y").?));
         }
+        const wj = if (field(want, "junctionPoints")) |j| j.array.items else &[_]Value{};
+        if (!std.mem.startsWith(u8, self.name, "opt-")) {} else if (wj.len != e.junction_points.items.len) {
+            self.report("edge {s}: {d} junction points, want {d}", .{ e.id, e.junction_points.items.len, wj.len });
+        } else for (e.junction_points.items, wj) |gp, wp| self.point(e.id, gp.x, gp.y, num(field(wp, "x").?), num(field(wp, "y").?));
         if (field(want, "labels")) |wls| for (wls.array.items, 0..) |wl, i| {
             if (i >= e.labels.items.len) break;
             const gl = e.labels.items[i];
